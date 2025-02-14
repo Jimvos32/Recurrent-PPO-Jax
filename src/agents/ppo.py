@@ -26,7 +26,7 @@ class PPOAgent(BaseAgent):
                         target_kl=None,sequence_length=None) -> None:
 
         super(PPOAgent,self).__init__(train_envs=train_envs,eval_env=eval_env,rollout_len=num_steps,repr_model_fn=repr_model_fn,seq_model_fn=seq_model_fn,
-                        actor_fn=actor_fn,critic_fn=critic_fn,use_gumbel_sampling=False,sequence_length=sequence_length, continious_samlping=True)
+                        actor_fn=actor_fn,critic_fn=critic_fn,use_gumbel_sampling=True,sequence_length=sequence_length, continious_sampling=False)
         
         self.optimizer=optimizer
         self.num_envs = self.env.num_envs
@@ -67,15 +67,18 @@ class PPOAgent(BaseAgent):
             #Calculate the advantages using timesteps {tick} - {tick+rollout_len}
             advantages=Glambdas-critic_preds[:,:-1]
             #Calculate log probs shape (num_envs*rollout_len,num_actions)
-            def gaussian_log_prob(act_logits, actions):
+            def gaussian_log_prob(actions, act_logits):
+                
+                
                 action_dim = act_logits.shape[-1] // 2
-                means = act_logits[..., :action_dim]
-                log_stds = act_logits[..., action_dim:]
+                means = act_logits[..., :action_dim].squeeze(-1)
+                log_stds = act_logits[..., action_dim:].squeeze(-1)
+                
                 
                 # Clip log_stds for numerical stability
                 log_stds = jnp.clip(log_stds, -20.0, 2.0)
                 
-                print("means ", means.shape,log_stds.shape,"actions", actions.shape)
+                print("pol_out", act_logits.shape, "means ", means.shape, "std ", log_stds.shape,"actions ", actions.shape)
                 
                 variance = jnp.exp(2 * log_stds)
                 log_prob = -0.5 * (
@@ -85,12 +88,14 @@ class PPOAgent(BaseAgent):
                 )
                 
                 return log_prob
-            logprobs = gaussian_log_prob(actions, actor_preds)
-            print(logprobs.shape)
+            # logprobs = gaussian_log_prob(actions, actor_preds)
+            # print("probably", logprobs.shape)
             B,T=actions.shape
+            
+            # print("actions", actions.shape,actor_preds.shape)
             logprobs=jax.nn.log_softmax(actor_preds).reshape(B*T,-1)
             logprobs=logprobs[jnp.arange(B*T),actions.reshape(-1)].reshape(B,T)
-            #Calculate log probs of actions takenß
+            # #Calculate log probs of actions takenß
             
             
             def ppo_loss(params, random_key, mb_observations, mb_actions,mb_terminations,

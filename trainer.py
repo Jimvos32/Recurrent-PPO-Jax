@@ -37,7 +37,7 @@ task_to_trainer={
     'sampling':ControlTrainer,
 }
 
-@hydra.main(version_base=None, config_path="config", config_name="default_config")
+@hydra.main(version_base=None, config_path="config", config_name="sample_test")
 def main(config: DictConfig):
     logger.info("Starting Job for Config:\n"+str(OmegaConf.to_yaml(config)))
     tags=config.tags.split(',') if config.tags is not None else []

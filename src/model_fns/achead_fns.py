@@ -9,6 +9,7 @@ from flax.linen.initializers import constant, orthogonal
 
 def actor_model_discete(dense_dim,action_space):
     def thurn():
+        print("dense_dim", dense_dim, "action_space", action_space)
         return nn.Sequential([nn.Dense(dense_dim,kernel_init=orthogonal(jnp.sqrt(2)),
                                     bias_init=constant(0.0)),nn.tanh,nn.Dense(action_space,kernel_init=orthogonal(jnp.sqrt(2)),
                                     bias_init=constant(0.0))])
@@ -29,6 +30,8 @@ def actor_model_continuous(dense_dim, action_dim):
         @nn.compact
         def __call__(self, x):
             # Shared features
+            print("dense_dim", dense_dim, "action_space", action_space)
+            
             x = nn.Dense(dense_dim,
                         kernel_init=orthogonal(jnp.sqrt(2)),
                         bias_init=constant(0.0))(x)
@@ -45,6 +48,8 @@ def actor_model_continuous(dense_dim, action_dim):
                              kernel_init=orthogonal(0.01),
                              bias_init=constant(0.0))(x)
             log_std = jnp.clip(log_std, -20.0, 2.0)
+            
+            print("mean", mean.shape, "log_std", log_std.shape)
             
             # Stack mean and log_std to maintain shape compatibility
             output = jnp.squeeze(jnp.concatenate([mean, log_std], axis=-1), axis=0)

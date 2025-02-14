@@ -23,7 +23,7 @@ def numpy_to_jax(*args,dtype=jnp.float32):
 
 class BaseAgent:
     def __init__(self,train_envs,eval_env,rollout_len,repr_model_fn:Callable,seq_model_fn:Callable,
-                        actor_fn:Callable,critic_fn:Callable,use_gumbel_sampling=True,sequence_length=None, continious_sampling=False) -> None:
+                        actor_fn:Callable,critic_fn:Callable,use_gumbel_sampling=False,sequence_length=None, continious_sampling=True) -> None:
         self.env=train_envs
         self.eval_env=eval_env
         self.rollout_len=rollout_len
@@ -52,7 +52,7 @@ class BaseAgent:
             Returns:
                 _type_: _description_
             """
-            
+            print("actor input 2 ", inputs.shape)
             act_logits,values,memory=self.ac_model.apply(params,inputs,terminations,last_memory,rngs={'random':random_key})
             return act_logits,values,memory
         
@@ -139,7 +139,6 @@ class BaseAgent:
                                                          h_tickminus1)
             
             
-            
             # if self.use_gumbel_sampling and not self.continious_samlping:
             if self.use_gumbel_sampling and not self.continious_samlping:
                 # sample action: Gumbel-softmax trick
@@ -149,9 +148,11 @@ class BaseAgent:
             elif self.continious_samlping and not self.use_gumbel_sampling:
                 action_dim = act_logits.shape[-1] // 2
                 
+                
+                
                 means = act_logits[..., :action_dim]
                 log_stds = act_logits[..., action_dim:]
-                
+                # print("policy_out", act_logits.shape, "mean", means.shape, "std", log_stds.shape)
                 
                 # Clip log_stds for numerical stability
                 log_stds = jnp.clip(log_stds, -20.0, 2.0)
@@ -159,16 +160,17 @@ class BaseAgent:
                 
                 # Sample from standard normal and scale
                 noise = jax.random.normal(random_key, means.shape)
-                actions = means + noise * stds
+                acts_tick = means + noise * stds
                 # jax.debug.print("dit kan echt niet meer {} {} {} ", means.shape, log_stds.shape, actions.shape)
-                print("hela", means.shape, log_stds.shape, actions.shape)
-                acts_tick = actions
+                acts_tick = jnp.squeeze(acts_tick, axis=-1)
+                # acts_tick = actions
+                # act_logits = jnp.expand_dims(act_logits, axis=1)
             else:
                 acts_tick=jax.random.categorical(random_key,act_logits).squeeze(axis=-1)
             #Take a step in the environment
             
             # print(act_logits.shape, acts_tick.shape)
-            print("the most ad wo", acts_tick.shape, act_logits.shape)
+            # print("sampled action", acts_tick.shape, "policy_out", act_logits.shape)
             # jax.debug.print("acts_tick {} acts {}",acts_tick, act_logits)
            
             o_tickplus1,r_tickplus1,term_tickplus1,trunc_tickplus1,info=self.env.step(*jax_to_numpy(acts_tick))
@@ -178,6 +180,7 @@ class BaseAgent:
             #Add action at timestep tick 
             critic_preds.append(v_tick.copy())
             actor_preds.append(act_logits.copy())
+            # print("aa", len(actor_preds))
             actions.append(acts_tick.copy())
             infos.append(info)
             o_tick=o_tickplus1

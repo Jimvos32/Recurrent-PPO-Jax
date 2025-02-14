@@ -64,8 +64,8 @@ class SampleEnv(gym.Env):
         done = False
         
         # Return the new observation (y value), reward, done flag, and additional info
-        self.state = jnp.squeeze(jnp.array([y], dtype=jnp.float32), axis=-1)
-        print("shaping the future", self.state.shape)
+        self.state = jnp.array([y], dtype=jnp.float32)
+        # print("shaping the future", self.state.shape)
         return self.state, reward, done, False, {}
 
     def compute_y(self, x):
