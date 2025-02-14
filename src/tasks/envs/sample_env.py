@@ -66,7 +66,19 @@ class SampleEnv(gym.Env):
         # Return the new observation (y value), reward, done flag, and additional info
         self.state = jnp.array([y], dtype=jnp.float32)
         # print("shaping the future", self.state.shape)
-        return self.state, reward, done, False, {}
+        
+        
+        metrics = {'final_info': {
+                        'episode_length': 100,    # Numerical statistics
+                        'total_reward': 150.5,
+                        'success_rate': 0.85
+                    },
+                    'rewards': [1.0, 0.5, 2.0, -1.0],  # Array of rewards for the episode
+                    'steps': 100,                # Additional numerical metrics
+                    'progress': 0.75
+                }
+        
+        return self.state, reward, done, False, metrics
 
     def compute_y(self, x):
         """

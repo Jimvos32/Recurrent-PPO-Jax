@@ -190,14 +190,18 @@ class ControlTrainer(BaseTrainer):
         start_time=time.time()
 
         (loss,(value_loss,entropy_loss,actor_loss,rewards),infos)=self.agent.step(self.random_key)
+        print("rewrfa", infos    )
         #Extract info data across all actors and steps
         #Get the leaves of the infos tree where the final_info key is present
+        
+        
         
         leaves=[info for info in infos if '_final_info' in info]
         # Increase the step counter
         self.step_count+=(self.B)
         #Iterate over the leaves and extract the final_info data
         for leaf in leaves:
+             
              for env_info in leaf['final_info'][leaf['_final_info']]:  
                  if 'final_info' in env_info:
                      for key,value in env_info['final_info'].items(): #AutoResetWrapper adds everything in info to final_info after reset along with info from first timestep
@@ -214,6 +218,7 @@ class ControlTrainer(BaseTrainer):
                  ep_rewards=jnp.array(env_info['rewards'],dtype=jnp.float32)
                  _,average_return_per_episode=average_reward_and_return_in_episode(ep_rewards,self.gamma)
                  self.average_return_per_episode.append(average_return_per_episode)
+                 
 
 
         # Log the data

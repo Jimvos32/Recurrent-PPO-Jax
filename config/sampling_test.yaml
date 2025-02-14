@@ -1,8 +1,8 @@
 tags: null
 project_name: "default_project"
 seed: 1
-steps: 1000
-log_interval: 100
+steps: 20480
+log_interval: 1000
 eval_episodes: 2
 eval_interval: 500000
 use_wandb: false

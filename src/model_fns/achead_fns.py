@@ -30,7 +30,7 @@ def actor_model_continuous(dense_dim, action_dim):
         @nn.compact
         def __call__(self, x):
             # Shared features
-            print("dense_dim", dense_dim, "action_space", action_space)
+            print("dense_dim", dense_dim, "action_space", action_dim, "input", x.shape)
             
             x = nn.Dense(dense_dim,
                         kernel_init=orthogonal(jnp.sqrt(2)),
@@ -50,9 +50,11 @@ def actor_model_continuous(dense_dim, action_dim):
             log_std = jnp.clip(log_std, -20.0, 2.0)
             
             print("mean", mean.shape, "log_std", log_std.shape)
+            middle = jnp.concatenate([mean, log_std], axis=-1)
+            print("middle", middle.shape)
             
             # Stack mean and log_std to maintain shape compatibility
-            output = jnp.squeeze(jnp.concatenate([mean, log_std], axis=-1), axis=0)
+            output = jnp.concatenate([mean, log_std], axis=-1)
             
             # jax.debug.print('output {}',output)
             print("ouitput", output.shape)

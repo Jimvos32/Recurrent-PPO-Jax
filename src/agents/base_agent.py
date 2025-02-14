@@ -150,8 +150,8 @@ class BaseAgent:
                 
                 
                 
-                means = act_logits[..., :action_dim]
-                log_stds = act_logits[..., action_dim:]
+                means = act_logits[..., :action_dim].squeeze(-1)
+                log_stds = act_logits[..., action_dim:].squeeze(-1)
                 # print("policy_out", act_logits.shape, "mean", means.shape, "std", log_stds.shape)
                 
                 # Clip log_stds for numerical stability
@@ -161,8 +161,8 @@ class BaseAgent:
                 # Sample from standard normal and scale
                 noise = jax.random.normal(random_key, means.shape)
                 acts_tick = means + noise * stds
-                # jax.debug.print("dit kan echt niet meer {} {} {} ", means.shape, log_stds.shape, actions.shape)
-                acts_tick = jnp.squeeze(acts_tick, axis=-1)
+                # jax.debug.print("dit kan echt niet meer {} {} {} ", means.shape, log_stds.shape, acts_tick.shape)
+                acts_tick = jnp.squeeze(acts_tick)
                 # acts_tick = actions
                 # act_logits = jnp.expand_dims(act_logits, axis=1)
             else:

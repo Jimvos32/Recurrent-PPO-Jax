@@ -26,7 +26,7 @@ class PPOAgent(BaseAgent):
                         target_kl=None,sequence_length=None) -> None:
 
         super(PPOAgent,self).__init__(train_envs=train_envs,eval_env=eval_env,rollout_len=num_steps,repr_model_fn=repr_model_fn,seq_model_fn=seq_model_fn,
-                        actor_fn=actor_fn,critic_fn=critic_fn,use_gumbel_sampling=True,sequence_length=sequence_length, continious_sampling=False)
+                        actor_fn=actor_fn,critic_fn=critic_fn,use_gumbel_sampling=False,sequence_length=sequence_length, continious_sampling=True)
         
         self.optimizer=optimizer
         self.num_envs = self.env.num_envs
@@ -71,8 +71,8 @@ class PPOAgent(BaseAgent):
                 
                 
                 action_dim = act_logits.shape[-1] // 2
-                means = act_logits[..., :action_dim].squeeze(-1)
-                log_stds = act_logits[..., action_dim:].squeeze(-1)
+                means = act_logits[..., :action_dim].squeeze()
+                log_stds = act_logits[..., action_dim:].squeeze()
                 
                 
                 # Clip log_stds for numerical stability
@@ -88,13 +88,15 @@ class PPOAgent(BaseAgent):
                 )
                 
                 return log_prob
-            # logprobs = gaussian_log_prob(actions, actor_preds)
-            # print("probably", logprobs.shape)
-            B,T=actions.shape
+            logprobs = gaussian_log_prob(actions, actor_preds)
             
-            # print("actions", actions.shape,actor_preds.shape)
-            logprobs=jax.nn.log_softmax(actor_preds).reshape(B*T,-1)
-            logprobs=logprobs[jnp.arange(B*T),actions.reshape(-1)].reshape(B,T)
+            print("whats he logging", logprobs.shape)
+            # print("probably", logprobs.shape)
+            # B,T=actions.shape
+            
+            # # print("actions", actions.shape,actor_preds.shape)
+            # logprobs=jax.nn.log_softmax(actor_preds).reshape(B*T,-1)
+            # logprobs=logprobs[jnp.arange(B*T),actions.reshape(-1)].reshape(B,T)
             # #Calculate log probs of actions takenß
             
             
@@ -103,10 +105,13 @@ class PPOAgent(BaseAgent):
                 logits_new,values_new,_=self.actor_critic_fn(random_key,params,mb_observations,mb_terminations,
                                                              mb_h_tickminus1)
                 #newlogprob, entropy, newvalue = get_action_and_value2(random_key,params, x, a)
-                B,T=mb_actions.shape
-                newlogprobs=jax.nn.log_softmax(logits_new).reshape(B*T,-1)
-                newlogprobs=newlogprobs[jnp.arange(B*T),mb_actions.reshape(-1)].reshape(B,T)
+                # B,T=mb_actions.shape
+                # newlogprobs=jax.nn.log_softmax(logits_new).reshape(B*T,-1)
+                # newlogprobs=newlogprobs[jnp.arange(B*T),mb_actions.reshape(-1)].reshape(B,T)
+                newlogprobs = gaussian_log_prob(mb_actions, logits_new)
                 # normalize the logits https://gregorygundersen.com/blog/2020/02/09/log-sum-exp/
+                
+                
                 logits_new = logits_new - jax.scipy.special.logsumexp(logits_new, axis=-1, keepdims=True)
                 logits_new = logits_new.clip(min=jnp.finfo(logits_new.dtype).min)
                 p_log_p = logits_new * jax.nn.softmax(logits_new)
