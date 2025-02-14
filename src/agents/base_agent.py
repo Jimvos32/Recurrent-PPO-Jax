@@ -23,7 +23,7 @@ def numpy_to_jax(*args,dtype=jnp.float32):
 
 class BaseAgent:
     def __init__(self,train_envs,eval_env,rollout_len,repr_model_fn:Callable,seq_model_fn:Callable,
-                        actor_fn:Callable,critic_fn:Callable,use_gumbel_sampling=False,sequence_length=None, continious_samlping=False) -> None:
+                        actor_fn:Callable,critic_fn:Callable,use_gumbel_sampling=True,sequence_length=None, continious_sampling=False) -> None:
         self.env=train_envs
         self.eval_env=eval_env
         self.rollout_len=rollout_len
@@ -34,7 +34,7 @@ class BaseAgent:
             self.sequence_length=sequence_length
         self.seq_fn,self.seq_init=seq_model_fn
         self.use_gumbel_sampling=use_gumbel_sampling
-        self.continious_samlping = continious_samlping
+        self.continious_samlping = continious_sampling
         self.ac_model=nn.vmap(ActorCriticModel,
                               variable_axes={'params': None},
                                 split_rngs={'params': False})(repr_model_fn,self.seq_fn,actor_fn,critic_fn)
