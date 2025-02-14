@@ -1,5 +1,6 @@
 import flax.linen as nn
 import jax.numpy as jnp
+import jax
 
 from typing import Callable
 from src.utils import tree_index
@@ -17,6 +18,7 @@ class ActorCriticModel(nn.Module):
         self.seq_model=self.seq_model_fn()
         self.actor=self.actor_fn()
         self.critic=self.critic_fn()
+        print("are we setup")
     
     def __call__(self,inputs,terminations,last_memory):  
         """_summary_

@@ -5,6 +5,7 @@ import time
 from gymnasium.wrappers import TransformObservation
 from gymnasium import spaces
 from minigrid.wrappers import RGBImgPartialObsWrapper,ImgObsWrapper,ObservationWrapper,OneHotPartialObsWrapper
+from src.tasks.envs.sample_env import SampleEnv
 
 class ViewSizeWrapper(ObservationWrapper):
     """
@@ -73,10 +74,19 @@ def create_minigrid_env_onehot(**kwargs):
         env = ViewSizeWrapper(env, view_size)
     env = OneHotPartialObsWrapper(env)
     env = ImgObsWrapper(env)
-    env = TransformObservation(env, lambda obs: obs.astype(np.float32) )
+    env = TransformObservation(env, lambda obs: obs.astype(np.float32))
     env.observation_space=spaces.Box(
             low = 0,
             high = 1.0,
             shape =  env.observation_space.shape,
             dtype = np.float32)
+    
+    return env
+
+def create_sampling_env(**kwargs):
+    env = SampleEnv(env_config=kwargs)
+
+    # Apply wrappers
+    env = TransformObservation(env, lambda obs: obs.astype(np.float32))
+    
     return env

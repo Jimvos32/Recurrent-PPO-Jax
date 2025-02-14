@@ -1,0 +1,4 @@
+task: sampling
+name: recurrent_sampling
+view_size: 2
+max_steps: null

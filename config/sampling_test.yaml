@@ -2,11 +2,11 @@ tags: null
 project_name: "default_project"
 seed: 1
 steps: 1000
-log_interval: 10000
-eval_episodes: 1
+log_interval: 100
+eval_episodes: 2
 eval_interval: 500000
 use_wandb: false
 defaults:
   - _self_
-  - task: minigrid_onehot
+  - task: sampling
   - trainer: ppo

@@ -3,6 +3,9 @@ from re import U
 import sys
 sys.path.append('./')
 sys.path.append('../')
+
+
+
 import numpy as np
 import random
 import json
@@ -31,9 +34,10 @@ logger.setLevel(logging.INFO)
 task_to_trainer={
     'minigrid_pixel':ControlTrainer,
     'minigrid_onehot':ControlTrainer,
+    'sampling':ControlTrainer,
 }
 
-@hydra.main(version_base=None, config_path="config", config_name="default_config")
+@hydra.main(version_base=None, config_path="config", config_name="sampling_test")
 def main(config: DictConfig):
     logger.info("Starting Job for Config:\n"+str(OmegaConf.to_yaml(config)))
     tags=config.tags.split(',') if config.tags is not None else []
@@ -50,6 +54,7 @@ def main(config: DictConfig):
     #Train the model
     kwargs={'global_args':config,'trainer_config':trainer_config,'env_config':env_config,
             'seed':config.seed,'key':key,'wandb_run':run}
+    
     trainer=task_to_trainer[env_config['task']](**kwargs)
     pbar = tqdm(total=config.steps)
     step_count=0
@@ -74,7 +79,7 @@ def main(config: DictConfig):
 
 
 if __name__=='__main__':
-    mp.set_start_method('forkserver')
+    mp.set_start_method('spawn')
     main()
 
     

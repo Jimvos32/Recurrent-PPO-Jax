@@ -26,7 +26,7 @@ class LSTM(nn.Module):
                 if reset_on_terminate:
                     #Reset hidden state on termination
                     carry=jax.lax.cond(terminate,lambda:jax.tree_map(lambda x:jnp.zeros_like(x),carry),lambda:carry)
-                (new_c, new_h), new_h=nn.OptimizedLSTMCell(kernel_init=orthogonal(jnp.sqrt(2)),
+                (new_c, new_h), new_h=nn.OptimizedLSTMCell(features=5, kernel_init=orthogonal(jnp.sqrt(2)),
                             recurrent_kernel_init=orthogonal(jnp.sqrt(2)),bias_init=constant(0.0))(carry,inputs)
                 return (new_c, new_h), ((new_c, new_h),new_h)
         model=nn.scan(LSTMout,variable_broadcast="params",

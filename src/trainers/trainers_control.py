@@ -10,7 +10,8 @@ import logging
 from argparse import Namespace
 from src.trainers.base_trainer import BaseTrainer
 from collections import OrderedDict
-from src.tasks.envs.minigrid_env import create_minigrid_env_onehot,create_minigrid_env_pixel
+from src.tasks.envs.minigrid_env import create_minigrid_env_onehot,create_minigrid_env_pixel, create_sampling_env
+from src.tasks.envs.sample_env import SampleEnv
 from src.agents.a2c import A2CAgent
 from src.agents.ppo import PPOAgent
 from src.model_fns import *
@@ -31,6 +32,10 @@ def get_env_initializers(env_config):
         return env_fn,env_fn,repr_fn
     elif env_config['task']=='minigrid_onehot':
         env_fn=lambda: create_minigrid_env_onehot(**env_config)
+        repr_fn=flatten_repr_model()
+        return env_fn,env_fn,repr_fn
+    elif env_config['task']=='sampling':
+        env_fn=lambda: create_sampling_env(**env_config)
         repr_fn=flatten_repr_model()
         return env_fn,env_fn,repr_fn
 
@@ -98,8 +103,12 @@ class ControlTrainer(BaseTrainer):
             model_fn=seq_model_gru(**self.trainer_config['seq_model'])
         elif self.trainer_config.seq_model.name=='gtrxl':
             model_fn=seq_model_gtrxl(**self.trainer_config['seq_model'])
+            
+        if isinstance(eval_env.action_space, gym.spaces.Discrete):
+            actor_fn = actor_model_discete(self.trainer_config['d_actor'],eval_env.action_space.n)
+        elif isinstance(eval_env.action_space, gym.spaces.Box):
+            actor_fn = actor_model_continuous(self.trainer_config['d_actor'], eval_env.action_space.shape[0])
 
-        actor_fn=actor_model_discete(self.trainer_config['d_actor'],eval_env.action_space.n)
         critic_fn=critic_model(self.trainer_config['d_critic'])
         #Setup optimizer
         

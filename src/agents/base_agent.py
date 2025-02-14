@@ -23,7 +23,7 @@ def numpy_to_jax(*args,dtype=jnp.float32):
 
 class BaseAgent:
     def __init__(self,train_envs,eval_env,rollout_len,repr_model_fn:Callable,seq_model_fn:Callable,
-                        actor_fn:Callable,critic_fn:Callable,use_gumbel_sampling=False,sequence_length=None) -> None:
+                        actor_fn:Callable,critic_fn:Callable,use_gumbel_sampling=False,sequence_length=None, continious_samlping=False) -> None:
         self.env=train_envs
         self.eval_env=eval_env
         self.rollout_len=rollout_len
@@ -34,6 +34,7 @@ class BaseAgent:
             self.sequence_length=sequence_length
         self.seq_fn,self.seq_init=seq_model_fn
         self.use_gumbel_sampling=use_gumbel_sampling
+        self.continious_samlping = continious_samlping
         self.ac_model=nn.vmap(ActorCriticModel,
                               variable_axes={'params': None},
                                 split_rngs={'params': False})(repr_model_fn,self.seq_fn,actor_fn,critic_fn)
@@ -51,6 +52,7 @@ class BaseAgent:
             Returns:
                 _type_: _description_
             """
+            
             act_logits,values,memory=self.ac_model.apply(params,inputs,terminations,last_memory,rngs={'random':random_key})
             return act_logits,values,memory
         
@@ -135,14 +137,40 @@ class BaseAgent:
 
             act_logits,v_tick,htick=self.actor_critic_fn(model_key,self.params,jnp.expand_dims(o_tick,1),jnp.expand_dims(term_tick,1),
                                                          h_tickminus1)
-            if self.use_gumbel_sampling:
+            
+            
+            
+            # if self.use_gumbel_sampling and not self.continious_samlping:
+            if self.use_gumbel_sampling and not self.continious_samlping:
                 # sample action: Gumbel-softmax trick
                 # see https://stats.stackexchange.com/questions/359442/sampling-from-a-categorical-distribution
                 u = jax.random.uniform(random_key, shape=act_logits.shape)
                 acts_tick=jnp.argmax(act_logits - jnp.log(-jnp.log(u)), axis=-1).squeeze(axis=-1)
+            elif self.continious_samlping and not self.use_gumbel_sampling:
+                action_dim = act_logits.shape[-1] // 2
+                
+                means = act_logits[..., :action_dim]
+                log_stds = act_logits[..., action_dim:]
+                
+                
+                # Clip log_stds for numerical stability
+                log_stds = jnp.clip(log_stds, -20.0, 2.0)
+                stds = jnp.exp(log_stds)
+                
+                # Sample from standard normal and scale
+                noise = jax.random.normal(random_key, means.shape)
+                actions = means + noise * stds
+                # jax.debug.print("dit kan echt niet meer {} {} {} ", means.shape, log_stds.shape, actions.shape)
+                print("hela", means.shape, log_stds.shape, actions.shape)
+                acts_tick = actions
             else:
                 acts_tick=jax.random.categorical(random_key,act_logits).squeeze(axis=-1)
             #Take a step in the environment
+            
+            # print(act_logits.shape, acts_tick.shape)
+            print("the most ad wo", acts_tick.shape, act_logits.shape)
+            # jax.debug.print("acts_tick {} acts {}",acts_tick, act_logits)
+           
             o_tickplus1,r_tickplus1,term_tickplus1,trunc_tickplus1,info=self.env.step(*jax_to_numpy(acts_tick))
             o_tickplus1,r_tickplus1=numpy_to_jax(o_tickplus1,r_tickplus1)
             term_tickplus1,trunc_tickplus1=numpy_to_jax(term_tickplus1,trunc_tickplus1,dtype=bool)
