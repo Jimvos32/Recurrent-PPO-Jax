@@ -18,7 +18,6 @@ class ActorCriticModel(nn.Module):
         self.seq_model=self.seq_model_fn()
         self.actor=self.actor_fn()
         self.critic=self.critic_fn()
-        print("are we setup")
     
     def __call__(self,inputs,terminations,last_memory):  
         """_summary_
@@ -37,7 +36,7 @@ class ActorCriticModel(nn.Module):
         seq_rep,memory=self.seq_model(rep,terminations,last_memory)
         
         actor_out=self.actor(seq_rep)
-        print("totalinp", inputs.shape, "actor_in", seq_rep.shape, "actor_out", actor_out.shape)
+        # print("totalinp", inputs.shape, "actor_in", seq_rep.shape, "actor_out", actor_out.shape)
         critic_out=self.critic(seq_rep)
         return actor_out,critic_out,memory
 

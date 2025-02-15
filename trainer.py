@@ -35,6 +35,7 @@ task_to_trainer={
     'minigrid_pixel':ControlTrainer,
     'minigrid_onehot':ControlTrainer,
     'sampling':ControlTrainer,
+    'multi':ControlTrainer,
 }
 
 @hydra.main(version_base=None, config_path="config", config_name="sampling_test")

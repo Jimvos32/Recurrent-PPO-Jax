@@ -1,0 +1,4 @@
+task: multi
+name: multi_dim_recurrent_sampling
+view_size: 2
+max_steps: 10

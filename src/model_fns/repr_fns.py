@@ -39,3 +39,29 @@ def atari_conv_repr_model():
                                 ),nn.relu,
                             ])
     return thurn
+
+
+def mlp_repr_model(hidden_sizes=(256, 128)):
+    """
+    Creates an MLP-based representation model that extracts features
+    from the input to be used by an LSTM.
+    
+    Args:
+        hidden_sizes (tuple): Defines the sizes of the hidden layers.
+    
+    Returns:
+        Function that initializes the MLP model.
+    """
+    def thurn():
+        return nn.Sequential([
+            nn.Dense(hidden_sizes[0], 
+                     kernel_init=orthogonal(jnp.sqrt(2)), 
+                     bias_init=constant(0.0)), 
+            nn.relu,
+            nn.Dense(hidden_sizes[1], 
+                     kernel_init=orthogonal(jnp.sqrt(2)), 
+                     bias_init=constant(0.0)), 
+            nn.relu
+        ])
+    
+    return thurn

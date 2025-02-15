@@ -3,14 +3,14 @@ from gymnasium import spaces
 import numpy as np
 import jax.numpy as jnp
 
-class SampleEnv(gym.Env):
+class MultiDimEnv(gym.Env):
     """
     A Gymnasium environment where the agent interacts with a shifting quadratic function:
         f(x) = a * x^2 + b * x + c
     The peak (maximum) of the function varies across episodes.
     """
     def __init__(self, env_config=None, x_range=(-10, 10), max_episode_steps=12):
-        super(SampleEnv, self).__init__()
+        super(MultiDimEnv, self).__init__()
         
         # Define range for x values.
         self.x_range = x_range
@@ -39,9 +39,10 @@ class SampleEnv(gym.Env):
         
         # Initialize polynomial parameters.
         self.a = -1.0
-        self.b = 2.0
+        self.b = 0.0
         self.c = 10.0
         self.x_max = -self.b / (2 * self.a)  # Compute the peak position
+        
 
     def shift_polynomial(self):
         """
@@ -62,18 +63,21 @@ class SampleEnv(gym.Env):
         super().reset(seed=seed)
         
         # Shift the polynomial parameters for a new episode.
-        # self.shift_polynomial()
+        self.shift_polynomial()
         
         # Start with a random x value within the allowed range.
         self.x = np.random.uniform(self.x_range[0], self.x_range[1])
         y = self.compute_y(self.x)
         self.state = jnp.array([y], dtype=jnp.float32)
+        y_max = self.compute_y(self.x_max)
+        reward = -abs(y_max - y)
+        comb = jnp.concatenate([self.state, jnp.array([self.x], dtype=jnp.float32), jnp.array([reward], dtype=jnp.float32)], axis=0)
         
         self.tick = 0
         self.raw_rewards = []
         self.resetted += 1
         
-        return self.state, {}
+        return comb, {}
 
     def step(self, action):
         """
@@ -96,6 +100,7 @@ class SampleEnv(gym.Env):
         # Compute reward based on distance from the actual peak at x_max
         y_max = self.compute_y(self.x_max)
         reward = -abs(y_max - y)
+        # print(f"reward: {reward}, y_max: {y_max}, y: {y}, x: {self.x}, x_max: {self.x_max}")
         self.raw_rewards.append(reward)
         
         done = False  # The task never ends naturally.
@@ -111,7 +116,12 @@ class SampleEnv(gym.Env):
             self.tick = 0
             self.raw_rewards = []
         
-        return self.state, reward, done, truncated, info
+        # print("obs", self.state.shape, "rew", reward.shape, "act", action.shape)
+        comb = jnp.concatenate([self.state, jnp.array([action], dtype=jnp.float32), jnp.array([reward], dtype=jnp.float32)], axis=0)
+        # print(comb.shape)
+        # print("c", comb, "\n", "state", self.state, "reward", reward, "action", action, "\n")
+        
+        return comb, reward, done, truncated, info
 
     def compute_y(self, x):
         """

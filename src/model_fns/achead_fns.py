@@ -36,7 +36,7 @@ def actor_model_continuous(dense_dim, action_dim):
                         kernel_init=orthogonal(jnp.sqrt(2)),
                         bias_init=constant(0.0))(x)
             x = nn.tanh(x)
-            
+            print("we got past", x.shape)
             # For compatibility, we'll output [mean, log_std] stacked along the last axis
             # This makes the output shape (batch_size, action_dim * 2) which is similar
             # to the discrete case's (batch_size, num_actions)
@@ -49,15 +49,11 @@ def actor_model_continuous(dense_dim, action_dim):
                              bias_init=constant(0.0))(x)
             log_std = jnp.clip(log_std, -20.0, 2.0)
             
-            print("mean", mean.shape, "log_std", log_std.shape)
-            middle = jnp.concatenate([mean, log_std], axis=-1)
-            print("middle", middle.shape)
-            
+            print("meaner than mt ", mean.shape, "log_std", log_std.shape)
             # Stack mean and log_std to maintain shape compatibility
             output = jnp.concatenate([mean, log_std], axis=-1)
             
-            # jax.debug.print('output {}',output)
-            print("ouitput", output.shape)
+           
             
             return output
     
