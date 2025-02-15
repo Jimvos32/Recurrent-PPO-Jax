@@ -77,7 +77,8 @@ class MultiDimEnv(gym.Env):
         self.raw_rewards = []
         self.resetted += 1
         
-        return comb, {}
+        # return comb, {}
+        return self.state, {}
 
     def step(self, action):
         """
@@ -121,7 +122,9 @@ class MultiDimEnv(gym.Env):
         # print(comb.shape)
         # print("c", comb, "\n", "state", self.state, "reward", reward, "action", action, "\n")
         
-        return comb, reward, done, truncated, info
+        # return comb, reward, done, truncated, info
+        return self.state, reward, done, truncated, info
+
 
     def compute_y(self, x):
         """

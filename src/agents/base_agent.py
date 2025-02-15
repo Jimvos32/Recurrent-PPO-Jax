@@ -34,7 +34,7 @@ class BaseAgent:
             self.sequence_length=sequence_length
         self.seq_fn,self.seq_init=seq_model_fn
         self.use_gumbel_sampling=use_gumbel_sampling
-        self.continious_samlping = continious_sampling
+        self.continious_sampling = continious_sampling
         self.ac_model=nn.vmap(ActorCriticModel,
                               variable_axes={'params': None},
                                 split_rngs={'params': False})(repr_model_fn,self.seq_fn,actor_fn,critic_fn)
@@ -140,12 +140,12 @@ class BaseAgent:
             
             
             # if self.use_gumbel_sampling and not self.continious_samlping:
-            if self.use_gumbel_sampling and not self.continious_samlping:
+            if self.use_gumbel_sampling and not self.continious_sampling:
                 # sample action: Gumbel-softmax trick
                 # see https://stats.stackexchange.com/questions/359442/sampling-from-a-categorical-distribution
                 u = jax.random.uniform(random_key, shape=act_logits.shape)
                 acts_tick=jnp.argmax(act_logits - jnp.log(-jnp.log(u)), axis=-1).squeeze(axis=-1)
-            elif self.continious_samlping and not self.use_gumbel_sampling:
+            elif self.continious_sampling and not self.use_gumbel_sampling:
                 action_dim = act_logits.shape[-1] // 2
                 
                 
