@@ -31,12 +31,13 @@ class SampleEnv(gym.Env):
         self.x = None  # Agent's current x value
         
         self.max_episode_steps = 12
-        self.steps = 0
+        self.tick = 0
+        self.raw_rewards = []
+        self.resetted = 0
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
         
-        print("resetting")
         
         # Start with a random x value within the specified range
         self.x = np.random.uniform(self.x_range[0], self.x_range[1])
@@ -46,20 +47,9 @@ class SampleEnv(gym.Env):
         
         # Set the initial state to the y value
         self.state = jnp.array([y], dtype=jnp.float32)
-        self.steps = 0
-        
-        
-        info = {
-            'final_observation': self.state,
-        
-            'final_info': {},  # Empty dictionary
-            
-            'episode_length': 212,
-            
-            'reward_per_episode': 0,
-            
-            'rewards': self.observations,
-}
+        self.tick = 0
+        self.resetted += 1
+        info = {}
         
         return self.state, info
 
@@ -67,7 +57,7 @@ class SampleEnv(gym.Env):
         """
         Step the environment by taking an action (selecting an x value).
         """
-        self.steps += 1
+        self.tick += 1
         # Ensure the action is within the valid range for x
         self.x = jnp.clip(action, self.x_range[0], self.x_range[1])
         
@@ -88,23 +78,28 @@ class SampleEnv(gym.Env):
         
         # Return the new observation (y value), reward, done flag, and additional info
         self.state = jnp.array([y], dtype=jnp.float32)
+        self.raw_rewards.append(reward)
         # print("shaping the future", self.state.shape)
         
+        info = {}
+        truncated = False
+        if self.tick >= self.max_episode_steps:
+            truncated = True
+            info["final_observation"] = self.state
+            info["final_info"] = {}
+            info["episode_length"] = self.tick
+            info["reward_per_episode"] = np.sum(self.raw_rewards)
+            info["rewards"] = self.raw_rewards
+            self.tick=0
+            self.raw_rewards=[]
         
-        metrics = {'final_info': {
-            'final_observation': self.state,
         
-            'final_info': {},  # Empty dictionary
-            
-            'episode_length': 212,
-            
-            'reward_per_episode': 0,
-            
-            'rewards': reward.tolist(),
-        }
-                }
+       
         
-        return self.state, reward, done, False, metrics
+        
+                
+        
+        return self.state, reward, done, truncated, info
 
     def compute_y(self, x):
         """

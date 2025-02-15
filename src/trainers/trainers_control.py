@@ -213,7 +213,6 @@ class ControlTrainer(BaseTrainer):
                          if key not in self.statistic_data:
                              self.statistic_data[key]=[]
                          self.statistic_data[key].append(value)
-                 print("rewrfa", env_info    )
                  ep_rewards=jnp.array(env_info['rewards'],dtype=jnp.float32)
                  _,average_return_per_episode=average_reward_and_return_in_episode(ep_rewards,self.gamma)
                  self.average_return_per_episode.append(average_return_per_episode)
