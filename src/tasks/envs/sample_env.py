@@ -24,12 +24,19 @@ class SampleEnv(gym.Env):
         # Observation space: Continuous, representing the y value (f(x)) at the chosen x
         self.observation_space = spaces.Box(low=-jnp.inf, high=jnp.inf, shape=(1,), dtype=jnp.float32)
         
+        self.observations = []
+        
         # Initialize state
         self.state = None  # We don't need a specific state, just the observation of y
         self.x = None  # Agent's current x value
+        
+        self.max_episode_steps = 12
+        self.steps = 0
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
+        
+        print("resetting")
         
         # Start with a random x value within the specified range
         self.x = np.random.uniform(self.x_range[0], self.x_range[1])
@@ -39,14 +46,28 @@ class SampleEnv(gym.Env):
         
         # Set the initial state to the y value
         self.state = jnp.array([y], dtype=jnp.float32)
+        self.steps = 0
         
-        return self.state, {}
+        
+        info = {
+            'final_observation': self.state,
+        
+            'final_info': {},  # Empty dictionary
+            
+            'episode_length': 212,
+            
+            'reward_per_episode': 0,
+            
+            'rewards': self.observations,
+}
+        
+        return self.state, info
 
     def step(self, action):
         """
         Step the environment by taking an action (selecting an x value).
         """
-        
+        self.steps += 1
         # Ensure the action is within the valid range for x
         self.x = jnp.clip(action, self.x_range[0], self.x_range[1])
         
@@ -63,19 +84,24 @@ class SampleEnv(gym.Env):
         # The task is simple: the agent wants to maximize the y value, so it doesn't terminate
         done = False
         
+        # truncation = self.steps >= self.max_episode_steps
+        
         # Return the new observation (y value), reward, done flag, and additional info
         self.state = jnp.array([y], dtype=jnp.float32)
         # print("shaping the future", self.state.shape)
         
         
         metrics = {'final_info': {
-                        'episode_length': 100,    # Numerical statistics
-                        'total_reward': 150.5,
-                        'success_rate': 0.85
-                    },
-                    'rewards': [1.0, 0.5, 2.0, -1.0],  # Array of rewards for the episode
-                    'steps': 100,                # Additional numerical metrics
-                    'progress': 0.75
+            'final_observation': self.state,
+        
+            'final_info': {},  # Empty dictionary
+            
+            'episode_length': 212,
+            
+            'reward_per_episode': 0,
+            
+            'rewards': reward.tolist(),
+        }
                 }
         
         return self.state, reward, done, False, metrics

@@ -190,7 +190,6 @@ class ControlTrainer(BaseTrainer):
         start_time=time.time()
 
         (loss,(value_loss,entropy_loss,actor_loss,rewards),infos)=self.agent.step(self.random_key)
-        print("rewrfa", infos    )
         #Extract info data across all actors and steps
         #Get the leaves of the infos tree where the final_info key is present
         
@@ -214,7 +213,7 @@ class ControlTrainer(BaseTrainer):
                          if key not in self.statistic_data:
                              self.statistic_data[key]=[]
                          self.statistic_data[key].append(value)
-
+                 print("rewrfa", env_info    )
                  ep_rewards=jnp.array(env_info['rewards'],dtype=jnp.float32)
                  _,average_return_per_episode=average_reward_and_return_in_episode(ep_rewards,self.gamma)
                  self.average_return_per_episode.append(average_return_per_episode)
