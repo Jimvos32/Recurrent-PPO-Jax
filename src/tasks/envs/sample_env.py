@@ -97,6 +97,7 @@ class SampleEnv(gym.Env):
         y_max = self.compute_y(self.x_max)
         reward = -abs(y_max - y)
         self.raw_rewards.append(reward)
+        print("rew", reward.shape)
         
         done = False  # The task never ends naturally.
         truncated = self.tick >= self.max_episode_steps

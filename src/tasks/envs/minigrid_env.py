@@ -6,7 +6,8 @@ from gymnasium.wrappers import TransformObservation
 from gymnasium import spaces
 from minigrid.wrappers import RGBImgPartialObsWrapper,ImgObsWrapper,ObservationWrapper,OneHotPartialObsWrapper
 from src.tasks.envs.sample_env import SampleEnv
-from src.tasks.envs.multi_dim_env import MultiDimEnv
+from src.tasks.envs.multi_dim_env import MultivariatePolyEnv
+from src.tasks.envs.multi_batch_env import MultiSampleEnv
 
 class ViewSizeWrapper(ObservationWrapper):
     """
@@ -93,7 +94,15 @@ def create_sampling_env(**kwargs):
     return env
 
 def create_multi_dim_env(**kwargs):
-    env = MultiDimEnv(env_config=kwargs)
+    env = MultivariatePolyEnv(env_config=kwargs)
+
+    # Apply wrappers
+    env = TransformObservation(env, lambda obs: obs.astype(np.float32))
+    
+    return env
+
+def create_multi_batch_env(**kwargs):
+    env = MultiSampleEnv(env_config=kwargs)
 
     # Apply wrappers
     env = TransformObservation(env, lambda obs: obs.astype(np.float32))

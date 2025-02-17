@@ -52,7 +52,7 @@ class BaseAgent:
             Returns:
                 _type_: _description_
             """
-            print("actor input 2 ", inputs.shape)
+            # print("actor input 2 ", inputs.shape)
             act_logits,values,memory=self.ac_model.apply(params,inputs,terminations,last_memory,rngs={'random':random_key})
             return act_logits,values,memory
         
@@ -150,21 +150,24 @@ class BaseAgent:
                 
                 
                 
-                means = act_logits[..., :action_dim].squeeze(-1)
-                log_stds = act_logits[..., action_dim:].squeeze(-1)
+                means = act_logits[..., :action_dim].squeeze(1)
+                log_stds = act_logits[..., action_dim:].squeeze(1)
                 # print("policy_out", act_logits.shape, "mean", means.shape, "std", log_stds.shape)
+                
                 
                 # Clip log_stds for numerical stability
                 log_stds = jnp.clip(log_stds, -20.0, 2.0)
                 stds = jnp.exp(log_stds)
                 
                 # Sample from standard normal and scale
-                noise = jax.random.normal(random_key, means.shape)
-                acts_tick = means + noise * stds
-                # jax.debug.print("dit kan echt niet meer {} {} {} ", means.shape, log_stds.shape, acts_tick.shape)
-                acts_tick = jnp.squeeze(acts_tick)
-                # acts_tick = actions
-                # act_logits = jnp.expand_dims(act_logits, axis=1)
+                # Adjust shape of means and stds to (batch_size, 1)
+                batch_size = self.eval_env.unwrapped.batch_size
+                means = jnp.tile(means, (1,batch_size))  # Shape: (batch_size, 1)
+                stds = jnp.tile(stds, (1,batch_size))  # Shape: (batch_size, 1)
+                # Sample from standard normal and scale
+                noise = jax.random.normal(random_key, shape=means.shape)  # Shape: (batch_size, 1)
+                acts_tick = means + noise * stds  # Shape: (batch_size, 1)    
+                acts_tick = jnp.expand_dims(acts_tick, axis=-1)
             else:
                 acts_tick=jax.random.categorical(random_key,act_logits).squeeze(axis=-1)
             #Take a step in the environment

@@ -1,0 +1,4 @@
+task: batch
+name: recurrent_batching
+view_size: 2
+max_steps: null

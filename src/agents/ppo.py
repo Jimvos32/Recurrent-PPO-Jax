@@ -68,26 +68,34 @@ class PPOAgent(BaseAgent):
             advantages=Glambdas-critic_preds[:,:-1]
             #Calculate log probs shape (num_envs*rollout_len,num_actions)
             def gaussian_log_prob(actions, act_logits):
-                
-                
                 action_dim = act_logits.shape[-1] // 2
-                means = act_logits[..., :action_dim].squeeze()
-                log_stds = act_logits[..., action_dim:].squeeze()
-                
-                
+
+                # Extract means and log_stds
+                means = act_logits[..., :action_dim]  # Shape: (batch_size, action_dim)
+                log_stds = act_logits[..., action_dim:]  # Shape: (batch_size, action_dim)
+
                 # Clip log_stds for numerical stability
                 log_stds = jnp.clip(log_stds, -20.0, 2.0)
-                
-                print("pol_out", act_logits.shape, "means ", means.shape, "std ", log_stds.shape,"actions ", actions.shape)
-                
-                variance = jnp.exp(2 * log_stds)
+                print("outputs", act_logits.shape, "means", means.shape, "std", log_stds.shape, "split", action_dim)
+
+                # Expand means and log_stds to match action sampling dimensions (batch_size, num_samples, action_dim)
+                batch_dim = self.eval_env.unwrapped.batch_size
+                means = jnp.expand_dims(jnp.repeat(means, batch_dim, axis=2), axis=-1)  # Shape: (8, 256, 3, 1)
+                log_stds = jnp.expand_dims(jnp.repeat(log_stds, batch_dim, axis=2), axis=-1)  # Shape: (8, 256, 3, 1)
+                print("expanded", means.shape, log_stds.shape, )
+                # Compute variance
+                variance = jnp.exp(2 * log_stds)  # (batch_size, num_samples, action_dim)
+
+                # Compute log probability
                 log_prob = -0.5 * (
-                    jnp.log(2 * jnp.pi)
-                    + 2 * log_stds
-                    + (actions - means) ** 2 / variance
-                )
-                
+                    jnp.log(2 * jnp.pi) + 2 * log_stds + (actions - means) ** 2 / variance
+                )  # Shape: (batch_size, num_samples, action_dim)
+
+                # Sum over action dimensions to get final log probability per sample
+                log_prob = log_prob.sum(axis=-1)  # Shape: (batch_size, num_samples)
+
                 return log_prob
+
             logprobs = gaussian_log_prob(actions, actor_preds)
             
             print("whats he logging", logprobs.shape)

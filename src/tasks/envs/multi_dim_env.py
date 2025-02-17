@@ -3,137 +3,144 @@ from gymnasium import spaces
 import numpy as np
 import jax.numpy as jnp
 
-class MultiDimEnv(gym.Env):
+
+
+class MultivariatePolyEnv(gym.Env):
     """
-    A Gymnasium environment where the agent interacts with a shifting quadratic function:
-        f(x) = a * x^2 + b * x + c
-    The peak (maximum) of the function varies across episodes.
+    A Gymnasium environment where the agent interacts with a multivariate polynomial function.
+    The agent selects an action (an n-dimensional vector) and the observation is a scalar, the value
+    of the function. The function is defined as:
+    
+      f(x) = c - sum_{i=1}^{action_dim} (w_i * (x_i - x_max_i)**degree)
+    
+    where:
+      - degree: the degree of the polynomial (for unimodality, degree should be even).
+      - action_dim: the dimensionality of the input vector.
+      - x_max: the location of the global maximum (randomized at reset).
+      - c: a constant such that f(x_max) = c.
+      - w_i: positive weights for each dimension.
+    
+    The reward is computed as the negative absolute difference between f(x) and the maximum value f(x_max)=c.
     """
-    def __init__(self, env_config=None, x_range=(-10, 10), max_episode_steps=12):
-        super(MultiDimEnv, self).__init__()
-        
-        # Define range for x values.
-        self.x_range = x_range
+    def __init__(self, env_config=None, degree=2, action_dim=2, x_range=(-10, 10), max_episode_steps=12):
+        super(MultivariatePolyEnv, self).__init__()
+        self.degree = degree
+        self.action_dim = action_dim
+        self.x_range = x_range  # same range for each dimension
         self.max_episode_steps = max_episode_steps
         
-        # Action space: agent selects a continuous x value.
-        self.action_space = spaces.Box(
-            low=np.array([self.x_range[0]]),
-            high=np.array([self.x_range[1]]),
-            shape=(1,),
-            dtype=np.float32
-        )
+        # Define the action space: a continuous vector of length 'action_dim'
+        low = np.full((action_dim,), x_range[0], dtype=np.float32)
+        high = np.full((action_dim,), x_range[1], dtype=np.float32)
+        self.action_space = spaces.Box(low=low, high=high, dtype=np.float32)
         
-        # Observation space: the computed y value.
-        self.observation_space = spaces.Box(
-            low=-jnp.inf, high=jnp.inf, shape=(1,), dtype=jnp.float32
-        )
+        # Observation space: a scalar value representing f(x)
+        self.observation_space = spaces.Box(low=-jnp.inf, high=jnp.inf, shape=(1,), dtype=jnp.float32)
         
         self.tick = 0
         self.raw_rewards = []
         self.resetted = 0
         
-        # Initialize state and action variable.
         self.state = None
         self.x = None
         
-        # Initialize polynomial parameters.
-        self.a = -1.0
-        self.b = 0.0
-        self.c = 10.0
-        self.x_max = -self.b / (2 * self.a)  # Compute the peak position
+        # Polynomial parameters (to be randomized at each reset)
+        self.x_max = None      # the location of the maximum (vector)
+        self.c = None          # constant shift (f(x_max) = c)
+        self.weights = None    # positive weights for each dimension
         
-
+        # Initialize the polynomial parameters
+        self.shift_polynomial()
+    
+    # def shift_polynomial(self):
+    #     """
+    #     Randomize the polynomial parameters to create a new function.
+    #     For unimodality, degree should be even. If an odd degree is provided, the function is still generated
+    #     but unimodality is not guaranteed.
+    #     """
+    #     # Randomize the maximum location x_max uniformly for each dimension.
+    #     self.x_max = np.random.uniform(self.x_range[0], self.x_range[1], size=(self.action_dim,))
+        
+    #     # Randomize constant shift and weights.
+    #     self.c = np.random.uniform(5.0, 20.0)
+    #     self.weights = np.random.uniform(-0.5, -2.0, size=(self.action_dim,))
+    
+    
     def shift_polynomial(self):
-        """
-        Randomize the polynomial parameters to create a new function.
-        'a' should remain negative to ensure a mountain shape.
-        """
-        self.a = np.random.uniform(-2.0, -0.5)  # Keep a negative for a mountain shape
-        self.b = np.random.uniform(-5.0, 5.0)   # Random slope
-        self.c = np.random.uniform(5.0, 20.0)   # Random height
+        # Randomize the maximum location x_max uniformly for each dimension
+        self.x_max = np.random.uniform(self.x_range[0], self.x_range[1], size=(self.action_dim,))
         
-        # Compute the new peak position
-        self.x_max = -self.b / (2 * self.a)
+        # Randomize c (the peak value) and weights (must be positive)
+        self.c = np.random.uniform(5.0, 20.0)
+        self.weights = np.random.uniform(0.5, 2.0, size=(self.action_dim,))
 
-        # Ensure the peak is within the valid range
-        self.x_max = np.clip(self.x_max, self.x_range[0], self.x_range[1])
     
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
         
-        # Shift the polynomial parameters for a new episode.
+        # Randomize the polynomial parameters for a new episode.
         self.shift_polynomial()
         
         # Start with a random x value within the allowed range.
-        self.x = np.random.uniform(self.x_range[0], self.x_range[1])
+        self.x = np.random.uniform(self.x_range[0], self.x_range[1], size=(self.action_dim,))
         y = self.compute_y(self.x)
         self.state = jnp.array([y], dtype=jnp.float32)
-        y_max = self.compute_y(self.x_max)
-        reward = -abs(y_max - y)
-        comb = jnp.concatenate([self.state, jnp.array([self.x], dtype=jnp.float32), jnp.array([reward], dtype=jnp.float32)], axis=0)
         
         self.tick = 0
         self.raw_rewards = []
         self.resetted += 1
         
-        # return comb, {}
         return self.state, {}
-
+    
     def step(self, action):
         """
-        Apply the action (choosing an x value) and return:
-          - observation (y value)
-          - reward (negative distance from the maximum at x_max)
-          - done flag (always False, as episodes only truncate)
-          - truncated flag (True when max_episode_steps is reached)
-          - info (episode summary when truncated)
+        Apply the action (an n-dimensional vector) and return:
+          - observation: f(x)
+          - reward: -|f(x_max) - f(x)| (f(x_max)=c)
+          - done: always False (episodes only end by truncation)
+          - truncated: True when max_episode_steps is reached
+          - info: episode summary when truncated
         """
         self.tick += 1
         
-        # Ensure action is within the valid range.
-        self.x = jnp.clip(action, self.x_range[0], self.x_range[1])
+        # Clip the action within the valid range.
+        action = np.clip(action, self.x_range[0], self.x_range[1])
+        self.x = action
         
-        # Compute the current y value.
+        # Compute the current function value.
         y = self.compute_y(self.x)
         self.state = jnp.array([y], dtype=jnp.float32)
         
-        # Compute reward based on distance from the actual peak at x_max
-        y_max = self.compute_y(self.x_max)
-        reward = -abs(y_max - y)
-        # print(f"reward: {reward}, y_max: {y_max}, y: {y}, x: {self.x}, x_max: {self.x_max}")
+        # Reward based on how close f(x) is to the maximum value (c).
+        reward = -abs(self.c - y)
         self.raw_rewards.append(reward)
         
-        done = False  # The task never ends naturally.
+        done = False
         truncated = self.tick >= self.max_episode_steps
         info = {}
-
+        
         if truncated:
             info["final_observation"] = self.state
             info["episode_length"] = self.tick
             info["reward_per_episode"] = np.sum(self.raw_rewards)
             info["rewards"] = self.raw_rewards
-            # Reset tick and rewards for the next episode.
             self.tick = 0
             self.raw_rewards = []
         
-        # print("obs", self.state.shape, "rew", reward.shape, "act", action.shape)
-        comb = jnp.concatenate([self.state, jnp.array([action], dtype=jnp.float32), jnp.array([reward], dtype=jnp.float32)], axis=0)
-        # print(comb.shape)
-        # print("c", comb, "\n", "state", self.state, "reward", reward, "action", action, "\n")
-        
-        # return comb, reward, done, truncated, info
         return self.state, reward, done, truncated, info
-
-
+    
     def compute_y(self, x):
         """
-        Compute the polynomial value at x: f(x) = a*x^2 + b*x + c.
+        Compute the polynomial value:
+            f(x) = c - sum_{i=1}^{action_dim} (w_i * (x_i - x_max_i)**degree)
         """
-        return self.a * x**2 + self.b * x + self.c
-
+        diff = x - self.x_max
+        value = self.c - np.sum(self.weights * (diff ** self.degree))
+        return value
+    
     def render(self):
         """
         Print the current state and polynomial parameters.
         """
-        print(f"Current x: {self.x}, f(x): {self.state[0]}, Peak at x_max: {self.x_max}, Parameters: a = {self.a}, b = {self.b}, c = {self.c}")
+        print(f"Current x: {self.x}, f(x): {self.state[0]}, Peak at x_max: {self.x_max}, c: {self.c}, "
+              f"weights: {self.weights}, degree: {self.degree}")
