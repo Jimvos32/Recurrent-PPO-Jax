@@ -9,7 +9,7 @@ class MultiSampleEnv(gym.Env):
         f(x) = a * x^2 + b * x + c
     The peak (maximum) of the function varies across episodes.
     """
-    def __init__(self, env_config=None, x_range=(-10, 10), max_episode_steps=12, batch_size=3):
+    def __init__(self, env_config=None, x_range=(-10, 10), max_episode_steps=12, batch_size=1):
         super(MultiSampleEnv, self).__init__()
         
         # Define the allowed range for x values.
@@ -24,6 +24,7 @@ class MultiSampleEnv(gym.Env):
             shape = (self.batch_size, 1),
             dtype=np.float32
         )
+        
         
         # Observation space: a batch of computed y values.
         self.observation_space = spaces.Box(
@@ -50,13 +51,13 @@ class MultiSampleEnv(gym.Env):
         'a' should remain negative to ensure a mountain shape.
         """
         self.a = np.random.uniform(-2.0, -0.5)  # Keep a negative for a mountain shape
-        self.b = np.random.uniform(-5.0, 5.0)     # Random slope
-        self.c = np.random.uniform(5.0, 20.0)     # Random height
+        self.b = np.random.uniform(-5.0, 5.0)   # Random slope
+        self.c = np.random.uniform(5.0, 20.0)   # Random height
         
-        # Compute the new peak position.
+        # Compute the new peak position
         self.x_max = -self.b / (2 * self.a)
 
-        # Ensure the peak is within the valid range.
+        # Ensure the peak is within the valid range
         self.x_max = np.clip(self.x_max, self.x_range[0], self.x_range[1])
     
     def reset(self, seed=None, options=None):
@@ -102,8 +103,10 @@ class MultiSampleEnv(gym.Env):
         # The peak value is computed from self.x_max (a scalar) so the difference is broadcast.
         y_max = self.compute_y(self.x_max)  # scalar
         reward = jnp.sum(-jnp.abs(y_max - y), axis=0)  # elementwise operation over the batch
-        reward = jnp.squeeze(reward)
+        reward = jnp.squeeze(reward, axis=-1)
         self.raw_rewards.append(reward)
+        
+        # print("action", action, "reward", reward, "y", y, "y_max", y_max"\n")
         
         done = False  # Episodes do not naturally end; only truncated.
         truncated = self.tick >= self.max_episode_steps

@@ -23,7 +23,7 @@ def numpy_to_jax(*args,dtype=jnp.float32):
 
 class BaseAgent:
     def __init__(self,train_envs,eval_env,rollout_len,repr_model_fn:Callable,seq_model_fn:Callable,
-                        actor_fn:Callable,critic_fn:Callable,use_gumbel_sampling=False,sequence_length=None, continious_sampling=True) -> None:
+                        actor_fn:Callable,critic_fn:Callable,use_gumbel_sampling=False,sequence_length=None, continious_sampling=True, single_dim=False, task_name=None) -> None:
         self.env=train_envs
         self.eval_env=eval_env
         self.rollout_len=rollout_len
@@ -35,6 +35,8 @@ class BaseAgent:
         self.seq_fn,self.seq_init=seq_model_fn
         self.use_gumbel_sampling=use_gumbel_sampling
         self.continious_sampling = continious_sampling
+        self.single_dim = single_dim
+        self.task = task_name
         self.ac_model=nn.vmap(ActorCriticModel,
                               variable_axes={'params': None},
                                 split_rngs={'params': False})(repr_model_fn,self.seq_fn,actor_fn,critic_fn)
@@ -148,8 +150,6 @@ class BaseAgent:
             elif self.continious_sampling and not self.use_gumbel_sampling:
                 action_dim = act_logits.shape[-1] // 2
                 
-                
-                
                 means = act_logits[..., :action_dim].squeeze(1)
                 log_stds = act_logits[..., action_dim:].squeeze(1)
                 # print("policy_out", act_logits.shape, "mean", means.shape, "std", log_stds.shape)
@@ -168,6 +168,29 @@ class BaseAgent:
                 noise = jax.random.normal(random_key, shape=means.shape)  # Shape: (batch_size, 1)
                 acts_tick = means + noise * stds  # Shape: (batch_size, 1)    
                 acts_tick = jnp.expand_dims(acts_tick, axis=-1)
+                
+                
+            elif not self.continious_sampling and not self.use_gumbel_sampling:
+                
+                action_dim = act_logits.shape[-1] // 2
+                means = act_logits[..., :action_dim].squeeze(-1)
+                log_stds = act_logits[..., action_dim:].squeeze(-1)
+                # print("policy_out", act_logits.shape, "mean", means.shape, "std", log_stds.shape)
+                
+                # Clip log_stds for numerical stability
+                log_stds = jnp.clip(log_stds, -20.0, 2.0)
+                stds = jnp.exp(log_stds)
+                
+                # Sample from standard normal and scale
+                noise = jax.random.normal(random_key, means.shape)
+                acts_tick = means + noise * stds
+                # jax.debug.print("dit kan echt niet meer {} {} {} ", means.shape, log_stds.shape, acts_tick.shape)
+                acts_tick = jnp.squeeze(acts_tick)
+                
+                
+                
+                
+                
             else:
                 acts_tick=jax.random.categorical(random_key,act_logits).squeeze(axis=-1)
             #Take a step in the environment

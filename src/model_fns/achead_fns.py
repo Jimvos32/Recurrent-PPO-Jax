@@ -37,20 +37,18 @@ def actor_model_continuous(dense_dim, action_dim):
             # For compatibility, we'll output [mean, log_std] stacked along the last axis
             # This makes the output shape (batch_size, action_dim * 2) which is similar
             # to the discrete case's (batch_size, num_actions)
-            mean = nn.Dense(action_dim[1],
+            mean = nn.Dense(action_dim[0],
                           kernel_init=orthogonal(0.01),
                           bias_init=constant(0.0))(x)
             
-            log_std = nn.Dense(action_dim[1],
+            log_std = nn.Dense(action_dim[0],
                              kernel_init=orthogonal(0.01),
                              bias_init=constant(0.0))(x)
             log_std = jnp.clip(log_std, -20.0, 2.0)
             
-            print("policy mean out ", mean.shape, "policy std out ", log_std.shape)
+            # print("policy mean out ", mean.shape, "policy std out ", log_std.shape)
             # Stack mean and log_std to maintain shape compatibility
             output = jnp.concatenate([mean, log_std], axis=-1)
-            
-           
             
             return output
     

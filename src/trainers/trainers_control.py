@@ -151,6 +151,8 @@ class ControlTrainer(BaseTrainer):
                                     learning_rate=self.trainer_config['ent_coef']['initial'], **optimizer_config
                                 ),
                             )
+            
+            print("config", self.trainer_config, "env",self.env_config)
             self.agent=PPOAgent(train_envs=train_envs,eval_env=eval_env,optimizer=self.optimizer, repr_model_fn=repr_fn,
                                 seq_model_fn=model_fn,actor_fn=actor_fn,critic_fn=critic_fn,
                                 num_steps=self.rollout_len,
@@ -165,7 +167,8 @@ class ControlTrainer(BaseTrainer):
                                 vf_coef=self.trainer_config.get('vf_coef', 0.5),
                                 max_grad_norm=self.trainer_config.get('max_grad_norm', 0.5),
                                 target_kl=self.trainer_config.get('target_kl', None),
-                                sequence_length=self.trainer_config.get('sequence_length', None))
+                                sequence_length=self.trainer_config.get('sequence_length', None),
+                                task_name=self.env_config.get('task', None))
 
         
         self.agent.reset(params_key,self.random_key)
