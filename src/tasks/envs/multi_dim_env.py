@@ -126,6 +126,9 @@ class MultivariatePolyEnv(gym.Env):
             info["rewards"] = self.raw_rewards
             self.tick = 0
             self.raw_rewards = []
+            
+            
+        
         
         return self.state, reward, done, truncated, info
     

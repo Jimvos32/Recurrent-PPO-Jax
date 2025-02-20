@@ -8,5 +8,5 @@ eval_interval: 500000
 use_wandb: false
 defaults:
   - _self_
-  - task: sampling
+  - task: batch
   - trainer: ppo

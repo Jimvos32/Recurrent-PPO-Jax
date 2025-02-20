@@ -1,6 +1,6 @@
 agent: ppo
-d_actor: 128
-d_critic: 128
+d_actor: 256
+d_critic: 256
 num_envs: 8
 rollout_len: 256
 sequence_length: null

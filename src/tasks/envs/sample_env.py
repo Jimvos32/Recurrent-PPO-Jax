@@ -252,7 +252,7 @@ class SampleEnv(gym.Env):
         
         # print("obs", self.state.shape, "rew", reward.shape, "act", action.shape)
         comb = jnp.concatenate([self.state, jnp.array([action], dtype=jnp.float32), jnp.array([reward], dtype=jnp.float32)], axis=0)
-        # print(comb.shape)
+        # print("the combination", comb.shape)
         # print("c", comb, "\n", "state", self.state, "reward", reward, "action", action, "\n")
         
         return comb, reward, done, truncated, info

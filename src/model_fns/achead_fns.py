@@ -29,7 +29,6 @@ def actor_model_continuous(dense_dim, action_dim):
         @nn.compact
         def __call__(self, x):
             # Shared features
-            
             x = nn.Dense(dense_dim,
                         kernel_init=orthogonal(jnp.sqrt(2)),
                         bias_init=constant(0.0))(x)

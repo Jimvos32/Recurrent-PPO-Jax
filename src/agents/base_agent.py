@@ -140,6 +140,46 @@ class BaseAgent:
             act_logits,v_tick,htick=self.actor_critic_fn(model_key,self.params,jnp.expand_dims(o_tick,1),jnp.expand_dims(term_tick,1),
                                                          h_tickminus1)
             
+            def sampling_differ(task, act_logits, random_key):
+                if task == "batch":
+                    # act_logits: shape (parallel_env, 1, 2 * action_dim)
+                    batch_size = self.eval_env.unwrapped.batch_size  # number of samples per env
+                    action_dim = act_logits.shape[-1] // 2
+
+                    act_logits = jnp.repeat(act_logits, batch_size, axis=2)
+                    means = act_logits[..., :action_dim]
+                    log_stds = act_logits[..., action_dim:]
+                    log_stds = jnp.clip(log_stds, -20.0, 2.0)
+                    stds = jnp.exp(log_stds)
+
+                
+
+                    # 4. Sample noise and compute actions:
+                    noise = jax.random.normal(random_key, shape=means.shape)  # shape: (parallel_env, batch_size, action_dim)
+                    acts_tick = means + noise * stds  # shape: (parallel_env, batch_size, action_dim)
+                    # acts_tick = jnp.squeeze(acts_tick)  # shape: (parallel_env, action_dim)
+                    # print("ac", acts_tick.shape)
+                    
+                    
+                elif task == "sampling":
+                    action_dim = act_logits.shape[-1] // 2
+                    means = act_logits[..., :action_dim].squeeze(-1)
+                    log_stds = act_logits[..., action_dim:].squeeze(-1)
+                    # print("policy_out", act_logits.shape, "mean", means.shape, "std", log_stds.shape)
+                    
+                    # Clip log_stds for numerical stability
+                    log_stds = jnp.clip(log_stds, -20.0, 2.0)
+                    stds = jnp.exp(log_stds)
+                    
+                    # Sample from standard normal and scale
+                    noise = jax.random.normal(random_key, means.shape)
+                    acts_tick = means + noise * stds
+                    # jax.debug.print("dit kan echt niet meer {} {} {} ", means.shape, log_stds.shape, acts_tick.shape)
+                    acts_tick = jnp.squeeze(acts_tick)
+                    
+                    # print("ac", acts_tick.shape)
+                return acts_tick
+            
             
             # if self.use_gumbel_sampling and not self.continious_samlping:
             if self.use_gumbel_sampling and not self.continious_sampling:
@@ -147,46 +187,18 @@ class BaseAgent:
                 # see https://stats.stackexchange.com/questions/359442/sampling-from-a-categorical-distribution
                 u = jax.random.uniform(random_key, shape=act_logits.shape)
                 acts_tick=jnp.argmax(act_logits - jnp.log(-jnp.log(u)), axis=-1).squeeze(axis=-1)
-            elif self.continious_sampling and not self.use_gumbel_sampling:
-                action_dim = act_logits.shape[-1] // 2
-                
-                means = act_logits[..., :action_dim].squeeze(1)
-                log_stds = act_logits[..., action_dim:].squeeze(1)
-                # print("policy_out", act_logits.shape, "mean", means.shape, "std", log_stds.shape)
-                
-                
-                # Clip log_stds for numerical stability
-                log_stds = jnp.clip(log_stds, -20.0, 2.0)
-                stds = jnp.exp(log_stds)
-                
-                # Sample from standard normal and scale
-                # Adjust shape of means and stds to (batch_size, 1)
-                batch_size = self.eval_env.unwrapped.batch_size
-                means = jnp.tile(means, (1,batch_size))  # Shape: (batch_size, 1)
-                stds = jnp.tile(stds, (1,batch_size))  # Shape: (batch_size, 1)
-                # Sample from standard normal and scale
-                noise = jax.random.normal(random_key, shape=means.shape)  # Shape: (batch_size, 1)
-                acts_tick = means + noise * stds  # Shape: (batch_size, 1)    
-                acts_tick = jnp.expand_dims(acts_tick, axis=-1)
-                
-                
-            elif not self.continious_sampling and not self.use_gumbel_sampling:
-                
-                action_dim = act_logits.shape[-1] // 2
-                means = act_logits[..., :action_dim].squeeze(-1)
-                log_stds = act_logits[..., action_dim:].squeeze(-1)
-                # print("policy_out", act_logits.shape, "mean", means.shape, "std", log_stds.shape)
-                
-                # Clip log_stds for numerical stability
-                log_stds = jnp.clip(log_stds, -20.0, 2.0)
-                stds = jnp.exp(log_stds)
-                
-                # Sample from standard normal and scale
-                noise = jax.random.normal(random_key, means.shape)
-                acts_tick = means + noise * stds
-                # jax.debug.print("dit kan echt niet meer {} {} {} ", means.shape, log_stds.shape, acts_tick.shape)
+            elif self.task == "batch":
+                acts_tick = sampling_differ("batch", act_logits, random_key)
+                # print(acts_tick.shape, "\n")
                 acts_tick = jnp.squeeze(acts_tick)
+                # acts_ticka = sampling_differ("sampling", act_logits, random_key)
+                # print(acts_tick, "\n", acts_ticka, "\n")
+            elif self.task == "sampling":
+                acts_tick = sampling_differ("sampling", act_logits, random_key)
                 
+            
+            
+            
                 
                 
                 

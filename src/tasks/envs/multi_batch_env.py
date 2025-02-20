@@ -28,7 +28,7 @@ class MultiSampleEnv(gym.Env):
         
         # Observation space: a batch of computed y values.
         self.observation_space = spaces.Box(
-            low=-np.inf, high=np.inf, shape=(self.batch_size, 1), dtype=np.float32
+            low=-np.inf, high=np.inf, shape=(self.batch_size, 3), dtype=np.float32
         )
         
         self.tick = 0
@@ -44,12 +44,10 @@ class MultiSampleEnv(gym.Env):
         self.b = 2.0
         self.c = 10.0
         self.x_max = -self.b / (2 * self.a)  # Compute the peak position
+        self.max_y = self.compute_y(self.x_max)  # Compute the peak value
 
+    
     def shift_polynomial(self):
-        """
-        Randomize the polynomial parameters to create a new function.
-        'a' should remain negative to ensure a mountain shape.
-        """
         self.a = np.random.uniform(-2.0, -0.5)  # Keep a negative for a mountain shape
         self.b = np.random.uniform(-5.0, 5.0)   # Random slope
         self.c = np.random.uniform(5.0, 20.0)   # Random height
@@ -64,20 +62,28 @@ class MultiSampleEnv(gym.Env):
         super().reset(seed=seed)
         
         # Optionally shift polynomial parameters if desired.
-        # self.shift_polynomial()
+        self.shift_polynomial()
         
         # Sample a batch of random x values within the allowed range.
         self.x = np.random.uniform(self.x_range[0], self.x_range[1], size=(self.batch_size, 1))
         y = self.compute_y(self.x)
+        self.max_y = self.compute_y(self.x_max)
         # print("resetting the params", self.x.shape, y.shape, "\n")
         self.state = jnp.array(y, dtype=jnp.float32)
+        
+        reward = jnp.sum(-jnp.abs(self.max_y - y), axis=0)  # elementwise operation over the batch
+        reward = jnp.expand_dims(reward, axis=-1)
+            
+        comb = np.concatenate([self.x, self.state, reward], axis=-1)
         
         
         self.tick = 0
         self.raw_rewards = []
         self.resetted += 1
         
-        return self.state, {}
+        
+        
+        return comb, {}
 
     def step(self, action):
         """
@@ -89,6 +95,8 @@ class MultiSampleEnv(gym.Env):
           - info (episode summary when truncated)
         """
         self.tick += 1
+        # print("action", action, "x", self.x, "state", self.state, "\n")
+        action = jnp.reshape(action, (self.batch_size, 1))
         assert action.shape == (self.batch_size, 1), f"Expected shape {(self.batch_size, 1)}, got {action.shape}"
         # Ensure action is a JAX array and clip each element to be within x_range.
         action = jnp.array(action)
@@ -101,12 +109,11 @@ class MultiSampleEnv(gym.Env):
         
         # Compute reward for each sample:
         # The peak value is computed from self.x_max (a scalar) so the difference is broadcast.
-        y_max = self.compute_y(self.x_max)  # scalar
-        reward = jnp.sum(-jnp.abs(y_max - y), axis=0)  # elementwise operation over the batch
-        reward = jnp.squeeze(reward, axis=-1)
+        reward = jnp.sum(-jnp.abs(self.max_y - y), axis=0)  # elementwise operation over the batch
+        s_reward = jnp.squeeze(reward, axis=-1)
         self.raw_rewards.append(reward)
         
-        # print("action", action, "reward", reward, "y", y, "y_max", y_max"\n")
+        # print("action", action, "reward", reward, "y", y, "y_max", self.max_y, "\n")
         
         done = False  # Episodes do not naturally end; only truncated.
         truncated = self.tick >= self.max_episode_steps
@@ -123,7 +130,14 @@ class MultiSampleEnv(gym.Env):
             self.tick = 0
             self.raw_rewards = []
             
-        return self.state, reward, done, truncated, info
+        reward = jnp.expand_dims(reward, axis=-1)
+            
+       
+        comb = np.concatenate([self.x, self.state, reward], axis=-1)
+        
+        # print("this is the work", s_reward.shape, comb.shape, self.state.shape)
+            
+        return comb, s_reward, done, truncated, info
 
     def compute_y(self, x):
         """

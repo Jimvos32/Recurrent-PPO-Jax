@@ -69,8 +69,10 @@ class PPOAgent(BaseAgent):
             #Calculate the advantages using timesteps {tick} - {tick+rollout_len}
             advantages=Glambdas-critic_preds[:,:-1]
             #Calculate log probs shape (num_envs*rollout_len,num_actions)
-            def gaussian_log_prob(actions, act_logits):
-                if not self.continious_sampling and not self.use_gumbel_sampling:
+            def gaussian_log_prob(task, actions, act_logits):
+                # print("act_logits", act_logits.shape, "actions", actions.shape)
+                if task == "sampling":# or self.task == "batch":
+                    # print("action", actions.shape)
                     action_dim = act_logits.shape[-1] // 2
                     means = act_logits[..., :action_dim].squeeze()
                     log_stds = act_logits[..., action_dim:].squeeze()
@@ -87,66 +89,35 @@ class PPOAgent(BaseAgent):
                         + 2 * log_stds
                         + (actions - means) ** 2 / variance
                     )
+                    # print("log_prob", log_prob.shape, "means", means.shape, "stds", log_stds.shape, "actions", actions.shape)
                     
                     
-                else :    
-                
+                elif task == "batch":   
+                    act_logits = jnp.reshape(act_logits, (actions.shape[0], act_logits.shape[1], 1, act_logits.shape[-1]))
+                    actions = jnp.expand_dims(jnp.expand_dims(actions, axis=-1), axis=-1)
+                    
                     action_dim = act_logits.shape[-1] // 2
-
-                    # Extract means and log_stds
-                    means = act_logits[..., :action_dim]  # Shape: (batch_size, action_dim)
-                    log_stds = act_logits[..., action_dim:]  # Shape: (batch_size, action_dim)
-
-                    # Clip log_stds for numerical stability
+                    batch_size = self.eval_env.unwrapped.batch_size
+                    act_logits = jnp.repeat(act_logits, batch_size, axis=2)
+                    means = act_logits[..., :action_dim]
+                    log_stds = act_logits[..., action_dim:]
+                    
+                    
+                
                     log_stds = jnp.clip(log_stds, -20.0, 2.0)
-                    # print("outputs", act_logits.shape, "means", means.shape, "std", log_stds.shape, "split", action_dim)
-
-                    # Expand means and log_stds to match action sampling dimensions (batch_size, num_samples, action_dim)
-                    batch_dim = self.eval_env.unwrapped.batch_size
-                    means = jnp.repeat(means, batch_dim, axis=2) # Shape: (8, 256, 3, 1)
-                    means = jnp.reshape(means, means.shape[:3] + (-1,))
-                    log_stds = jnp.expand_dims(jnp.repeat(log_stds, batch_dim, axis=2), axis=-1)  # Shape: (8, 256, 3, 1)
-                    log_stds = jnp.reshape(log_stds, log_stds.shape[:3] + (-1,))
-                
-                    variance = jnp.exp(2 * log_stds)  # (batch_size, num_samples, action_dim)
-
-                    # Compute log probability
-                    log_prob = -0.5 * (
-                        jnp.log(2 * jnp.pi) + 2 * log_stds + (actions - means) ** 2 / variance
-                    )  # Shape: (batch_size, num_samples, action_dim)
+                    variance = jnp.exp(2 * log_stds)
+                    log_prob = -0.5 * (jnp.log(2 * jnp.pi) + 2 * log_stds + ((actions - means) ** 2) / variance)
+                    print("means", means.shape, "logstds", log_stds.shape, "actions", actions.shape, "act_logits", act_logits.shape, "action_dim", action_dim, "log_prob", log_prob.shape)
+                    log_prob = jnp.squeeze(log_prob.sum(axis=2), axis=-1)
                     
-                    print("ear", log_prob)
-                
-                    log_prob = log_prob.sum(axis=2)  
-                    
-                print("pol_out", act_logits.shape, "means ", means.shape, "std ", log_stds.shape,"actions ", actions.shape, "logstds", log_prob.shape)
+                # print("pol_out", act_logits.shape, "means ", means.shape, "std ", log_stds.shape,"actions ", actions.shape, "logstds", log_prob.shape)
                 return log_prob
             
-            # def gaussian_log_prob(actions, act_logits):
-                
-                
-            #     action_dim = act_logits.shape[-1] // 2
-            #     means = act_logits[..., :action_dim].squeeze()
-            #     log_stds = act_logits[..., action_dim:].squeeze()
-                
-                
-            #     # Clip log_stds for numerical stability
-            #     log_stds = jnp.clip(log_stds, -20.0, 2.0)
-                
-                
-                
-            #     variance = jnp.exp(2 * log_stds)
-            #     log_prob = -0.5 * (
-            #         jnp.log(2 * jnp.pi)
-            #         + 2 * log_stds
-            #         + (actions - means) ** 2 / variance
-            #     )
-                
-            #     print("pol_out", act_logits.shape, "means ", means.shape, "std ", log_stds.shape,"actions ", actions.shape, "logstds", log_prob.shape)
-                
-            #     return log_prob
-
-            logprobs = gaussian_log_prob(actions, actor_preds)
+         
+            print("hell ueah", actions.shape, actor_preds.shape)
+            logprobs = gaussian_log_prob("batch", actions, actor_preds)
+            # logprobs = gaussian_log_prob("sampling", actions, actor_preds)
+            # jax.debug.print("logprobs {} \nlog_2 {}", logprobs, logprobs_2)
             
             # print("whats he logging", logprobs.shape)
             # print("probably", logprobs.shape)
@@ -166,7 +137,11 @@ class PPOAgent(BaseAgent):
                 # B,T=mb_actions.shape
                 # newlogprobs=jax.nn.log_softmax(logits_new).reshape(B*T,-1)
                 # newlogprobs=newlogprobs[jnp.arange(B*T),mb_actions.reshape(-1)].reshape(B,T)
-                newlogprobs = gaussian_log_prob(mb_actions, logits_new)
+                # print("actions", mb_actions.shape, "logits", logits_new.shape)
+                newlogprobs = gaussian_log_prob("batch", mb_actions, logits_new)
+                # newlogprobs_2 = gaussian_log_prob("sampling", mb_actions, logits_new)
+                # print("mb_actions", mb_actions.shape, "logits.shape", logits_new.shape)
+                # jax.debug.print("logprobs {} \nlog_2 {}", newlogprobs, newlogprobs_2)
                 # normalize the logits https://gregorygundersen.com/blog/2020/02/09/log-sum-exp/
                 
                 
@@ -184,7 +159,7 @@ class PPOAgent(BaseAgent):
                 if self.norm_adv:
                     mb_advantages = (mb_advantages - mb_advantages.mean()) / (mb_advantages.std() + 1e-8)
                     
-                print("logits", logits_new.shape, "logp", newlogprobs.shape, "entropy", entropy.shape, "mb", mb_logp.shape, "ratio", ratio.shape, "adv", mb_advantages.shape, "returns", mb_returns.shape)
+                # print("logits", logits_new.shape, "logp", newlogprobs.shape, "entropy", entropy.shape, "mb", mb_logp.shape, "ratio", ratio.shape, "adv", mb_advantages.shape, "returns", mb_returns.shape)
 
                 # Policy loss
                 pg_loss1 = -mb_advantages * ratio
