@@ -31,6 +31,7 @@ class ActorCriticModel(nn.Module):
         Returns:
             _type_: _description_
         """
+        # print("We are already in the ac model")
         rep = self.repr_model(inputs)
         # TXlatent_dim, image or otherwise, they are always flattened
         rep=rep.reshape(rep.shape[0],-1)

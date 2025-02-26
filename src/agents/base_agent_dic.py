@@ -21,7 +21,7 @@ def numpy_to_jax(*args,dtype=jnp.float32):
     return jax.tree_map(lambda x: jnp.array(x,dtype=dtype),args)
 
 
-class BaseAgent:
+class BaseAgentDic:
     def __init__(self,train_envs,eval_env,rollout_len,repr_model_fn:Callable,seq_model_fn:Callable,
                         actor_fn:Callable,critic_fn:Callable,use_gumbel_sampling=False,sequence_length=None, continious_sampling=True, single_dim=False, task_name=None) -> None:
         self.env=train_envs
@@ -59,6 +59,8 @@ class BaseAgent:
             return act_logits,values,memory
         
         self.actor_critic_fn=actor_critic_fn
+        
+     
     
     
 
@@ -70,7 +72,8 @@ class BaseAgent:
         self.term_tick=jnp.full((self.env.num_envs),False)
         self.h_tickminus1=jax.tree_map(lambda x: jnp.repeat(jnp.expand_dims(x,axis=0),self.env.num_envs,axis=0),self.seq_init())
         # print("the t", self.o_tick)
-        self._params=self.ac_model.init({'params':params_key,'random':random_key},jnp.expand_dims(self.o_tick,1),jnp.expand_dims(self.term_tick,1),
+        expadned_o = self.expand_o_tick(self.o_tick)
+        self._params=self.ac_model.init({'params':params_key,'random':random_key},expadned_o,jnp.expand_dims(self.term_tick,1),#,jnp.expand_dims(self.o_tick,1),jnp.expand_dims(self.term_tick,1),
                                        self.h_tickminus1)
         def params_sum(params):
             return sum(jax.tree_util.tree_leaves(jax.tree_map(lambda x: np.prod(x.shape),params)))
@@ -83,6 +86,34 @@ class BaseAgent:
     @params.setter
     def params(self, value):
         self._params = value
+        
+    def expand_o_tick(self, o_tick):
+        return {key: jnp.expand_dims(value,1) for key, value in o_tick.items()}
+        
+    def stack_dict_obs(self, obs, dictio):
+        if len(dictio.keys()) == 0:
+            # If dictionary is empty, initialize it with the current observation
+            # print("obs", obs["actions"].shape, np.expand_dims(np.array(obs["actions"]), axis=1).shape)
+            return {key: np.expand_dims(np.array(value), axis=1) for key, value in obs.items()}
+        else:
+            # Stack the new observation with existing ones
+            for key in obs.keys():
+                if key in dictio:
+                    
+                    # print("key", key, "obs", np.expand_dims(np.array(obs[key]), axis=1).shape, "dictio", dictio[key].shape)
+                    # Append the new observation along the first axis (batch dimension)
+                    # print((dictio[key]).shape, (np.expand_dims(np.array(obs[key]), axis=1).shape))
+                    
+                    dictio[key] = np.concatenate([dictio[key], np.expand_dims(np.array(obs[key]), axis=1)], axis=1)
+                else:
+                    # If this key wasn't in the dictionary yet, initialize it
+                    # print("key", key, "obs", obs[key].shape)
+                    added_step_dim = jnp.expand_dims(obs[key], axis=1)
+                    # print("key", key, "obs", obs[key].shape, added_step_dim.shape)
+                    dictio[key] = added_step_dim
+            
+            return dictio
+        
     
     def unroll_actors(self,random_key):
         """
@@ -117,7 +148,7 @@ class BaseAgent:
         r_tick=self.r_tick
         term_tick=self.term_tick
         actions=[]
-        observations=[]
+        observations={}
         rewards=[]
         critic_preds=[]
         actor_preds=[]
@@ -127,7 +158,10 @@ class BaseAgent:
         infos=[]
         for t in range(self.rollout_len):
             #Add observation and reward and timestep tick
-            observations.append(o_tick.copy())
+            # observations.append(o_tick.copy())
+            # print("o_tick", type(o_tick), type(observations))
+            observations = self.stack_dict_obs(o_tick, observations)
+            # print(r_tick)
             rewards.append(r_tick.copy())
             terminations.append(term_tick.copy())
             random_key,model_key=jax.random.split(random_key)
@@ -137,8 +171,8 @@ class BaseAgent:
                 hiddens.append(jax.tree_map(lambda x:x,h_tickminus1))
                 hidden_indices.append(jnp.repeat(jnp.arange(t,t+self.sequence_length).reshape(1,-1),repeats=self.env.num_envs,axis=0))
             
-
-            act_logits,v_tick,htick=self.actor_critic_fn(model_key,self.params,jnp.expand_dims(o_tick,1),jnp.expand_dims(term_tick,1),
+            expanded_o = self.expand_o_tick(o_tick)
+            act_logits,v_tick,htick=self.actor_critic_fn(model_key,self.params,expanded_o,jnp.expand_dims(term_tick,1),#jnp.expand_dims(o_tick,1),jnp.expand_dims(term_tick,1),
                                                          h_tickminus1)
             
             def sampling_differ(task, act_logits, random_key):
@@ -187,13 +221,12 @@ class BaseAgent:
                     log_stds = jnp.clip(log_stds, -20.0, 2.0)
                     stds = jnp.exp(log_stds)
                     
-                    print("means", means.shape, "log_stds", log_stds.shape)
+                    # print("means", means.shape, "log_stds", log_stds.shape)
 
                     #samples the actions
                     noise = jax.random.normal(random_key, shape=means.shape)  # shape: (parallel_env, batch_size, action_dim)
                     acts_tick = means + noise * stds  # shape: (parallel_env, batch_size, action_dim)
                 elif task == "expanded_samp":  
-                    
                     # print("pol_output", act_logits.shape)
                     means, log_stds, weight_logits = jnp.split(act_logits, 3, axis=-1) # shape: (parallel_env, 1, 3 *k)
                     log_stds = jnp.clip(log_stds, -20, 2)
@@ -238,31 +271,30 @@ class BaseAgent:
                     acts_tick = chosen_means + chosen_stds * noise
                     # print("acts_tick", acts_tick.shape, )
                     
-                elif task == "mulltidim":  
-                    # print("pol_output", act_logits.shape)
-                    num_action_dims = self.eval_env.unwrapped.action_dim  # Number of action dimensions
-                    batch_size = self.eval_env.unwrapped.batch_size  # number of samples per environment
+                elif task == "multidim":  
+                    action_dim = self.eval_env.unwrapped.action_dim  # Ensure your environment defines action_dim
+
+                    # Split the policy output into means and log_stds.
+                    means, log_stds = jnp.split(act_logits, 2, axis=-1)
                     
-                    # Reshape act_logits to extract means and log_stds
-                    # Expected shape of act_logits: (parallel_env, 1, 2 * num_action_dims)
-                    # First half contains means, second half contains log_stds
-                    means = act_logits[..., :num_action_dims]  # shape: (parallel_env, 1, num_action_dims)
-                    log_stds = act_logits[..., num_action_dims:]  # shape: (parallel_env, 1, num_action_dims)
-                    log_stds = jnp.clip(log_stds, -20.0, 2.0)
+                    log_stds = jnp.clip(log_stds, -20, 2)
                     stds = jnp.exp(log_stds)
-                    
-                    # Broadcast parameters from shape (N, 1, num_action_dims) to (N, batch_size, num_action_dims)
-                    N = means.shape[0]  # number of parallel envs
-                    means = jnp.broadcast_to(means, (N, batch_size, num_action_dims))
-                    stds = jnp.broadcast_to(stds, (N, batch_size, num_action_dims))
-                    
-                    # Sample noise from a standard normal distribution for each dimension
-                    noise = jax.random.normal(random_key, shape=means.shape)  # shape: (N, batch_size, num_action_dims)
-                    
-                    # Compute the final sampled actions
-                    # Shape: (parallel_env, batch_size, num_action_dims)
-                    acts_tick = means + noise * stds
-                    # print("acts_tick", acts_tick.shape)
+
+                    batch_size = self.eval_env.unwrapped.batch_size  # number of samples per environment
+
+                    # Get the number of parallel environments.
+                    N = means.shape[0]
+
+                    # Broadcast parameters to match the batch size.
+                    # New shape becomes (N, batch_size, action_dim)
+                    means = jnp.broadcast_to(means, (N, batch_size, action_dim))
+                    stds = jnp.broadcast_to(stds, (N, batch_size, action_dim))
+                    # Sample noise from a standard normal distribution matching the shape.
+                    noise = jax.random.normal(random_key, shape=means.shape)
+
+                    # Compute the final sampled actions.
+                    acts_tick = means + stds * noise
+
                     
                     return acts_tick
                    
@@ -296,6 +328,9 @@ class BaseAgent:
             elif self.task == "expanded_samp":
                 # print("multibatch")
                 acts_tick = sampling_differ("expanded_samp", act_logits, random_key)    
+            elif self.task == "multidim":
+                # print("multibatch")
+                acts_tick = sampling_differ("multidim", act_logits, random_key)    
             
                 
             
@@ -329,12 +364,18 @@ class BaseAgent:
             term_tick=term_tickplus1
             self.tick+=1
         #add the last observation and reward
-        observations.append(o_tick)
+        
+        # def stack_dict_obs(o_tick):
+            
+        
+        # observations.append(o_tick)
+        observations = self.stack_dict_obs(o_tick, observations)
         rewards.append(r_tick)
         terminations.append(term_tick)
         #get the value for timestep (tick+rollout_len+1), we need this to do bootstrapping
         random_key,model_key=jax.random.split(random_key)
-        _,v_tick,_=self.actor_critic_fn(model_key,self.params,jnp.expand_dims(o_tick,1),jnp.expand_dims(term_tick,1),h_tickminus1)
+        expanded_o = self.expand_o_tick(o_tick)
+        _,v_tick,_=self.actor_critic_fn(model_key,self.params,expanded_o,jnp.expand_dims(term_tick,1),h_tickminus1)#jnp.expand_dims(o_tick,1),jnp.expand_dims(term_tick,1),h_tickminus1)
         critic_preds.append(v_tick)
         #Update to timestep
         self.o_tick=o_tick.copy()
@@ -343,11 +384,12 @@ class BaseAgent:
         self.term_tick=term_tick.copy()
         #Shape is num_actorsXrollout_lenX*...
         hidden_stacked=jax.tree_map(lambda *args: jnp.stack(args,1), *hiddens)
-        # print("len o", len(observations), observations[0].shape, (jnp.stack(observations,1)).shape)
-        # print("len pred", len(actor_preds), actor_preds[0].shape, (jnp.stack(actor_preds,1)).shape)
         
+        
+       
         return Namespace(**{
-            'observations':jnp.stack(observations,1),
+            # 'observations':jnp.stack(observations,1),
+            'observations': observations,
             'actions':jnp.stack(actions,1),
             'rewards':jnp.stack(rewards,1),
             'terminations':jnp.stack(terminations,1),

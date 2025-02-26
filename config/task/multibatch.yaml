@@ -1,0 +1,4 @@
+task: multibatch
+name: multibatch
+view_size: 2
+max_steps: null

@@ -1,0 +1,4 @@
+task: masked
+name: masked
+view_size: 2
+max_steps: null

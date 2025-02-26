@@ -37,6 +37,9 @@ task_to_trainer={
     'sampling':ControlTrainer,
     'multi':ControlTrainer,
     'batch':ControlTrainer,
+    'multibatch':ControlTrainer,
+    'expanded_samp':ControlTrainer,
+    'multidim':ControlTrainer,
 }
 
 @hydra.main(version_base=None, config_path="config", config_name="sampling_test")
@@ -44,7 +47,7 @@ def main(config: DictConfig):
     logger.info("Starting Job for Config:\n"+str(OmegaConf.to_yaml(config)))
     tags=config.tags.split(',') if config.tags is not None else []
     if config.use_wandb:
-        run = wandb.init(project=config.project_name,tags=tags,settings=wandb.Settings(start_method="fork"),config=OmegaConf.to_container(config))
+        run = wandb.init(project=config.project_name,tags=tags,settings=wandb.Settings(start_method="spawn"),config=OmegaConf.to_container(config))
     else:
         run=None
     key=jax.random.PRNGKey(config.seed)

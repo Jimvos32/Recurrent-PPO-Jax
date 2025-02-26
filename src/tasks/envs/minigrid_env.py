@@ -6,8 +6,10 @@ from gymnasium.wrappers import TransformObservation
 from gymnasium import spaces
 from minigrid.wrappers import RGBImgPartialObsWrapper,ImgObsWrapper,ObservationWrapper,OneHotPartialObsWrapper
 from src.tasks.envs.sample_env import SampleEnv
-from src.tasks.envs.multi_dim_env import MultivariatePolyEnv
+from src.tasks.envs.multi_dim_env import NextMultiEnv
 from src.tasks.envs.multi_batch_env import MultiSampleEnv
+from src.tasks.envs.multi_dimensional_env import MultiDimEnv
+from src.tasks.envs.multi_dimensional_mask import MultiMask
 
 class ViewSizeWrapper(ObservationWrapper):
     """
@@ -94,7 +96,7 @@ def create_sampling_env(**kwargs):
     return env
 
 def create_multi_dim_env(**kwargs):
-    env = MultivariatePolyEnv(env_config=kwargs)
+    env = NextMultiEnv(env_config=kwargs)
 
     # Apply wrappers
     env = TransformObservation(env, lambda obs: obs.astype(np.float32))
@@ -106,5 +108,29 @@ def create_multi_batch_env(**kwargs):
 
     # Apply wrappers
     env = TransformObservation(env, lambda obs: obs.astype(np.float32))
+    
+    return env
+
+def create_mbatch(**kwargs):
+    env = NextMultiEnv(env_config=kwargs)
+
+    # Apply wrappers
+    env = TransformObservation(env, lambda obs: obs.astype(np.float32))
+    
+    return env
+
+def create_multi_dim(**kwargs):
+    env = MultiDimEnv(env_config=kwargs)
+
+    # Apply wrappers
+    env = TransformObservation(env, lambda obs: obs)
+    
+    return env
+
+def create_masked(**kwargs):
+    env = MultiMask(env_config=kwargs)
+
+    # Apply wrappers
+    env = TransformObservation(env, lambda obs: obs)
     
     return env

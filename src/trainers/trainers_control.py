@@ -10,7 +10,7 @@ import logging
 from argparse import Namespace
 from src.trainers.base_trainer import BaseTrainer
 from collections import OrderedDict
-from src.tasks.envs.minigrid_env import create_minigrid_env_onehot,create_minigrid_env_pixel, create_sampling_env, create_multi_dim_env, create_multi_batch_env
+from src.tasks.envs.minigrid_env import create_minigrid_env_onehot,create_minigrid_env_pixel, create_sampling_env, create_multi_dim_env, create_multi_batch_env, create_mbatch, create_multi_dim
 from src.agents.a2c import A2CAgent
 from src.agents.ppo import PPOAgent
 from src.model_fns import *
@@ -42,9 +42,29 @@ def get_env_initializers(env_config):
         repr_fn=mlp_repr_model()
         return env_fn,env_fn,repr_fn
     elif env_config['task']=='batch':
-        print("config", env_config)
+        # print("config", env_config)
         env_fn=lambda: create_multi_batch_env(**env_config)
         repr_fn=mlp_repr_model()
+        return env_fn,env_fn,repr_fn
+    elif env_config['task']=='multibatch':
+        # print("config", env_config)
+        env_fn=lambda: create_mbatch(**env_config)
+        repr_fn=mlp_repr_model()
+        return env_fn,env_fn,repr_fn
+    elif env_config['task']=='expanded_samp':
+        # print("config", env_config)
+        env_fn=lambda: create_mbatch(**env_config)
+        repr_fn=mlp_repr_model()
+        return env_fn,env_fn,repr_fn
+    elif env_config['task']=='multidim':
+        # print("config", env_config)
+        env_fn=lambda: create_multi_dim(**env_config)
+        repr_fn=dict_unpack_model()
+        return env_fn,env_fn,repr_fn
+    elif env_config['task']=='masked':
+        # print("config", env_config)
+        env_fn=lambda: create_multi_dim(**env_config)
+        repr_fn=dict_unpack_mask()
         return env_fn,env_fn,repr_fn
 
 class ControlTrainer(BaseTrainer):
@@ -91,12 +111,17 @@ class ControlTrainer(BaseTrainer):
         train_seeds=np.random.randint(0,9999,size=self.num_envs,dtype=int).tolist()
         eval_seeds=int(np.random.randint(0,9999,size=1,dtype=int))
         env_type=kwargs['trainer_config'].get('env_pool','async')
+        print("env type", env_type)
         if env_type=='async':
             import functools
+            # print("okay we are here")
+            # env_type=CustomAsyncVectorEnv
             env_type=gym.vector.AsyncVectorEnv
         elif env_type=='sync':
             env_type=gym.vector.SyncVectorEnv
         train_envs=env_type([lambda: EpisodeStatisticsWrapper(AutoResetWrapper((env_fn())))for seed in train_seeds],shared_memory=False)
+       
+
         eval_env=RecordRollout(AutoResetWrapper(eval_env_fn()))
         train_envs.reset(seed=train_seeds)
         eval_env.reset(seed=eval_seeds)
@@ -112,11 +137,21 @@ class ControlTrainer(BaseTrainer):
         elif self.trainer_config.seq_model.name=='gtrxl':
             model_fn=seq_model_gtrxl(**self.trainer_config['seq_model'])
             
+            
+        # print("hi my name is ", eval_env.name)
+        name = eval_env.unwrapped.name
+            
         if isinstance(eval_env.action_space, gym.spaces.Discrete):
             actor_fn = actor_model_discete(self.trainer_config['d_actor'],eval_env.action_space.n)
-        elif isinstance(eval_env.action_space, gym.spaces.Box):
-            print("environment action space", eval_env.action_space.shape)
+        elif name == "sampling" or name == "batch":
+            # print("environment action space", eval_env.action_space.shape)
             actor_fn = actor_model_continuous(self.trainer_config['d_actor'], eval_env.action_space.shape)
+        elif name == "expanded_samp":
+            # print ("we doing the weird side step")
+            actor_fn = actor_model_gmm(self.trainer_config['d_actor'], self.trainer_config['sample_distribution'])
+        elif name == "multidim":
+            # print ("secondary")
+            actor_fn = actor_model_continuous(self.trainer_config['d_actor'], (eval_env.unwrapped.action_dim, 0))
 
         critic_fn=critic_model(self.trainer_config['d_critic'])
         #Setup optimizer
@@ -152,7 +187,7 @@ class ControlTrainer(BaseTrainer):
                                 ),
                             )
             
-            print("config", self.trainer_config, "env",self.env_config)
+            # print("config", self.trainer_config, "env",self.env_config)
             self.agent=PPOAgent(train_envs=train_envs,eval_env=eval_env,optimizer=self.optimizer, repr_model_fn=repr_fn,
                                 seq_model_fn=model_fn,actor_fn=actor_fn,critic_fn=critic_fn,
                                 num_steps=self.rollout_len,
