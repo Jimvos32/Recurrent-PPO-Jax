@@ -238,7 +238,7 @@ class BaseAgent:
                     acts_tick = chosen_means + chosen_stds * noise
                     # print("acts_tick", acts_tick.shape, )
                     
-                elif task == "mulltidim":  
+                elif task == "multidim":  
                     # print("pol_output", act_logits.shape)
                     num_action_dims = self.eval_env.unwrapped.action_dim  # Number of action dimensions
                     batch_size = self.eval_env.unwrapped.batch_size  # number of samples per environment
@@ -262,9 +262,39 @@ class BaseAgent:
                     # Compute the final sampled actions
                     # Shape: (parallel_env, batch_size, num_action_dims)
                     acts_tick = means + noise * stds
+                    print("acts_tick", acts_tick.shape)
+                    
+                elif task == "masked":  
+                    # print("pol_output", act_logits.shape)
+                    num_action_dims = self.eval_env.unwrapped.action_dim  # Number of action dimensions
+                    batch_size = self.eval_env.unwrapped.batch_size  # number of samples per environment
+                    
+                    masks = actions["mask"]
+                    print("mask for your", masks.shape)
+                    
+                    # Reshape act_logits to extract means and log_stds
+                    # Expected shape of act_logits: (parallel_env, 1, 2 * num_action_dims)
+                    # First half contains means, second half contains log_stds
+                    means = act_logits[..., :num_action_dims]  # shape: (parallel_env, 1, num_action_dims)
+                    log_stds = act_logits[..., num_action_dims:]  # shape: (parallel_env, 1, num_action_dims)
+                    log_stds = jnp.clip(log_stds, -20.0, 2.0)
+                    stds = jnp.exp(log_stds)
+                    
+                    # Broadcast parameters from shape (N, 1, num_action_dims) to (N, batch_size, num_action_dims)
+                    N = means.shape[0]  # number of parallel envs
+                    means = jnp.broadcast_to(means, (N, batch_size, num_action_dims))
+                    stds = jnp.broadcast_to(stds, (N, batch_size, num_action_dims))
+                    
+                    # Sample noise from a standard normal distribution for each dimension
+                    noise = jax.random.normal(random_key, shape=means.shape)  # shape: (N, batch_size, num_action_dims)
+                    
+                    # Compute the final sampled actions
+                    # Shape: (parallel_env, batch_size, num_action_dims)
+                    acts_tick = means + noise * stds
+                    
                     # print("acts_tick", acts_tick.shape)
                     
-                    return acts_tick
+                    # return acts_tick
                    
 
                     
@@ -296,6 +326,12 @@ class BaseAgent:
             elif self.task == "expanded_samp":
                 # print("multibatch")
                 acts_tick = sampling_differ("expanded_samp", act_logits, random_key)    
+            elif self.task == "multidim":
+                # print("multibatch")
+                acts_tick = sampling_differ("multidim", act_logits, random_key)  
+            elif self.task == "masked":
+                # print("multibatch")
+                acts_tick = sampling_differ("masked", act_logits, random_key)    
             
                 
             

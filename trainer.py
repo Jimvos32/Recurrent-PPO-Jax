@@ -40,9 +40,10 @@ task_to_trainer={
     'multibatch':ControlTrainer,
     'expanded_samp':ControlTrainer,
     'multidim':ControlTrainer,
+    'masked':ControlTrainer,
 }
 
-@hydra.main(version_base=None, config_path="config", config_name="sampling_test")
+@hydra.main(version_base=None, config_path="config", config_name="multi_config")
 def main(config: DictConfig):
     logger.info("Starting Job for Config:\n"+str(OmegaConf.to_yaml(config)))
     tags=config.tags.split(',') if config.tags is not None else []
@@ -59,6 +60,8 @@ def main(config: DictConfig):
     #Train the model
     kwargs={'global_args':config,'trainer_config':trainer_config,'env_config':env_config,
             'seed':config.seed,'key':key,'wandb_run':run}
+    
+   
     
     trainer=task_to_trainer[env_config['task']](**kwargs)
     pbar = tqdm(total=config.steps)

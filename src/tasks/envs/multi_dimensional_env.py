@@ -12,7 +12,7 @@ class MultiDimEnv(gym.Env):
         f(x) = a * x^2 + b * x + c
     The peak (maximum) of the function varies across episodes.
     """
-    def __init__(self, env_config=None, x_range=(-10, 10), max_episode_steps=12, batch_size=3, action_dim=3, degree=2):
+    def __init__(self, env_config=None, x_range=(-2, 2), max_episode_steps=1, batch_size=12, action_dim=2, degree=2):
         super(MultiDimEnv, self).__init__()
         
         # Define the allowed range for x values.
@@ -21,7 +21,7 @@ class MultiDimEnv(gym.Env):
         self.batch_size = batch_size
         self.action_dim = action_dim
         self.name = env_config['task']
-        self.degree=2
+        self.degree=degree
         
         # Action space: now a batch of continuous x values.
         self.action_space = spaces.Box(
@@ -55,6 +55,8 @@ class MultiDimEnv(gym.Env):
         
         self.tick = 0
         self.raw_rewards = []
+        self.scaled_rewards = []
+        self.best_rewards = []
         self.resetted = 0
         
         # Initialize state and x.
@@ -70,19 +72,19 @@ class MultiDimEnv(gym.Env):
     
     def shift_polynomial(self):
         # Randomize the maximum location uniformly for each dimension.
-        # self.x_max = np.random.uniform(self.x_range[0], self.x_range[1], size=(1,self.action_dim))
-        # # Randomize the constant such that f(x_max) = c, and weights.
-        # self.c = np.random.uniform(5.0, 20.0)
-        # self.weights = np.random.uniform(0.5, 2.0, size=(self.action_dim,))
-        self.x_max = np.random.uniform(0.0, 0.0, size=(1,self.action_dim))
+        self.x_max = np.random.uniform(self.x_range[0], self.x_range[1], size=(1,self.action_dim))
         # Randomize the constant such that f(x_max) = c, and weights.
-        self.c = np.random.uniform(10.0, 10.0)
-        self.weights = np.random.uniform(3.0, 3.0, size=(self.action_dim,))
+        self.c = np.random.uniform(5.0, 20.0)
+        self.weights = np.random.uniform(0.5, 2.0, size=(self.action_dim,))
+        # self.x_max = np.random.uniform(0.0, 0.0, size=(1,self.action_dim))
+        # # Randomize the constant such that f(x_max) = c, and weights.
+        # self.c = np.random.uniform(10.0, 10.0)
+        # self.weights = np.random.uniform(3.0, 3.0, size=(self.action_dim,))
     
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
         # Optionally shift polynomial parameters if desired.
-        # self.shift_polynomial()
+        self.shift_polynomial()
         
         # Sample a batch of random x values within the allowed range.
         self.x = np.random.uniform(self.x_range[0], self.x_range[1], size=(self.batch_size, self.action_dim))
@@ -94,13 +96,16 @@ class MultiDimEnv(gym.Env):
         self.state = jnp.expand_dims(self.state, axis=-1)
         self.state = self.state.reshape(self.batch_size, 1)
         
-        reward = jnp.sum(-jnp.abs(self.max_y - y))#, axis=0)  # elementwise operation over the batch
         
+        reward = jnp.sum(-jnp.abs(self.max_y - y))#, axis=0)  # elementwise operation over the batch
+        s_reward = reward / self.batch_size
         reward = jnp.expand_dims(reward, axis=-1)
         # comb = np.concatenate([self.x, self.state], axis=-1)
         
         self.tick = 0
         self.raw_rewards = []
+        self.scaled_rewards = []
+        self.best_rewards = [s_reward]
         self.resetted += 1
         
         # print(self.x.shape, self.state.shape, reward.shape)
@@ -129,6 +134,7 @@ class MultiDimEnv(gym.Env):
         # print("action", action, "x", self.x, "state", self.state, "\n")
         # print("actuibs", action.shape)
         # print("actions", action.shape)
+        # action = np.random.uniform(self.x_range[0], self.x_range[1], size=(self.batch_size, self.action_dim))
         
         action = jnp.reshape(action, (self.batch_size, self.action_dim))
         # assert action.shape == (self.batch_size, 1), f"Expected shape {(self.batch_size, 1)}, got {action.shape}"
@@ -147,9 +153,12 @@ class MultiDimEnv(gym.Env):
         # The peak value is computed from self.x_max (a scalar) so the difference is broadcast.
         reward = jnp.sum(-jnp.abs(self.max_y - y))  # elementwise operation over the batch
         e_reward = jnp.expand_dims(reward, axis=0)
-        
+        s_reward = reward / self.batch_size
         
         self.raw_rewards.append(reward)
+        self.scaled_rewards.append(s_reward)
+        if self.best_rewards[0] < s_reward:
+            self.best_rewards[0] = s_reward
         # print("reward", reward.shape, self.max_y.shape, y.shape, (-jnp.abs(self.max_y - y)).shape, e_reward.shape)
 
         
@@ -166,9 +175,13 @@ class MultiDimEnv(gym.Env):
             total_reward = jnp.sum(jnp.array(self.raw_rewards), axis=0)
             info["reward_per_episode"] = total_reward
             info["rewards"] = self.raw_rewards
+            info["s_rewards"] = self.scaled_rewards
+            info["best_rewards"] = self.best_rewards
             # Reset tick and rewards for the next episode.
             self.tick = 0
             self.raw_rewards = []
+            self.scaled_rewards = []
+            self.best_rewards = []
             
         # reward = jnp.expand_dims(reward, axis=-1)
             

@@ -101,8 +101,9 @@ class BaseAgentDic:
                 if key in dictio:
                     
                     # print("key", key, "obs", np.expand_dims(np.array(obs[key]), axis=1).shape, "dictio", dictio[key].shape)
-                    # Append the new observation along the first axis (batch dimension)
-                    # print((dictio[key]).shape, (np.expand_dims(np.array(obs[key]), axis=1).shape))
+                    # # Append the new observation along the first axis (batch dimension)
+                    # print("dict", (dictio[key]).shape, (np.expand_dims(np.array(obs[key]), axis=1).shape))
+                    
                     
                     dictio[key] = np.concatenate([dictio[key], np.expand_dims(np.array(obs[key]), axis=1)], axis=1)
                 else:
@@ -175,7 +176,10 @@ class BaseAgentDic:
             act_logits,v_tick,htick=self.actor_critic_fn(model_key,self.params,expanded_o,jnp.expand_dims(term_tick,1),#jnp.expand_dims(o_tick,1),jnp.expand_dims(term_tick,1),
                                                          h_tickminus1)
             
-            def sampling_differ(task, act_logits, random_key):
+            # print("expanded_o", expanded_o["mask"].shape)
+            masks = expanded_o["mask"]
+            
+            def sampling_differ(task, act_logits,random_key,  masks=None):
                 if task == "batch":
                     # act_logits: shape (parallel_env, 1, 2 * action_dim)
                     batch_size = self.eval_env.unwrapped.batch_size  # number of samples per env
@@ -297,14 +301,69 @@ class BaseAgentDic:
 
                     
                     return acts_tick
+                
+                elif task == "masked":  
+                    
+                    def apply_padding_mask(expanded_array, padding_counts, pad_value=-2.0):
+                        x, n, z = expanded_array.shape
+                        
+                        # Create indices for each position in the batch dimension
+                        batch_indices = jnp.arange(n)
+                        
+                        # Reshape padding_counts and broadcast for comparison
+                        counts_expanded = padding_counts.reshape(x, 1)
+                        
+                        # Create a mask where True means we should keep the original value
+                        # and False means we should pad
+                        mask = batch_indices < counts_expanded
+                        
+                        # Expand the mask to match the full shape
+                        full_mask = jnp.broadcast_to(mask.reshape(x, n, 1), (x, n, z))
+                        
+                        # Apply the mask using where to conditionally select values
+                        result = jnp.where(full_mask, expanded_array, pad_value)
+                        
+                        return result
+                    
+                  
+                    action_dim = self.eval_env.unwrapped.action_dim  # Ensure your environment defines action_dim
+
+                    # Split the policy output into means and log_stds.
+                    means, log_stds = jnp.split(act_logits, 2, axis=-1)
+                    
+                    log_stds = jnp.clip(log_stds, -20, 2)
+                    stds = jnp.exp(log_stds)
+
+                    batch_size = self.eval_env.unwrapped.max_batches  # number of samples per environment
+                    
+
+                    # Get the number of parallel environments.
+                    N = means.shape[0]
+                    
+               
+                    # Broadcast parameters to match the batch size.
+                    # New shape becomes (N, batch_size, action_dim)
+                    means = jnp.broadcast_to(means, (N, batch_size, action_dim))
+                    stds = jnp.broadcast_to(stds, (N, batch_size, action_dim))
+                    
+                    #Should expand into (N, max_size, action_dim) with the extra (max_size - batch_size) padded with zeros
+                    
+                    # Sample noise from a standard normal distribution matching the shape.
+                    noise = jax.random.normal(random_key, shape=means.shape)
+
+                    # Compute the final sampled actions.
+                    acts_tick = means + stds * noise
+                    # print("acts_tick", acts_tick.shape)
+                    # print("masked", acts_tick.shape)
+                    acts_tick = jnp.tanh(acts_tick)
+                    
+                    padded_acts = apply_padding_mask(acts_tick, masks)
+                    # jax.debug.print("pad {}\nmask {}\nact {}\n",padded_acts[0], masks[0], acts_tick[0])
+                    # jax.debug.print("masked {}\n{}", acts_tick[0], acts_tick_2[0])
+                    return padded_acts
                    
 
                     
-
-                    
-                    
-                    
-                
                 return acts_tick
             
             
@@ -331,6 +390,9 @@ class BaseAgentDic:
             elif self.task == "multidim":
                 # print("multibatch")
                 acts_tick = sampling_differ("multidim", act_logits, random_key)    
+            elif self.task == "masked":
+                # print("multibatch")
+                acts_tick = sampling_differ("masked", act_logits, random_key, masks=masks)    
             
                 
             
@@ -413,13 +475,22 @@ class BaseAgentDic:
         #Initialize zero hidden state at the start of each episode, shape is infered from the hidden state of the first environment
         h_tickminus1=jax.tree_map(lambda x:jnp.expand_dims(jnp.zeros(x[0].shape),0) ,self.h_tickminus1)
         for i in tqdm.tqdm(range(eval_episodes)):
-            done=False
+            done=True
             rewards=[]
             
             while not done:
                 #Take a step in the environment
                 random_key,model_key=jax.random.split(random_key)
-                act_logits,v_tick,htick=self.actor_critic_fn(model_key,self.params,jnp.expand_dims(o_tick,axis=(0,1)),term_tick,h_tickminus1)
+                
+                thisone = self.expand_o_tick(o_tick)
+                # print("expanded_o", expanded_o)
+                # for a in expanded_o.keys():
+                #     print(a, expanded_o[a].shape)
+                #     print(a, o_tick[a].shape)
+                # print(expanded_o["actions"].shape)
+                print("o_tick", o_tick)
+                
+                act_logits,v_tick,htick=self.actor_critic_fn(model_key,self.params,thisone,term_tick,h_tickminus1)
                 if hasattr(self,'arg_max') and self.arg_max:
                     acts_tick=jnp.argmax(act_logits,axis=-1)
                 else:
@@ -437,6 +508,7 @@ class BaseAgentDic:
                 rewards.append(r_tick)
                 h_tickminus1=htick
             #Get the rollout frames
+            info['']
             rollouts.append(info['frames'])
             episode_lens.append(len(rewards))
             rewards=jnp.array(rewards,dtype=jnp.float32)

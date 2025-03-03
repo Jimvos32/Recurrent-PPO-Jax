@@ -1,4 +1,5 @@
 task: multidim
 name: multidim
 view_size: 2
-max_steps: null
+max_steps: 12
+

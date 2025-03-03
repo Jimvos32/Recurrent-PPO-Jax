@@ -3,6 +3,7 @@ from gymnasium import spaces
 import numpy as np
 import jax.numpy as jnp
 from gymnasium.spaces.utils import flatten, unflatten
+import jax
 
 
 
@@ -12,18 +13,17 @@ class MultiMask(gym.Env):
         f(x) = a * x^2 + b * x + c
     The peak (maximum) of the function varies across episodes.
     """
-    def __init__(self, env_config=None, x_range=(-10, 10), max_episode_steps=12, batches=[2,3], action_dim=3, degree=2):
+    def __init__(self, env_config=None):
         super(MultiMask, self).__init__()
-        
         # Define the allowed range for x values.
-        self.x_range = x_range
-        self.max_episode_steps = max_episode_steps
-        self.batches = batches
-        self.max_batches = np.max(batches)
-        self.current_batch = self.max_batches
-        self.action_dim = action_dim
+        self.x_range = env_config["bounds"]
+        self.max_episode_steps = env_config["max_episode_steps"]
+        self.batches = env_config["batches"]
+        self.max_batches = np.max(self.batches)
+        self.batch_size = self.max_batches
+        self.action_dim = env_config['action_dim']
         self.name = env_config['task']
-        self.degree=2
+        self.degree=env_config['degree']
         
         # Action space: now a batch of continuous x values.
         self.action_space = spaces.Box(
@@ -62,6 +62,11 @@ class MultiMask(gym.Env):
         
         self.tick = 0
         self.raw_rewards = []
+        self.scaled_rewards = []
+        self.best_rewards = []
+        self.scaled_diff = []
+        self.scaled_obs = []
+        self.mse = []
         self.resetted = 0
         
         # Initialize state and x.
@@ -70,6 +75,9 @@ class MultiMask(gym.Env):
         
         # Initialize polynomial parameters.
         self.x_max = None
+        self.y_min = None
+        self.max_y = None
+        
         self.c = None
         self.weights = None
         self.mask = None
@@ -78,25 +86,27 @@ class MultiMask(gym.Env):
     
     def shift_polynomial(self):
         # Randomize the maximum location uniformly for each dimension.
-        # self.x_max = np.random.uniform(self.x_range[0], self.x_range[1], size=(1,self.action_dim))
-        # # Randomize the constant such that f(x_max) = c, and weights.
-        # self.c = np.random.uniform(5.0, 20.0)
-        # self.weights = np.random.uniform(0.5, 2.0, size=(self.action_dim,))
-        self.batches = np.random.choice(self.batches)
-        
-        self.x_max = np.random.uniform(0.0, 0.0, size=(1,self.action_dim))
+        self.x_max = np.random.uniform(self.x_range[0], self.x_range[1], size=(1,self.action_dim))
         # Randomize the constant such that f(x_max) = c, and weights.
-        self.c = np.random.uniform(10.0, 10.0)
-        self.weights = np.random.uniform(3.0, 3.0, size=(self.action_dim,))
+        self.c = np.random.uniform(5.0, 20.0)
+        self.weights = np.random.uniform(0.5, 2.0, size=(self.action_dim,))
+        
+     
     
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
+        
         # Optionally shift polynomial parameters if desired.
         # self.shift_polynomial()
+        self.batch_size = np.random.choice(self.batches)
         
+       
         # Sample a batch of random x values within the allowed range.
         self.x = np.random.uniform(self.x_range[0], self.x_range[1], size=(self.max_batches, self.action_dim))
+        # print(self.batch_size, "-1")
         y = self.compute_y(self.x)
+        # print(self.batch_size, "0")
+        self.y_min = self.find_minimum()
         self.max_y = self.compute_y(self.x_max)
         # print("resetting the params", self.x.shape, y.shape, "\n")
         self.state = jnp.array(y, dtype=jnp.float32)
@@ -104,23 +114,35 @@ class MultiMask(gym.Env):
         self.state = jnp.expand_dims(self.state, axis=-1)
         self.state = self.state.reshape(self.max_batches, 1)
         
-        reward = jnp.sum(-jnp.abs(self.max_y - y))#, axis=0)  # elementwise operation over the batch
+        self.x = jnp.array(self.x, dtype=jnp.float32)
+        self.state = jnp.array(self.state, dtype=jnp.float32)
+        # self.x = self.x.at[self.batch_size:, :].set(jnp.zeros_like(self.x[self.batch_size:, :]))
+        # self.state = self.state.at[self.batch_size:, :].set(jnp.zeros_like(self.state[self.batch_size:, :]))
+        # scaled_difference = jnp.abs(self.max_y - self.state)[:self.batch_size, :] / self.batch_size 
         
+        
+        # print("action", self.max_y , "-  ", self.state, " /", self.batch_size," = ", scaled_difference)
+        # print(y.shape, self.max_y.shape, "test")
+        # print((-jnp.abs(self.max_y - y)).shape, "fas")
+        reward = jnp.sum(-jnp.abs(self.max_y - y))#, axis=0)  # elementwise operation over the batch
+        # print(self.batch_size, "2")
         reward = jnp.expand_dims(reward, axis=-1)
         # comb = np.concatenate([self.x, self.state], axis=-1)
         
         self.tick = 0
         self.raw_rewards = []
+        self.best_rewards = self.state
         self.resetted += 1
         
         # print(self.x.shape, self.state.shape, reward.shape)
-        
+        # print(self.batch_size.shape)
+        # print("joj", jnp.expand_dims(self.batch_size, axis=-1).shape)
         
         observation = {
             "actions": np.array(self.x, dtype=np.float32),
             "observations": np.array(self.state, dtype=np.float32),
             "reward": np.array(reward, dtype=np.float32),
-            "maks": np.array(self.current_batch, dtype=np.int32)
+            "mask": np.array(jnp.expand_dims(self.batch_size, axis=-1), dtype=np.int32)
         }
         # print("Observation types:", {k: type(v) for k, v in observation.items()})
         # observation = np.ones((3,2))
@@ -135,15 +157,10 @@ class MultiMask(gym.Env):
           - truncated flag (True when max_episode_steps is reached)
           - info (episode summary when truncated)
         """
-        # print("action", action)
         self.tick += 1
-        # print("action", action, "x", self.x, "state", self.state, "\n")
-        # print("actuibs", action.shape)
-        # print("actions", action.shape)
         
         action = jnp.reshape(action, (self.max_batches, self.action_dim))
-        # assert action.shape == (self.batch_size, 1), f"Expected shape {(self.batch_size, 1)}, got {action.shape}"
-        # Ensure action is a JAX array and clip each element to be within x_range.
+      
         action = jnp.array(action)
         self.x = jnp.clip(action, self.x_range[0], self.x_range[1])
         # Compute the batch of y values.
@@ -153,18 +170,48 @@ class MultiMask(gym.Env):
         self.state = jnp.expand_dims(self.state, axis=-1)
         self.state = self.state.reshape(self.max_batches, 1)
         
+        difference = self.max_y - self.state[:self.batch_size, :] 
+        squared_difference = jnp.square(difference)
         
-        # Compute reward for each sample:
-        # The peak value is computed from self.x_max (a scalar) so the difference is broadcast.
-        reward = jnp.sum(-jnp.abs(self.max_y - y))  # elementwise operation over the batch
-        e_reward = jnp.expand_dims(reward, axis=0)
+        mse = jnp.mean(squared_difference, axis=0)
+        
+        
+        # print("batch", self.batch_size, "scaled_difference", scaled_difference, "max", self.max_y, "action", self.state)
+        # print(self.state.shape, self.state[:self.batch_size, :].shape)
+        # jax.debug.print("max y {} - {} = {}", self.max_y, self.state, difference)
+       
+        e_reward = mse
+        reward = jnp.squeeze(e_reward, axis=-1)
+        
+        # regret = jnp.abs(self.max_y - self.state)
+        c = self.state[:self.batch_size, :]
+        
+        scaled_observation = (self.state[:self.batch_size, :] - self.y_min) / (self.max_y - self.y_min)
+        scaled_difference = (difference - self.y_min) / (self.max_y - self.y_min)
+        
+        # print("scaled_observation", scaled_observation.shape, "scaled_difference", scaled_difference.shape, "diff", difference.shape, c.shape)
+        
+        avg_scl_obs = jnp.mean(scaled_observation, axis=0)
+        avg_scl_diff = jnp.mean(scaled_difference, axis=0)
+        
+        
+        # print("avg_scl_obs", avg_scl_obs.shape, "avg_scl_diff", avg_scl_diff.shape)
+        
+        
+        max_sample = jnp.max(self.state, axis=0)
+        # jax.debug.print("max_sample {} {}", max_sample, self.state)
+        
+        if self.best_rewards[0] < max_sample:
+            self.best_rewards = self.best_rewards.at[0].set(max_sample)
+        
+      
         
         
         self.raw_rewards.append(reward)
-        # print("reward", reward.shape, self.max_y.shape, y.shape, (-jnp.abs(self.max_y - y)).shape, e_reward.shape)
-
-        
-        # print("action", action, "reward", reward, "y", y, "y_max", self.max_y, "x_max", self.x_max, "\n")
+        self.scaled_obs.append(avg_scl_obs)
+        self.scaled_diff.append(avg_scl_diff)
+        self.mse.append(mse)
+      
 
         done = False  # Episodes do not naturally end; only truncated.
         truncated = self.tick >= self.max_episode_steps
@@ -177,6 +224,14 @@ class MultiMask(gym.Env):
             total_reward = jnp.sum(jnp.array(self.raw_rewards), axis=0)
             info["reward_per_episode"] = total_reward
             info["rewards"] = self.raw_rewards
+            info["s_rewards"] = self.scaled_rewards
+            info["batch_mse"] = jnp.mean(jnp.array(self.mse), axis=0)
+            info["last_scaled_diff"] = avg_scl_diff
+            info["last_scaled_obs"] = avg_scl_obs
+            info["scaled_diff"] = jnp.mean(jnp.array(self.scaled_diff), axis=0)
+            info["scaled_obs"] = jnp.mean(jnp.array(self.scaled_obs), axis=0)
+            info["best_rewards"] = self.best_rewards
+            info["success"] = ((self.best_rewards[0] - self.y_min) / (self.max_y - self.y_min)) > 0.9
             # Reset tick and rewards for the next episode.
             self.tick = 0
             self.raw_rewards = []
@@ -189,7 +244,7 @@ class MultiMask(gym.Env):
             "actions": np.array(self.x, dtype=np.float32),
             "observations": np.array(self.state, dtype=np.float32),
             "reward": np.array(e_reward, dtype=np.float32),
-            "maks": np.array(self.current_batch, dtype=np.int32)
+            "mask": np.array(jnp.expand_dims(self.batch_size, axis=-1), dtype=np.int32)
 
         }
       
@@ -206,6 +261,18 @@ class MultiMask(gym.Env):
         weighted_term = self.weights * (diff ** self.degree)  # Apply weights
         result = self.c - np.sum(weighted_term, axis=1)  # Sum across dimensions
         return result.squeeze()  # Convert (1,) to scalar if needed
+    
+    def find_minimum(self):
+        # Unpack the lower and upper bounds (assumed to be scalars)
+        lower, upper = self.x_range
+        
+        # For each dimension, choose the bound that is farther from the maximum
+        # Note: self.x_max has shape (1, action_dim) and broadcasting is used here.
+        x_min = np.where((self.x_max - lower) > (upper - self.x_max), lower, upper)
+        
+        # Compute the function value at this minimum
+        y_min = self.compute_y(x_min)
+        return y_min
 
     def render(self):
         """

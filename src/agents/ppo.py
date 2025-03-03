@@ -206,6 +206,64 @@ class PPOAgent(BaseAgentDic):
                     log_prob = jnp.sum(log_prob, axis=-1)
                     # log_prob = jnp.squeeze(log_prob, axis=-1)  # Remove unnecessary singleton dimension
                     
+                elif task == "masked":
+                    
+
+
+                    epsilon = 1e-6  # small constant for numerical stability
+
+                    # Assume actions has shape (1, steps, batch_size, action_dim)
+                    # and that padded actions are indicated by -2 (all dims equal -2)
+                    # act_logits has shape (1, steps, 1, 2 * action_dim)
+                    # and we have access to batch_size and action_dim from the environment
+                    batch_size = self.eval_env.unwrapped.max_batches
+                    action_dim = self.eval_env.unwrapped.action_dim
+
+                    # Reshape act_logits to align with actions
+                    act_logits = jnp.reshape(act_logits, (actions.shape[0], act_logits.shape[1], 1, act_logits.shape[-1]))
+
+                    # Split into means and log_stds. They originally have shape (1, steps, 1, action_dim)
+                    means, log_stds = jnp.split(act_logits, 2, axis=-1)
+                    log_stds = jnp.clip(log_stds, -20, 2)
+                    stds = jnp.exp(log_stds)
+
+                    # Broadcast means and stds to shape (1, steps, batch_size, action_dim)
+                    means = jnp.broadcast_to(means, (act_logits.shape[0], act_logits.shape[1], batch_size, action_dim))
+                    stds  = jnp.broadcast_to(stds,  (act_logits.shape[0], act_logits.shape[1], batch_size, action_dim))
+
+                    variance = stds ** 2
+
+                    # Create a valid mask: for each sample, if the first action dimension equals -2, mark it as padded.
+                    # (Since tanh outputs are always in (-1,1), -2 unambiguously indicates padding.)
+                    valid_mask = (actions[..., 0] != -2)  # shape: (1, steps, batch_size)
+                    valid_mask_expanded = valid_mask[..., None]  # shape: (1, steps, batch_size, 1)
+
+                    # Invert tanh for valid actions: compute u = atanh(a). 
+                    # Use clip to ensure values are within (-1+epsilon, 1-epsilon) to avoid numerical issues.
+                    u = jnp.arctanh(jnp.clip(actions, -1 + epsilon, 1 - epsilon))
+                    # For padded actions (where valid_mask is False), set u to 0. Their contribution will be zeroed later.
+                    u = jnp.where(valid_mask_expanded, u, 0.0)
+
+                    # Compute the base Gaussian log probability for each dimension:
+                    #   log N(u | mean, std) = -0.5 * (((u - mean)**2)/variance + 2*log_std + log(2*pi))
+                    base_log_prob = -0.5 * (((u - means) ** 2) / variance + 2 * log_stds + jnp.log(2 * jnp.pi))
+                    # Sum over the action dimensions to get the total log probability for the unsquashed actions.
+                    log_prob_u = jnp.sum(base_log_prob, axis=-1)  # shape: (1, steps, batch_size)
+
+                    # Tanh squashing correction: for each action dimension subtract log(1 - a^2)
+                    # Note that since a = tanh(u) this is the proper change-of-variables term.
+                    correction = jnp.sum(jnp.log(1 - actions ** 2 + epsilon), axis=-1)  # shape: (1, steps, batch_size)
+
+                    # Final log probability
+                    log_prob = log_prob_u - correction
+
+                    # For padded samples, set the log probability to 0 so they do not contribute to gradients/loss.
+                    log_prob = jnp.where(valid_mask, log_prob, 0.0)
+                    # print("log_prob", log_prob.shape)
+                    log_prob = jnp.sum(log_prob, axis=-1)
+
+                    # log_prob = jnp.squeeze(log_prob, axis=-1)  # Remove unnecessary singleton dimension
+                    
                     # print("means", means.shape, "logstds", log_stds.shape, "actions", actions.shape, "act_logits", act_logits.shape, "log_prob", log_prob.shape, "fas", log_prob_per_dim)
                                     
                 # print("pol_out", act_logits.shape, "means ", means.shape, "std ", log_stds.shape,"actions ", actions.shape, "logstds", log_prob.shape)

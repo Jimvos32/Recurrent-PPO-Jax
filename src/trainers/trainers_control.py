@@ -10,7 +10,7 @@ import logging
 from argparse import Namespace
 from src.trainers.base_trainer import BaseTrainer
 from collections import OrderedDict
-from src.tasks.envs.minigrid_env import create_minigrid_env_onehot,create_minigrid_env_pixel, create_sampling_env, create_multi_dim_env, create_multi_batch_env, create_mbatch, create_multi_dim
+from src.tasks.envs.minigrid_env import create_minigrid_env_onehot,create_minigrid_env_pixel, create_sampling_env, create_multi_dim_env, create_multi_batch_env, create_mbatch, create_multi_dim, create_masked
 from src.agents.a2c import A2CAgent
 from src.agents.ppo import PPOAgent
 from src.model_fns import *
@@ -63,8 +63,10 @@ def get_env_initializers(env_config):
         return env_fn,env_fn,repr_fn
     elif env_config['task']=='masked':
         # print("config", env_config)
-        env_fn=lambda: create_multi_dim(**env_config)
-        repr_fn=dict_unpack_mask()
+        env_fn=lambda: create_masked(**env_config)
+        print("env_fn", env_config)
+        repr_fn=dict_unpack_mask(batch_expand_hidden=env_config["batch_expand_hidden"], 
+                                 batch_combine_hidden=env_config["batch_combine_hidden"], step_expand_hidden=env_config["step_expand_hidden"], input_combine_hidden=env_config["input_combine_hidden"])
         return env_fn,env_fn,repr_fn
 
 class ControlTrainer(BaseTrainer):
@@ -111,7 +113,7 @@ class ControlTrainer(BaseTrainer):
         train_seeds=np.random.randint(0,9999,size=self.num_envs,dtype=int).tolist()
         eval_seeds=int(np.random.randint(0,9999,size=1,dtype=int))
         env_type=kwargs['trainer_config'].get('env_pool','async')
-        print("env type", env_type)
+        # print("env type", env_type)
         if env_type=='async':
             import functools
             # print("okay we are here")
@@ -150,8 +152,11 @@ class ControlTrainer(BaseTrainer):
             # print ("we doing the weird side step")
             actor_fn = actor_model_gmm(self.trainer_config['d_actor'], self.trainer_config['sample_distribution'])
         elif name == "multidim":
-            # print ("secondary")
             actor_fn = actor_model_continuous(self.trainer_config['d_actor'], (eval_env.unwrapped.action_dim, 0))
+        elif name == "masked":
+            print(self.trainer_config)
+            actor_fn = actor_model_continuous_params(self.trainer_config['d_actor'], list(self.trainer_config['actor_params_hidden']) + [eval_env.unwrapped.action_dim])
+        
 
         critic_fn=critic_model(self.trainer_config['d_critic'])
         #Setup optimizer
@@ -223,6 +228,17 @@ class ControlTrainer(BaseTrainer):
         self.log_interval=self.global_config.log_interval
         self.next_log_step=self.log_interval
         self.average_return_per_episode=[]
+        
+        self.scaled_rewards=[]
+        self.best_rewards=[]
+        self.mse=[]
+        self.last_scaled_diff=[]
+        self.last_scaled_obs=[]
+        self.scaled_diff=[]
+        self.scaled_obs=[]
+        self.success=[]
+        
+        
         if 'eval_interval' in self.global_config:
             self.eval_interval=self.global_config['eval_interval']
             self.next_eval_step=self.eval_interval
@@ -239,15 +255,43 @@ class ControlTrainer(BaseTrainer):
         (loss,(value_loss,entropy_loss,actor_loss,rewards),infos)=self.agent.step(self.random_key)
         #Extract info data across all actors and steps
         #Get the leaves of the infos tree where the final_info key is present
-        
+        # print("infos", infos)
         
         
         leaves=[info for info in infos if '_final_info' in info]
+        # info["batch_mse"] = jnp.mean(jnp.array(self.mse), axis=0)
+        #     info["last_scaled_diff"] = avg_scl_diff
+        #     info["last_scaled_obs"] = avg_scl_obs
+        #     info["scaled_diff"] = jnp.mean(jnp.array(self.scaled_diff), axis=0)
+        #     info["scaled_obs"] = jnp.mean(jnp.array(self.scaled_obs), axis=0)
+        #     print(info["batch_mse"].shape, info["last_scaled_diff"].shape, info["last_scaled_obs"].shape, info["scaled_diff"].shape, info["scaled_obs"].shape)
+        #     info["best_rewards"] = self.best_rewards
+        #     info["success"] = ((self.best_rewards[0] - self.y_min) / (self.max_y - self.y_min)) > 0.9
         # Increase the step counter
         self.step_count+=(self.B)
         #Iterate over the leaves and extract the final_info data
         for leaf in leaves:
-             
+             for k in leaf["final_info"]:
+                #  print(k["final_info"]["s_rewards"])
+                s_rewards = jnp.array(k["final_info"]["s_rewards"],dtype=jnp.float32)
+                avg_rew = jnp.mean(s_rewards)
+                self.scaled_rewards.append(avg_rew)
+                best_rew = jnp.array(k["final_info"]["best_rewards"],dtype=jnp.float32)
+                self.best_rewards.append(jnp.mean(best_rew))
+                mse = jnp.array(k["final_info"]["batch_mse"],dtype=jnp.float32)
+                self.mse.append(jnp.mean(mse))
+                lsd = jnp.array(k["final_info"]["last_scaled_diff"],dtype=jnp.float32)
+                self.last_scaled_diff.append(jnp.mean(lsd))
+                lso = jnp.array(k["final_info"]["last_scaled_obs"],dtype=jnp.float32)
+                self.last_scaled_obs.append(jnp.mean(lso))
+                sd = jnp.array(k["final_info"]["scaled_diff"],dtype=jnp.float32)
+                self.scaled_diff.append(jnp.mean(sd))
+                so = jnp.array(k["final_info"]["scaled_obs"],dtype=jnp.float32)
+                self.scaled_obs.append(jnp.mean(so))
+                success = jnp.array(k["final_info"]["success"],dtype=jnp.bool)
+                self.success.append(jnp.mean(success))
+                
+           
              for env_info in leaf['final_info'][leaf['_final_info']]:  
                  if 'final_info' in env_info:
                      for key,value in env_info['final_info'].items(): #AutoResetWrapper adds everything in info to final_info after reset along with info from first timestep
@@ -260,9 +304,16 @@ class ControlTrainer(BaseTrainer):
                          if key not in self.statistic_data:
                              self.statistic_data[key]=[]
                          self.statistic_data[key].append(value)
+                
+                    #  if k not in self.statistic_data:
+                    #      self.statistic_data[k]=[]
+                    #  self.statistic_data[k].append(env_info[k])
                  ep_rewards=jnp.array(env_info['rewards'],dtype=jnp.float32)
                  _,average_return_per_episode=average_reward_and_return_in_episode(ep_rewards,self.gamma)
                  self.average_return_per_episode.append(average_return_per_episode)
+                #  s_rewards=jnp.array(env_info['s_rewards'],dtype=jnp.float32)
+                #  self.scaled_rewards.append(jnp.mean(s_rewards))
+                 
                  
 
 
@@ -288,6 +339,17 @@ class ControlTrainer(BaseTrainer):
             loss=np.mean(self.losses)
             reward_mean=float(self.reward_sum/self.log_interval)
             return_mean=np.mean(self.average_return_per_episode)
+            
+            scaled_mean=np.mean(self.scaled_rewards)
+            best_mean=np.mean(self.best_rewards)
+            scaled_diff_mean=np.mean(self.scaled_diff)
+            last_scaled_diff_mean=np.mean(self.last_scaled_diff)
+            scaled_obs_mean=np.mean(self.scaled_obs)
+            last_scaled_obs_mean=np.mean(self.last_scaled_obs)
+            mse_mean=np.mean(self.mse)
+            success_mean=np.mean(self.success)
+            
+            
             mean_sps=np.mean(self.sps)
             self.reward_sum=0
             self.critic_losses=[]
@@ -298,16 +360,20 @@ class ControlTrainer(BaseTrainer):
             self.average_return_per_episode=[]
             metrics={'step':self.step_count,'sps':mean_sps,'loss':loss,'critic_loss':critic_loss,
                                     'actor_loss':actor_loss,'entropy_loss':entropy_loss,'mean_reward':reward_mean,
-                                    'return_per_episode':return_mean,
+                                    'return_per_episode':return_mean, 'scaled_distance':scaled_mean, 'distance best action':best_mean, 
+                                    'scaled_diff':scaled_diff_mean, 'last_scaled_diff':last_scaled_diff_mean, 'scaled_obs':scaled_obs_mean, 
+                                    'last_scaled_obs':last_scaled_obs_mean, 'mse':mse_mean, 'success':success_mean,
                                     **metrics
                                     }
             self.result_data.append(metrics)
         else:
             metrics=None
-        if self.eval_interval is not None and self.step_count>=self.next_eval_step:
+        if self.eval_interval is not None: #and self.step_count>=self.next_eval_step:
             self.next_eval_step+=self.eval_interval
             avg_episode_len,avg_episode_return,rollouts=self.agent.evaluate(self.random_key,self.global_config['eval_episodes'])
+            
             rollouts=np.concatenate(rollouts,axis=0)
+            # rollouts = np.ones((5))
             if metrics is None:
                 metrics={}
             metrics['step']=self.step_count
