@@ -140,7 +140,7 @@ class ControlTrainer(BaseTrainer):
             model_fn=seq_model_gtrxl(**self.trainer_config['seq_model'])
             
             
-        # print("hi my name is ", eval_env.name)
+        print("hi my name is ", eval_env.name)
         name = eval_env.unwrapped.name
             
         if isinstance(eval_env.action_space, gym.spaces.Discrete):
@@ -153,9 +153,9 @@ class ControlTrainer(BaseTrainer):
             actor_fn = actor_model_gmm(self.trainer_config['d_actor'], self.trainer_config['sample_distribution'])
         elif name == "multidim":
             actor_fn = actor_model_continuous(self.trainer_config['d_actor'], (eval_env.unwrapped.action_dim, 0))
-        elif name == "masked":
-            print(self.trainer_config)
-            actor_fn = actor_model_continuous_params(self.trainer_config['d_actor'], list(self.trainer_config['actor_params_hidden']) + [eval_env.unwrapped.action_dim])
+        # elif name == "masked":
+        #     print(self.trainer_config)
+        #     actor_fn = actor_model_continuous_params(self.trainer_config['d_actor'], list(self.trainer_config['actor_params_hidden']) + [eval_env.unwrapped.action_dim])
         
 
         critic_fn=critic_model(self.trainer_config['d_critic'])
@@ -278,18 +278,18 @@ class ControlTrainer(BaseTrainer):
                 self.scaled_rewards.append(avg_rew)
                 best_rew = jnp.array(k["final_info"]["best_rewards"],dtype=jnp.float32)
                 self.best_rewards.append(jnp.mean(best_rew))
-                mse = jnp.array(k["final_info"]["batch_mse"],dtype=jnp.float32)
-                self.mse.append(jnp.mean(mse))
-                lsd = jnp.array(k["final_info"]["last_scaled_diff"],dtype=jnp.float32)
-                self.last_scaled_diff.append(jnp.mean(lsd))
-                lso = jnp.array(k["final_info"]["last_scaled_obs"],dtype=jnp.float32)
-                self.last_scaled_obs.append(jnp.mean(lso))
-                sd = jnp.array(k["final_info"]["scaled_diff"],dtype=jnp.float32)
-                self.scaled_diff.append(jnp.mean(sd))
-                so = jnp.array(k["final_info"]["scaled_obs"],dtype=jnp.float32)
-                self.scaled_obs.append(jnp.mean(so))
-                success = jnp.array(k["final_info"]["success"],dtype=jnp.bool)
-                self.success.append(jnp.mean(success))
+                # mse = jnp.array(k["final_info"]["batch_mse"],dtype=jnp.float32)
+                # self.mse.append(jnp.mean(mse))
+                # lsd = jnp.array(k["final_info"]["last_scaled_diff"],dtype=jnp.float32)
+                # self.last_scaled_diff.append(jnp.mean(lsd))
+                # lso = jnp.array(k["final_info"]["last_scaled_obs"],dtype=jnp.float32)
+                # self.last_scaled_obs.append(jnp.mean(lso))
+                # sd = jnp.array(k["final_info"]["scaled_diff"],dtype=jnp.float32)
+                # self.scaled_diff.append(jnp.mean(sd))
+                # so = jnp.array(k["final_info"]["scaled_obs"],dtype=jnp.float32)
+                # self.scaled_obs.append(jnp.mean(so))
+                # success = jnp.array(k["final_info"]["success"],dtype=jnp.bool)
+                # self.success.append(jnp.mean(success))
                 
            
              for env_info in leaf['final_info'][leaf['_final_info']]:  
@@ -340,14 +340,14 @@ class ControlTrainer(BaseTrainer):
             reward_mean=float(self.reward_sum/self.log_interval)
             return_mean=np.mean(self.average_return_per_episode)
             
-            scaled_mean=np.mean(self.scaled_rewards)
-            best_mean=np.mean(self.best_rewards)
-            scaled_diff_mean=np.mean(self.scaled_diff)
-            last_scaled_diff_mean=np.mean(self.last_scaled_diff)
-            scaled_obs_mean=np.mean(self.scaled_obs)
-            last_scaled_obs_mean=np.mean(self.last_scaled_obs)
-            mse_mean=np.mean(self.mse)
-            success_mean=np.mean(self.success)
+            # scaled_mean=np.mean(self.scaled_rewards)
+            # best_mean=np.mean(self.best_rewards)
+            # scaled_diff_mean=np.mean(self.scaled_diff)
+            # last_scaled_diff_mean=np.mean(self.last_scaled_diff)
+            # scaled_obs_mean=np.mean(self.scaled_obs)
+            # last_scaled_obs_mean=np.mean(self.last_scaled_obs)
+            # mse_mean=np.mean(self.mse)
+            # success_mean=np.mean(self.success)
             
             
             mean_sps=np.mean(self.sps)
@@ -360,11 +360,13 @@ class ControlTrainer(BaseTrainer):
             self.average_return_per_episode=[]
             metrics={'step':self.step_count,'sps':mean_sps,'loss':loss,'critic_loss':critic_loss,
                                     'actor_loss':actor_loss,'entropy_loss':entropy_loss,'mean_reward':reward_mean,
-                                    'return_per_episode':return_mean, 'scaled_distance':scaled_mean, 'distance best action':best_mean, 
-                                    'scaled_diff':scaled_diff_mean, 'last_scaled_diff':last_scaled_diff_mean, 'scaled_obs':scaled_obs_mean, 
-                                    'last_scaled_obs':last_scaled_obs_mean, 'mse':mse_mean, 'success':success_mean,
-                                    **metrics
+                                    'return_per_episode':return_mean, **metrics
                                     }
+            # 'scaled_distance':scaled_mean, 'distance best action':best_mean, 
+            #                         'scaled_diff':scaled_diff_mean, 'last_scaled_diff':last_scaled_diff_mean, 'scaled_obs':scaled_obs_mean, 
+            #                         'last_scaled_obs':last_scaled_obs_mean, 'mse':mse_mean, 'success':success_mean,
+            #                         **metrics
+            #                         }
             self.result_data.append(metrics)
         else:
             metrics=None

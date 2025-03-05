@@ -1,12 +1,12 @@
 tags: null
 project_name: "varied_batch"
 seed: 1
-steps: 500000
-log_interval: 10000
+steps: 100000
+log_interval: 2048
 # eval_episodes: 0
 # eval_interval: None
 use_wandb: false
 defaults:
   - _self_
-  - task: masked
+  - task: multidim
   - trainer: ppo
