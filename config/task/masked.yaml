@@ -2,7 +2,7 @@ task: masked
 name: masked
 view_size: 2
 max_steps: null
-bounds: [-1, 1]
+bounds: [-2, 2]
 max_episode_steps: 12
 batches: [1,1]
 action_dim: 1

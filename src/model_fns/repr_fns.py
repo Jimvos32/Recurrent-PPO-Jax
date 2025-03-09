@@ -193,116 +193,7 @@ def dict_unpack_model(hidden_sizes=(256, 128)):
     
     return lambda: ContinuousActor()
 
-# def dict_unpack_mask(hidden_sizes=(256, 128)):
-#     """Actor model for continuous action spaces that outputs logits in a compatible format."""
-#     class ContinuousActor(nn.Module):
-#         @nn.compact
-#         def __call__(self, x):
-            
-          
-           
-#             #x is a dictionary of inputs
-#             # keys = ["actions", "observations", "reward"]
-#             # actions.shape = (batch_size, action_dim)
-#             # observations.shape = (batch_size, 1)
-#             # reward.shape = (1,)
-#             # mask is a integer which says until which batch the data is valid, so if batch_size = 10 and mask = 5, then the first 5 batches are valid and the rest are invalid
-           
-#             #This is to create a vmap for each field in the input
-#             def create_vmap_mlp():
-#                 return nn.vmap(
-#                     nn.Sequential,  # individual networks
-#                     in_axes=0, out_axes=0,
-#                     variable_axes={'params': None},
-#                     split_rngs={'params': False}
-#                 )
 
-#             # Dynamically create submodules, one for each field
-#             submodules = [create_vmap_mlp() for _ in x.keys()]
-
-
-#             #split the fields into batch related and step related
-#             batch_related = ["actions", "observations"]
-#             step_related = ["reward"]#, "best_action"]
-            
-            
-#             # Expand and the data for correct parsing through vmap
-#             expanded_inputs = [
-#                 x[k][:, :, None, :]
-#                 for k in batch_related
-#             ]
-            
-#             # print("expanded_inputs", expanded_inputs[0].shape)
-#             # expanded_inputs[0] = expanded_inputs[0][:, :x["mask"], :, :]
-#             # print("expanded_inputs", expanded_inputs[0].shape)
-            
-            
-#             # Process the batch related input through its corresponding MLP / Sequentual
-#             results = [
-#                 module(
-#                     [nn.Dense(64),
-#                           nn.relu,
-#                           nn.Dense(64)]
-#                 )(ins)
-#                 for module, ins in zip(submodules, expanded_inputs)
-#             ]
-
-#             # Concatenate the results of the batch related data such that action and dimension are in the same axis per batch
-#             squeezed = jnp.squeeze(jnp.array(results), axis=3) # shape (2, batch_size, hidden_size)
-            
-#             batch_related_data = jnp.transpose(squeezed, (1, 2, 0, 3)) #shape (batch_size, 2, hidden_size)
-#             flattened_batch = batch_related_data.reshape((batch_related_data.shape[0], batch_related_data.shape[1], -1)) # shape (batch_size, 2 * hidden_size)
-#             # print("eyno", flattened_batch.shape)
-            
-            
-#             #vmap over batch related data such that action and observation can have learned correlation
-#             action_mapping = nn.vmap(  
-#                 nn.Sequential,  # share networks
-#                 in_axes=0, out_axes=0,
-#                 variable_axes={'params': None},
-#                 split_rngs={'params': False},
-#             )
-
-#             expanded_input = action_mapping(
-#                     [nn.Dense(64),
-#                           nn.relu,
-#                           nn.Dense(5)]
-#                 )(flattened_batch)
-#             #otuput shape (batch_size, hidden_size (5))
-            
-#             ####missing step for batch learning
-#             # can sum over batch axis to get a single representation for the batch or take mean max, or any other aggregation / pooling but needs to be capable of dealing with masked batches
-#             # output should be of shape (1, hidden_size) / (hidden_size,)
-            
-            
-#             mask = jnp.asarray(x["mask"], dtype=jnp.int32)
-#             batch_averaged = jnp.sum(expanded_input, axis=1)
-#             # print("batch", batch_averaged.shape, "mask", mask.shape)
-#             batch_normalised = jnp.divide(batch_averaged, mask)
-            
-#             # print("batch_averaged", batch_averaged.shape, expanded_input.shape, batch_normalised.shape)
-#             # jax.debug.print("expand \n{}\nbatch_avg \n{} \nbatchnorm \n{} \nmask {}", expanded_inputs, batch_averaged, batch_normalised, mask)
-
-#             # conc_step  = jnp.concatenate([x[key] for key in step_related], axis=1)
-#             step_expans = nn.Sequential([nn.Dense(64),
-#                           nn.relu,
-#                           nn.Dense(64)])
-            
-
-#             #expand the step related data
-#             step_related_data = step_expans(x["reward"]) # shape (6,)
-            
-#             final_represenation_layer = nn.Sequential([nn.Dense(64),
-#                           nn.relu,
-#                           nn.Dense(64)]) 
-            
-#             #combine the step related data with the batch related data
-#             batch_with_step = jnp.concatenate([batch_normalised, step_related_data], axis=1)
-#             final_output = final_represenation_layer(batch_with_step)
-#             # final_output = jnp.expand_dims(final_output, axis=0)
-#             return final_output
-    
-#     return lambda: ContinuousActor()
 
 def dict_unpack_mask(
     batch_expand_hidden=(64, 64),  # For processing individual fields
@@ -314,12 +205,6 @@ def dict_unpack_mask(
     class ContinuousActor(nn.Module):
         @nn.compact
         def __call__(self, x):
-            # x is a dictionary of inputs
-            # keys = ["actions", "observations", "reward"]
-            # actions.shape = (batch_size, action_dim)
-            # observations.shape = (batch_size, 1)
-            # reward.shape = (1,)
-            # mask is an integer which says until which batch the data is valid
             
             # Function to create a sequential MLP with parameterized hidden sizes
             def create_mlp_layers(hidden_sizes):
@@ -394,5 +279,53 @@ def dict_unpack_mask(
             final_output = final_represenation_layer(batch_with_step)
             
             return final_output
+    
+    return lambda: ContinuousActor()
+
+
+def simple_mlp(
+    hidden_sizes=(256, 128)
+):
+    """Actor model for continuous action spaces with parameterizable layer sizes."""
+    class ContinuousActor(nn.Module):
+        @nn.compact
+        def __call__(self, x):
+            
+            
+            
+            # Expand the data for correct parsing through vmap
+            expanded_inputs = [
+                jnp.reshape(x[k], (x[k].shape[0], 1))
+                for k in ["actions", "observations", "reward"]
+            ]
+            
+            
+            
+            
+            conc_input = jnp.concatenate(expanded_inputs, axis=-1)
+            # jax.debug.print("conc_input {}\n {}", expanded_inputs, conc_input)
+            # print("conc_input", conc_input)
+            # jax.debug.print("conc_input {}\n", conc_input)
+            # print("expanded_inputs", expanded_inputs[0].shape)
+            # print("act", x["actions"].shape)
+            
+            model = nn.Sequential([
+            nn.Dense(hidden_sizes[0], 
+                     kernel_init=orthogonal(jnp.sqrt(2)), 
+                     bias_init=constant(0.0)), 
+            nn.relu,
+            nn.Dense(hidden_sizes[1], 
+                     kernel_init=orthogonal(jnp.sqrt(2)), 
+                     bias_init=constant(0.0)), 
+            nn.relu
+            ])
+            
+            out = model(conc_input)
+            # out = jnp.expand_dims(out, axis=0)
+            # print("out", out.shape)
+            # print("out", out.shape, x["actions"].shape)
+    
+            
+            return out
     
     return lambda: ContinuousActor()

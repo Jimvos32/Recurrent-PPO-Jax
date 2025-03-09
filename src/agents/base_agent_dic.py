@@ -177,7 +177,7 @@ class BaseAgentDic:
                                                          h_tickminus1)
             
             # print("expanded_o", expanded_o["mask"].shape)
-            # masks = expanded_o["mask"]
+            masks = expanded_o["mask"]
             
             def sampling_differ(task, act_logits,random_key,  masks=None):
                 if task == "batch":

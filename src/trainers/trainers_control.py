@@ -62,11 +62,15 @@ def get_env_initializers(env_config):
         repr_fn=dict_unpack_model()
         return env_fn,env_fn,repr_fn
     elif env_config['task']=='masked':
-        # print("config", env_config)
+        # env_fn=lambda: create_masked(**env_config)
+        # print("env_fn", env_config)
+        # repr_fn=dict_unpack_mask(batch_expand_hidden=env_config["batch_expand_hidden"], 
+        #                          batch_combine_hidden=env_config["batch_combine_hidden"], step_expand_hidden=env_config["step_expand_hidden"], input_combine_hidden=env_config["input_combine_hidden"])
+        
         env_fn=lambda: create_masked(**env_config)
         print("env_fn", env_config)
-        repr_fn=dict_unpack_mask(batch_expand_hidden=env_config["batch_expand_hidden"], 
-                                 batch_combine_hidden=env_config["batch_combine_hidden"], step_expand_hidden=env_config["step_expand_hidden"], input_combine_hidden=env_config["input_combine_hidden"])
+        repr_fn=simple_mlp(hidden_sizes=(128,128))
+        
         return env_fn,env_fn,repr_fn
 
 class ControlTrainer(BaseTrainer):
@@ -114,14 +118,13 @@ class ControlTrainer(BaseTrainer):
         eval_seeds=int(np.random.randint(0,9999,size=1,dtype=int))
         env_type=kwargs['trainer_config'].get('env_pool','async')
         # print("env type", env_type)
+        env_type = 'sync'
         if env_type=='async':
-            import functools
-            # print("okay we are here")
-            # env_type=CustomAsyncVectorEnv
+            
             env_type=gym.vector.AsyncVectorEnv
         elif env_type=='sync':
             env_type=gym.vector.SyncVectorEnv
-        train_envs=env_type([lambda: EpisodeStatisticsWrapper(AutoResetWrapper((env_fn())))for seed in train_seeds],shared_memory=False)
+        train_envs=env_type([lambda: EpisodeStatisticsWrapper(AutoResetWrapper((env_fn())))for seed in train_seeds])#,shared_memory=False)
        
 
         eval_env=RecordRollout(AutoResetWrapper(eval_env_fn()))
@@ -153,9 +156,9 @@ class ControlTrainer(BaseTrainer):
             actor_fn = actor_model_gmm(self.trainer_config['d_actor'], self.trainer_config['sample_distribution'])
         elif name == "multidim":
             actor_fn = actor_model_continuous(self.trainer_config['d_actor'], (eval_env.unwrapped.action_dim, 0))
-        # elif name == "masked":
-        #     print(self.trainer_config)
-        #     actor_fn = actor_model_continuous_params(self.trainer_config['d_actor'], list(self.trainer_config['actor_params_hidden']) + [eval_env.unwrapped.action_dim])
+        elif name == "masked":
+            print(self.trainer_config)
+            actor_fn = actor_model_continuous_params(self.trainer_config['d_actor'], list(self.trainer_config['actor_params_hidden']) + [eval_env.unwrapped.action_dim])
         
 
         critic_fn=critic_model(self.trainer_config['d_critic'])
@@ -228,6 +231,7 @@ class ControlTrainer(BaseTrainer):
         self.log_interval=self.global_config.log_interval
         self.next_log_step=self.log_interval
         self.average_return_per_episode=[]
+        self.log_steps = 0
         
         self.scaled_rewards=[]
         self.best_rewards=[]
@@ -237,6 +241,8 @@ class ControlTrainer(BaseTrainer):
         self.scaled_diff=[]
         self.scaled_obs=[]
         self.success=[]
+        self.max_dist=[]
+        self.actions=[]
         
         
         if 'eval_interval' in self.global_config:
@@ -269,27 +275,45 @@ class ControlTrainer(BaseTrainer):
         #     info["success"] = ((self.best_rewards[0] - self.y_min) / (self.max_y - self.y_min)) > 0.9
         # Increase the step counter
         self.step_count+=(self.B)
+        
         #Iterate over the leaves and extract the final_info data
         for leaf in leaves:
              for k in leaf["final_info"]:
+                # start = self.log_steps * self.rollout_len
+                # end = start + self.rollout_len
+                # print("start", start, "end", end)
                 #  print(k["final_info"]["s_rewards"])
+                # print("rew", jnp.array(k["final_info"]["s_rewards"],dtype=jnp.float32).shape)
                 s_rewards = jnp.array(k["final_info"]["s_rewards"],dtype=jnp.float32)
                 avg_rew = jnp.mean(s_rewards)
                 self.scaled_rewards.append(avg_rew)
                 best_rew = jnp.array(k["final_info"]["best_rewards"],dtype=jnp.float32)
                 self.best_rewards.append(jnp.mean(best_rew))
-                # mse = jnp.array(k["final_info"]["batch_mse"],dtype=jnp.float32)
-                # self.mse.append(jnp.mean(mse))
-                # lsd = jnp.array(k["final_info"]["last_scaled_diff"],dtype=jnp.float32)
-                # self.last_scaled_diff.append(jnp.mean(lsd))
-                # lso = jnp.array(k["final_info"]["last_scaled_obs"],dtype=jnp.float32)
-                # self.last_scaled_obs.append(jnp.mean(lso))
-                # sd = jnp.array(k["final_info"]["scaled_diff"],dtype=jnp.float32)
-                # self.scaled_diff.append(jnp.mean(sd))
-                # so = jnp.array(k["final_info"]["scaled_obs"],dtype=jnp.float32)
-                # self.scaled_obs.append(jnp.mean(so))
-                # success = jnp.array(k["final_info"]["success"],dtype=jnp.bool)
-                # self.success.append(jnp.mean(success))
+                mse = jnp.array(k["final_info"]["batch_mse"],dtype=jnp.float32)
+                self.mse.append(jnp.mean(mse))
+                lsd = jnp.array(k["final_info"]["last_scaled_diff"],dtype=jnp.float32)
+                self.last_scaled_diff.append(jnp.mean(lsd))
+                lso = jnp.array(k["final_info"]["last_scaled_obs"],dtype=jnp.float32)
+                self.last_scaled_obs.append(jnp.mean(lso))
+                sd = jnp.array(k["final_info"]["scaled_diff"],dtype=jnp.float32)
+                self.scaled_diff.append(jnp.mean(sd))
+                so = jnp.array(k["final_info"]["scaled_obs"],dtype=jnp.float32)
+                self.scaled_obs.append(jnp.mean(so))
+                success = jnp.array(k["final_info"]["success"],dtype=jnp.bool)
+                # print("success", success.shape, success[start:end].shape)
+                # [start:end]
+                self.success.append(success[0])
+                max_x = jnp.array(k["final_info"]["max_x"],dtype=jnp.float32)
+                # self.max_dist = jnp.concatenate([self.max_dist,max_x]) 
+                
+                # print("max_x", max_x.shape, jnp.array(k["final_info"]["max_x"],dtype=jnp.float32).shape, start, end)
+                self.max_dist.append(max_x)
+                # print("actions", jnp.array(k["final_info"]["actions"],dtype=jnp.float32).shape)
+                actions = jnp.array(k["final_info"]["actions"],dtype=jnp.float32)
+                # self.actions = jnp.concatenate([self.actions,actions]) 
+                # print("okat", actions.shape)
+                # print("sme", best_rew.shape)
+                self.actions.append(actions)
                 
            
              for env_info in leaf['final_info'][leaf['_final_info']]:  
@@ -308,6 +332,7 @@ class ControlTrainer(BaseTrainer):
                     #  if k not in self.statistic_data:
                     #      self.statistic_data[k]=[]
                     #  self.statistic_data[k].append(env_info[k])
+                #  print("rewards", len(env_info['rewards']))
                  ep_rewards=jnp.array(env_info['rewards'],dtype=jnp.float32)
                  _,average_return_per_episode=average_reward_and_return_in_episode(ep_rewards,self.gamma)
                  self.average_return_per_episode.append(average_return_per_episode)
@@ -316,7 +341,7 @@ class ControlTrainer(BaseTrainer):
                  
                  
 
-
+        self.log_steps+=1
         # Log the data
         end_time=time.time()
         self.sps.append(self.B/(end_time-start_time))
@@ -340,15 +365,19 @@ class ControlTrainer(BaseTrainer):
             reward_mean=float(self.reward_sum/self.log_interval)
             return_mean=np.mean(self.average_return_per_episode)
             
-            # scaled_mean=np.mean(self.scaled_rewards)
-            # best_mean=np.mean(self.best_rewards)
-            # scaled_diff_mean=np.mean(self.scaled_diff)
-            # last_scaled_diff_mean=np.mean(self.last_scaled_diff)
-            # scaled_obs_mean=np.mean(self.scaled_obs)
-            # last_scaled_obs_mean=np.mean(self.last_scaled_obs)
-            # mse_mean=np.mean(self.mse)
-            # success_mean=np.mean(self.success)
-            
+            scaled_mean=np.mean(self.scaled_rewards)
+            best_mean=np.mean(self.best_rewards)
+            scaled_diff_mean=np.mean(self.scaled_diff)
+            last_scaled_diff_mean=np.mean(self.last_scaled_diff)
+            scaled_obs_mean=np.mean(self.scaled_obs)
+            last_scaled_obs_mean=np.mean(self.last_scaled_obs)
+            mse_mean=np.mean(self.mse)
+            success_mean=np.mean(self.success)
+            # print("actos", jnp.array(self.actions).shape)
+            # print("max_dist", jnp.array(self.actions).flatten().shape)
+            print("max_dist", jnp.array(self.max_dist).flatten().shape, jnp.array(self.actions).shape)
+            act_dist = wandb.Histogram(jnp.array(self.actions).flatten())
+            max_dist = wandb.Histogram(jnp.array(self.max_dist).flatten())
             
             mean_sps=np.mean(self.sps)
             self.reward_sum=0
@@ -357,16 +386,29 @@ class ControlTrainer(BaseTrainer):
             self.entropy_losses=[]
             self.losses=[]
             self.sps=[]
+            
+            self.scaled_rewards=[]
+            self.best_rewards=[]
+            self.mse=[]
+            self.last_scaled_diff=[]
+            self.last_scaled_obs=[]
+            self.scaled_diff=[]
+            self.scaled_obs=[]
+            self.success=[]
+            self.max_dist=[]
+            self.actions=[]
+            
+            
             self.average_return_per_episode=[]
             metrics={'step':self.step_count,'sps':mean_sps,'loss':loss,'critic_loss':critic_loss,
                                     'actor_loss':actor_loss,'entropy_loss':entropy_loss,'mean_reward':reward_mean,
-                                    'return_per_episode':return_mean, **metrics
+                                    'return_per_episode':return_mean, 
+                                    
+            'scaled_distance':scaled_mean, 'distance best action':best_mean, 
+                                    'scaled_diff':scaled_diff_mean, 'last_scaled_diff':last_scaled_diff_mean, 'scaled_obs':scaled_obs_mean, 
+                                    'last_scaled_obs':last_scaled_obs_mean, 'mse':mse_mean, 'success':success_mean, 'actions':act_dist, 'max_dist':max_dist,
+                                    **metrics
                                     }
-            # 'scaled_distance':scaled_mean, 'distance best action':best_mean, 
-            #                         'scaled_diff':scaled_diff_mean, 'last_scaled_diff':last_scaled_diff_mean, 'scaled_obs':scaled_obs_mean, 
-            #                         'last_scaled_obs':last_scaled_obs_mean, 'mse':mse_mean, 'success':success_mean,
-            #                         **metrics
-            #                         }
             self.result_data.append(metrics)
         else:
             metrics=None

@@ -26,6 +26,7 @@ from multiprocessing import Pool
 import multiprocessing as mp
 from tqdm.contrib.logging import logging_redirect_tqdm
 import logging
+
  
 
 logger = logging.getLogger(__name__)
@@ -47,8 +48,10 @@ task_to_trainer={
 def main(config: DictConfig):
     logger.info("Starting Job for Config:\n"+str(OmegaConf.to_yaml(config)))
     tags=config.tags.split(',') if config.tags is not None else []
-    if config.use_wandb:
+    if config.use_wandb and sys.platform=='win32':
         run = wandb.init(project=config.project_name,tags=tags,settings=wandb.Settings(start_method="spawn"),config=OmegaConf.to_container(config))
+    elif config.use_wandb and sys.platform!='win32':
+        run = wandb.init(project=config.project_name,tags=tags,settings=wandb.Settings(start_method="fork"),config=OmegaConf.to_container(config))
     else:
         run=None
     key=jax.random.PRNGKey(config.seed)
@@ -87,7 +90,10 @@ def main(config: DictConfig):
 
 
 if __name__=='__main__':
-    mp.set_start_method('spawn')
+    # if sys.platform=='win32':
+    #     mp.set_start_method('spawn')
+    # else:
+    #     mp.set_start_method('fork')
     main()
 
     
