@@ -23,6 +23,7 @@ class LSTM(nn.Module):
             @nn.compact    
             def __call__(self,carry,inputs):
                 inputs,terminate=inputs
+                print("aa", carry[0].shape, carry[1].shape)
                 if reset_on_terminate:
                     #Reset hidden state on termination
                     carry=jax.lax.cond(terminate,lambda:jax.tree_map(lambda x:jnp.zeros_like(x),carry),lambda:carry)

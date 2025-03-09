@@ -5,7 +5,7 @@ max_steps: null
 bounds: [-2, 2]
 max_episode_steps: 12
 batches: [1,1]
-action_dim: 1
+action_dim: 3
 degree: 2
 batch_expand_hidden: [64, 64]
 batch_combine_hidden: [64, 64]

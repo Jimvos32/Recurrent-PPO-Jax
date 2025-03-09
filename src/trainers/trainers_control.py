@@ -62,14 +62,14 @@ def get_env_initializers(env_config):
         repr_fn=dict_unpack_model()
         return env_fn,env_fn,repr_fn
     elif env_config['task']=='masked':
-        # env_fn=lambda: create_masked(**env_config)
-        # print("env_fn", env_config)
-        # repr_fn=dict_unpack_mask(batch_expand_hidden=env_config["batch_expand_hidden"], 
-        #                          batch_combine_hidden=env_config["batch_combine_hidden"], step_expand_hidden=env_config["step_expand_hidden"], input_combine_hidden=env_config["input_combine_hidden"])
-        
         env_fn=lambda: create_masked(**env_config)
         print("env_fn", env_config)
-        repr_fn=simple_mlp(hidden_sizes=(128,128))
+        repr_fn=dict_unpack_mask(batch_expand_hidden=env_config["batch_expand_hidden"], 
+                                 batch_combine_hidden=env_config["batch_combine_hidden"], step_expand_hidden=env_config["step_expand_hidden"], input_combine_hidden=env_config["input_combine_hidden"])
+        
+        # env_fn=lambda: create_masked(**env_config)
+        # print("env_fn", env_config)
+        # repr_fn=simple_mlp(hidden_sizes=(128,128))
         
         return env_fn,env_fn,repr_fn
 
@@ -143,7 +143,7 @@ class ControlTrainer(BaseTrainer):
             model_fn=seq_model_gtrxl(**self.trainer_config['seq_model'])
             
             
-        print("hi my name is ", eval_env.name)
+        # print("hi my name is ", eval_env.name)
         name = eval_env.unwrapped.name
             
         if isinstance(eval_env.action_space, gym.spaces.Discrete):
@@ -157,7 +157,7 @@ class ControlTrainer(BaseTrainer):
         elif name == "multidim":
             actor_fn = actor_model_continuous(self.trainer_config['d_actor'], (eval_env.unwrapped.action_dim, 0))
         elif name == "masked":
-            print(self.trainer_config)
+            # print(self.trainer_config)
             actor_fn = actor_model_continuous_params(self.trainer_config['d_actor'], list(self.trainer_config['actor_params_hidden']) + [eval_env.unwrapped.action_dim])
         
 
@@ -375,7 +375,7 @@ class ControlTrainer(BaseTrainer):
             success_mean=np.mean(self.success)
             # print("actos", jnp.array(self.actions).shape)
             # print("max_dist", jnp.array(self.actions).flatten().shape)
-            print("max_dist", jnp.array(self.max_dist).flatten().shape, jnp.array(self.actions).shape)
+            # print("max_dist", jnp.array(self.max_dist).flatten().shape, jnp.array(self.actions).shape)
             act_dist = wandb.Histogram(jnp.array(self.actions).flatten())
             max_dist = wandb.Histogram(jnp.array(self.max_dist).flatten())
             

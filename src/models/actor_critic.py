@@ -36,7 +36,9 @@ class ActorCriticModel(nn.Module):
         # print("terminations", terminations.shape)
         rep = self.repr_model(inputs)
         # TXlatent_dim, image or otherwise, they are always flattened
+        print("rep", rep.shape)
         rep=rep.reshape(rep.shape[0],-1)
+        print("rep2", rep.shape, terminations.shape, last_memory[0][0].shape)
         seq_rep,memory=self.seq_model(rep,terminations,last_memory)
         print("seq_rep", seq_rep.shape, memory[0][0].shape)
         actor_out=self.actor(seq_rep)

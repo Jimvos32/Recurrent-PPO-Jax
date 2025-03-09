@@ -1,9 +1,9 @@
 agent: ppo
-d_actor: [32, 32]
-actor_params_hidden: [32, 32]
+d_actor: [128, 64]
+actor_params_hidden: [128, 64]
 d_critic: 32
 num_envs: 8
-rollout_len: 24
+rollout_len: 128
 sequence_length: null
 gamma: 0.99
 gae_lambda: 0.95

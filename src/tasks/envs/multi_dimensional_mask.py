@@ -85,16 +85,16 @@ class MultiMask(gym.Env):
     
     def shift_polynomial(self):
         # Randomize the maximum location uniformly for each dimension.
-        # self.x_max = np.random.uniform(self.x_range[0], self.x_range[1], size=(1,self.action_dim))
-        # # Randomize the constant such that f(x_max) = c, and weights.
-        # self.c = np.random.uniform(5.0, 20.0)
-        # self.weights = np.random.uniform(0.5, 2.0, size=(self.action_dim,))
-        
-        
-        self.x_max = np.random.uniform(0.5, 0.5, size=(1,self.action_dim))
+        self.x_max = np.random.uniform(self.x_range[0], self.x_range[1], size=(1,self.action_dim))
         # Randomize the constant such that f(x_max) = c, and weights.
-        self.c = np.random.uniform(10.0, 10.0)
-        self.weights = np.random.uniform(0.5, 0.5, size=(self.action_dim,))
+        self.c = np.random.uniform(5.0, 20.0)
+        self.weights = np.random.uniform(0.5, 2.0, size=(self.action_dim,))
+        
+        
+        # self.x_max = np.random.uniform(0.5, 0.5, size=(1,self.action_dim))
+        # # Randomize the constant such that f(x_max) = c, and weights.
+        # self.c = np.random.uniform(10.0, 10.0)
+        # self.weights = np.random.uniform(0.5, 0.5, size=(self.action_dim,))
         
         
     
@@ -186,7 +186,7 @@ class MultiMask(gym.Env):
         mse = jnp.mean(squared_difference, axis=0)
         
         
-        # print("batch", self.batch_size, "scaled_difference", scaled_difference, "max", self.max_y, "action", self.state)
+        
         # print(self.state.shape, self.state[:self.batch_size, :].shape)
         # jax.debug.print("max y {} - {} = {}", self.max_y, self.state, difference)
        
@@ -202,6 +202,7 @@ class MultiMask(gym.Env):
         scaled_difference = difference / (self.max_y - self.y_min)
         # jax.debug.print("my {} miny {}, obs {} diff{} scaled fi {}",self.max_y, self.y_min, self.state[:self.batch_size, :], difference,scaled_difference)
         # print("scaled_observation", scaled_observation.shape, "scaled_difference", scaled_difference.shape, "diff", difference.shape, c.shape)
+        # print("batch", self.batch_size, "scaled_difference", scaled_difference, "max", self.max_y, "action", action, "obs", obs, "max_x", self.x_max)
         
         avg_scl_obs = jnp.mean(scaled_observation, axis=0)
         avg_scl_diff = jnp.mean(scaled_difference, axis=0)
