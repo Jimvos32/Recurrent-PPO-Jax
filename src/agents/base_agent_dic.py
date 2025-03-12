@@ -71,9 +71,10 @@ class BaseAgentDic:
         self.r_tick=jnp.zeros(self.env.num_envs)
         self.term_tick=jnp.full((self.env.num_envs),False)
         self.h_tickminus1=jax.tree_map(lambda x: jnp.repeat(jnp.expand_dims(x,axis=0),self.env.num_envs,axis=0),self.seq_init())
-        # print("the t", self.o_tick)
-        expadned_o = self.expand_o_tick(self.o_tick)
-        self._params=self.ac_model.init({'params':params_key,'random':random_key},expadned_o,jnp.expand_dims(self.term_tick,1),#,jnp.expand_dims(self.o_tick,1),jnp.expand_dims(self.term_tick,1),
+        
+        expanded_o = self.expand_o_tick(self.o_tick)
+    
+        self._params=self.ac_model.init({'params':params_key,'random':random_key},expanded_o,jnp.expand_dims(self.term_tick,1),#,jnp.expand_dims(self.o_tick,1),jnp.expand_dims(self.term_tick,1),
                                        self.h_tickminus1)
         def params_sum(params):
             return sum(jax.tree_util.tree_leaves(jax.tree_map(lambda x: np.prod(x.shape),params)))
@@ -87,8 +88,10 @@ class BaseAgentDic:
     def params(self, value):
         self._params = value
         
-    def expand_o_tick(self, o_tick):
-        return {key: jnp.expand_dims(value,1) for key, value in o_tick.items()}
+    def expand_o_tick(self, o_tick, eval=False):
+        if eval:
+            return {key: jnp.expand_dims(value, axis=0) for key, value in o_tick.items()}
+        return {key: jnp.expand_dims(value, axis=1) for key, value in o_tick.items()}
         
     def stack_dict_obs(self, obs, dictio):
         if len(dictio.keys()) == 0:
@@ -489,8 +492,9 @@ class BaseAgentDic:
                 random_key,model_key=jax.random.split(random_key)
                 # for k in o_tick.keys():
                 #     print("bef", k, o_tick[k].shape)
-                expanded_o = self.expand_o_tick(o_tick)
-                expanded_o = self.expand_o_tick(expanded_o)
+               
+                expanded_o = self.expand_o_tick(o_tick, eval=True)
+                expanded_o = self.expand_o_tick(expanded_o, eval=True)
                 # for k in expanded_o.keys():
                 #     print("aft", k, expanded_o[k].shape)
                 
@@ -516,8 +520,8 @@ class BaseAgentDic:
                 rewards.append(r_tick)
                 h_tickminus1=htick
             #Get the rollout frames
-            print("info", jnp.array(info["final_info"]["actions"]).shape) 
-            print("info", info["final_info"]["eval_scaled_diff"].shape) 
+            # print("info", jnp.array(info["final_info"]["actions"]).shape) 
+            # print("info", info["final_info"]["eval_scaled_diff"].shape) 
             actions = jnp.array(info["final_info"]["actions"])
             scaled_diff = jnp.array(info["final_info"]["eval_scaled_diff"])
             rew = jnp.array(info["final_info"]["rewards"])
@@ -526,17 +530,18 @@ class BaseAgentDic:
             max_x = jnp.array(info["final_info"]["max_x"])
             # print("max_cof", max_x.shape, max_y.shape)
             conc_max = jnp.concatenate([max_x, jnp.array([[0,0]])], axis=1)
-            print("max_cof", conc_max.shape)
+            # print("max_cof", conc_max.shape)
             
             eval_rew = jnp.zeros((rew.shape[0] * actions.shape[1],1), dtype=jnp.float32)  # Create an array filled with zeros
             eval_rew = eval_rew.at[jnp.arange(rew.shape[0]) * actions.shape[1],1].set(rew)
-            print("rew", rew)
-            print(eval_rew)
-            
+            # print("rew", rew)
+            # print(eval_rew)
+            # print("scaled_diff", scaled_diff.shape, rew.shape, actions.shape)
+         
             actions = jnp.reshape(actions, (actions.shape[0] * actions.shape[1], actions.shape[2]))
             scaled_diff = jnp.reshape(scaled_diff, (scaled_diff.shape[0] * scaled_diff.shape[1], 1))
             
-            
+            # print("actions", actions.shape)
             combined = jnp.concatenate([actions, scaled_diff, eval_rew], axis=1)
             table = jnp.concatenate([conc_max, combined], axis=0)
             
