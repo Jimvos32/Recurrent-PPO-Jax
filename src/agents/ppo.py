@@ -261,6 +261,225 @@ class PPOAgent(BaseAgentDic):
                     log_prob = jnp.where(valid_mask, log_prob, 0.0)
                     # print("log_prob", log_prob.shape)
                     log_prob = jnp.sum(log_prob, axis=-1)
+                    
+                elif task == "gen_gmm":
+                    epsilon = 1e-6  # small constant for numerical stability
+        
+                    # Get dimensions
+                    batch_size = self.eval_env.unwrapped.max_batches
+                    action_dim = self.eval_env.unwrapped.action_dim
+                    
+                    # Reshape act_logits to align with actions
+                    act_logits = jnp.reshape(act_logits, (actions.shape[0], act_logits.shape[1], 1, act_logits.shape[-1]))
+                    
+                    # Split the policy output
+                    means_all, log_stds_all, weight_logits = jnp.split(act_logits, 3, axis=-1)
+                    
+                    # Determine k (number of mixtures per action dimension)
+                    k = means_all.shape[-1] // action_dim
+                    
+                    # Reshape all parameters to separate mixture components and action dimensions
+                    means_all = jnp.reshape(means_all, (-1, actions.shape[1], 1, action_dim, k))      # shape: (N, steps, 1, action_dim, k)
+                    log_stds_all = jnp.reshape(log_stds_all, (-1, actions.shape[1], 1, action_dim, k))  # shape: (N, steps, 1, action_dim, k)
+                    weight_logits = jnp.reshape(weight_logits, (-1, actions.shape[1], 1, action_dim, k))  # shape: (N, steps, 1, action_dim, k)
+                    
+                    # Clip log_stds to prevent numerical issues
+                    log_stds_all = jnp.clip(log_stds_all, -20, 2)
+                    stds_all = jnp.exp(log_stds_all)
+                    variance_all = stds_all ** 2
+                    
+                    # Calculate weights from weight_logits (softmax across mixture components for each action dim)
+                    weights = jax.nn.softmax(weight_logits, axis=-1)  # shape: (N, steps, 1, action_dim, k)
+                    
+                    # Broadcast parameters to include the batch dimension
+                    means_all = jnp.broadcast_to(
+                        means_all, 
+                        (actions.shape[0], actions.shape[1], batch_size, action_dim, k)
+                    )  # shape: (N, steps, batch_size, action_dim, k)
+                    
+                    stds_all = jnp.broadcast_to(
+                        stds_all, 
+                        (actions.shape[0], actions.shape[1], batch_size, action_dim, k)
+                    )  # shape: (N, steps, batch_size, action_dim, k)
+                    
+                    variance_all = jnp.broadcast_to(
+                        variance_all, 
+                        (actions.shape[0], actions.shape[1], batch_size, action_dim, k)
+                    )  # shape: (N, steps, batch_size, action_dim, k)
+                    
+                    weights = jnp.broadcast_to(
+                        weights, 
+                        (actions.shape[0], actions.shape[1], batch_size, action_dim, k)
+                    )  # shape: (N, steps, batch_size, action_dim, k)
+                    
+                    # Create a valid mask: for each sample, if the first action dimension equals -2, mark it as padded
+                    valid_mask = (actions[..., 0] != -2)  # shape: (N, steps, batch_size)
+                    valid_mask_expanded = valid_mask[..., None]  # shape: (N, steps, batch_size, 1)
+                    
+                    # Invert tanh for valid actions: compute u = atanh(a)
+                    # Use clip to ensure values are within (-1+epsilon, 1-epsilon) to avoid numerical issues
+                    u = jnp.arctanh(jnp.clip(actions, -1 + epsilon, 1 - epsilon))  # shape: (N, steps, batch_size, action_dim)
+                    
+                    # For padded actions (where valid_mask is False), set u to 0
+                    u = jnp.where(valid_mask_expanded, u, 0.0)
+                    
+                    # Expand u to compute log probs for each mixture component
+                    u_expanded = u[..., None]  # shape: (N, steps, batch_size, action_dim, 1)
+                    u_expanded = jnp.broadcast_to(
+                        u_expanded, 
+                        (actions.shape[0], actions.shape[1], batch_size, action_dim, k)
+                    )  # shape: (N, steps, batch_size, action_dim, k)
+                    
+                    # Compute the base Gaussian log probability for each component:
+                    #   log N(u | mean, std) = -0.5 * (((u - mean)**2)/variance + 2*log_std + log(2*pi))
+                    base_log_prob = -0.5 * (
+                        ((u_expanded - means_all) ** 2) / variance_all 
+                        + 2 * log_stds_all 
+                        + jnp.log(2 * jnp.pi)
+                    )  # shape: (N, steps, batch_size, action_dim, k)
+                    
+                    # For each action dimension, compute log(sum(weight_i * p_i))
+                    # First, we need to convert to probabilities, multiply by weights, then back to log domain
+                    # To avoid numerical issues, we use the log-sum-exp trick
+                    
+                    # Add log weights to log probabilities
+                    log_weights = jnp.log(weights + epsilon)
+                    weighted_log_probs = log_weights + base_log_prob  # shape: (N, steps, batch_size, action_dim, k)
+                    
+                    # Use log-sum-exp trick for numerical stability
+                    # First find the max along the mixture component dimension
+                    max_log_probs = jnp.max(weighted_log_probs, axis=-1, keepdims=True)  # shape: (N, steps, batch_size, action_dim, 1)
+                    
+                    # Subtract the max and compute exp
+                    exp_log_probs = jnp.exp(weighted_log_probs - max_log_probs)  # shape: (N, steps, batch_size, action_dim, k)
+                    
+                    # Sum over mixture components
+                    sum_exp_log_probs = jnp.sum(exp_log_probs, axis=-1)  # shape: (N, steps, batch_size, action_dim)
+                    
+                    # Add the max back and take log to get log probability for each action dimension
+                    log_prob_per_dim = jnp.log(sum_exp_log_probs + epsilon) + max_log_probs[..., 0]  # shape: (N, steps, batch_size, action_dim)
+                    
+                    # Sum log probabilities across action dimensions
+                    log_prob_u = jnp.sum(log_prob_per_dim, axis=-1)  # shape: (N, steps, batch_size)
+                    
+                    # Tanh squashing correction: for each action dimension subtract log(1 - a^2)
+                    correction = jnp.sum(jnp.log(1 - actions ** 2 + epsilon), axis=-1)  # shape: (N, steps, batch_size)
+                    
+                    # Final log probability
+                    log_prob = log_prob_u - correction
+                    
+                    # For padded samples, set the log probability to 0 so they do not contribute to gradients/loss
+                    log_prob = jnp.where(valid_mask, log_prob, 0.0)
+                    
+                    # Sum across batch dimension (as in your original code)
+                    log_prob = jnp.sum(log_prob, axis=-1)
+                    
+                elif task == "correlated_gmm":
+                    epsilon = 1e-6  # small constant for numerical stability
+                    
+                    # Get dimensions
+                    batch_size = self.eval_env.unwrapped.max_batches
+                    action_dim = self.eval_env.unwrapped.action_dim
+                    
+                    # Reshape act_logits to align with actions
+                    act_logits = jnp.reshape(act_logits, (actions.shape[0], act_logits.shape[1], 1, act_logits.shape[-1]))
+                    
+                    # Determine the number of mixture components (k)
+                    total_params = act_logits.shape[-1]
+                    k = total_params // (2 * action_dim + 1)
+                    
+                    # Reshape and split act_logits to extract means, log_stds, and weights
+                    reshaped_logits = jnp.reshape(act_logits, (actions.shape[0], act_logits.shape[1], 1, k * (2 * action_dim + 1)))
+                    
+                    # Split into means, log_stds, and weights
+                    means_all = reshaped_logits[..., :k*action_dim]
+                    log_stds_all = reshaped_logits[..., k*action_dim:2*k*action_dim]
+                    weight_logits = reshaped_logits[..., 2*k*action_dim:]
+                    
+                    # Reshape means and log_stds to have component structure
+                    means_all = jnp.reshape(means_all, (actions.shape[0], act_logits.shape[1], 1, k, action_dim))  # shape: (N, steps, 1, k, action_dim)
+                    log_stds_all = jnp.reshape(log_stds_all, (actions.shape[0], act_logits.shape[1], 1, k, action_dim))  # shape: (N, steps, 1, k, action_dim)
+                    
+                    # Clip log_stds to prevent numerical issues
+                    log_stds_all = jnp.clip(log_stds_all, -20, 2)
+                    stds_all = jnp.exp(log_stds_all)
+                    variance_all = stds_all ** 2
+                    
+                    # Calculate mixture weights
+                    weights = jax.nn.softmax(weight_logits, axis=-1)  # shape: (N, steps, 1, k)
+                    
+                    # Broadcast to batch dimension
+                    means_all = jnp.broadcast_to(
+                        means_all, 
+                        (actions.shape[0], actions.shape[1], batch_size, k, action_dim)
+                    )  # shape: (N, steps, batch_size, k, action_dim)
+                    
+                    variance_all = jnp.broadcast_to(
+                        variance_all, 
+                        (actions.shape[0], actions.shape[1], batch_size, k, action_dim)
+                    )  # shape: (N, steps, batch_size, k, action_dim)
+                    
+                    log_stds_all = jnp.broadcast_to(
+                        log_stds_all, 
+                        (actions.shape[0], actions.shape[1], batch_size, k, action_dim)
+                    )  # shape: (N, steps, batch_size, k, action_dim)
+                    
+                    weights = jnp.broadcast_to(
+                        weights, 
+                        (actions.shape[0], actions.shape[1], batch_size, k)
+                    )  # shape: (N, steps, batch_size, k)
+                    
+                    # Create a valid mask: for each sample, if the first action dimension equals -2, mark it as padded
+                    valid_mask = (actions[..., 0] != -2)  # shape: (N, steps, batch_size)
+                    
+                    # Invert tanh for valid actions: compute u = atanh(a)
+                    # Use clip to ensure values are within (-1+epsilon, 1-epsilon) to avoid numerical issues
+                    u = jnp.arctanh(jnp.clip(actions, -1 + epsilon, 1 - epsilon))  # shape: (N, steps, batch_size, action_dim)
+                    
+                    # For padded actions (where valid_mask is False), set u to 0
+                    u = jnp.where(valid_mask[..., None], u, 0.0)
+                    
+                    # Compute log probabilities for each component
+                    # Unlike previous implementation, we compute joint probability across all action dimensions
+                    
+                    # Compute Gaussian log prob for each component and each action dimension
+                    # shape: (N, steps, batch_size, k, action_dim)
+                    log_probs_per_dim = -0.5 * (
+                        ((u[..., None, :] - means_all) ** 2) / variance_all 
+                        + 2 * log_stds_all 
+                        + jnp.log(2 * jnp.pi)
+                    )
+                    
+                    # Sum across action dimensions to get joint log prob for each component
+                    # shape: (N, steps, batch_size, k)
+                    log_probs_joint = jnp.sum(log_probs_per_dim, axis=-1)
+                    
+                    # Add log weights and compute log-sum-exp
+                    # shape: (N, steps, batch_size, k)
+                    log_weights = jnp.log(weights + epsilon)
+                    weighted_log_probs = log_weights + log_probs_joint
+                    
+                    # Use log-sum-exp trick for numerical stability
+                    max_log_probs = jnp.max(weighted_log_probs, axis=-1, keepdims=True)  # shape: (N, steps, batch_size, 1)
+                    exp_log_probs = jnp.exp(weighted_log_probs - max_log_probs)  # shape: (N, steps, batch_size, k)
+                    sum_exp_log_probs = jnp.sum(exp_log_probs, axis=-1)  # shape: (N, steps, batch_size)
+                    log_prob_u = jnp.log(sum_exp_log_probs + epsilon) + max_log_probs[..., 0]  # shape: (N, steps, batch_size)
+                    
+                    # Tanh squashing correction: for each action dimension subtract log(1 - a^2)
+                    correction = jnp.sum(jnp.log(1 - actions ** 2 + epsilon), axis=-1)  # shape: (N, steps, batch_size)
+                    
+                    # Final log probability
+                    log_prob = log_prob_u - correction
+                    
+                    # For padded samples, set the log probability to 0 so they do not contribute to gradients/loss
+                    log_prob = jnp.where(valid_mask, log_prob, 0.0)
+                    
+                    # Sum across batch dimension (as in your original code)
+                    log_prob = jnp.sum(log_prob, axis=-1)
+                    
+                    return log_prob
+        
+
 
                     # log_prob = jnp.squeeze(log_prob, axis=-1)  # Remove unnecessary singleton dimension
                     

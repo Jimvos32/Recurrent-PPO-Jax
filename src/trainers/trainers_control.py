@@ -66,12 +66,15 @@ def get_env_initializers(env_config):
         print("env_fn", env_config)
         repr_fn=dict_unpack_mask(batch_expand_hidden=env_config["batch_expand_hidden"], 
                                  batch_combine_hidden=env_config["batch_combine_hidden"], step_expand_hidden=env_config["step_expand_hidden"], input_combine_hidden=env_config["input_combine_hidden"])
-        
-        # env_fn=lambda: create_masked(**env_config)
-        # print("env_fn", env_config)
-        # repr_fn=simple_mlp(hidden_sizes=(128,128))
-        
         return env_fn,env_fn,repr_fn
+    elif env_config['task']=='gen_gmm':
+        env_fn=lambda: create_masked(**env_config)
+        repr_fn=dict_unpack_mask(batch_expand_hidden=env_config["batch_expand_hidden"], 
+                                 batch_combine_hidden=env_config["batch_combine_hidden"], step_expand_hidden=env_config["step_expand_hidden"], input_combine_hidden=env_config["input_combine_hidden"])
+        return env_fn,env_fn,repr_fn
+        
+       
+        
 
 class ControlTrainer(BaseTrainer):
 
@@ -159,6 +162,9 @@ class ControlTrainer(BaseTrainer):
         elif name == "masked":
             # print(self.trainer_config)
             actor_fn = actor_model_continuous_params(self.trainer_config['d_actor'], list(self.trainer_config['actor_params_hidden']) + [eval_env.unwrapped.action_dim])
+        elif name == "gen_gmm":
+            # print(self.trainer_config)
+            actor_fn = actor_gmm_params(self.trainer_config['d_actor'], list(self.trainer_config['actor_params_hidden']) + [eval_env.unwrapped.action_dim])
         
 
         critic_fn=critic_model(self.trainer_config['d_critic'])

@@ -199,3 +199,69 @@ def actor_model_continuous_params(shared_hidden_sizes=(256, 128), policy_hidden_
             return output
     
     return lambda: ContinuousActor()
+
+
+def actor_gmm_params(shared_hidden_sizes=(256, 128), policy_hidden_sizes=(64, 32, 2)):
+    """Actor model for continuous action spaces with parameterizable layer sizes.
+    
+    Args:
+        shared_hidden_sizes: Tuple of hidden layer sizes for the shared network
+        policy_hidden_sizes: Tuple of hidden layer sizes for both mean and log_std networks,
+                            with the last value being used as the action dimension
+    
+    Returns:
+        A function that returns a ContinuousActor module
+    """
+    # Extract action dimension from the last element of policy_hidden_sizes
+    action_dim = policy_hidden_sizes[-1]
+    
+    class ContinuousActor(nn.Module):
+        @nn.compact
+        def __call__(self, x):
+            # Helper function to create an MLP with given hidden sizes
+            def create_mlp(inputs, hidden_sizes, final_activation=None, kernel_init_scale=jnp.sqrt(2), bias_init_val=0.0):
+                x = inputs
+                # Process all hidden layers except the last one
+                for size in hidden_sizes:
+                    x = nn.Dense(size,
+                                kernel_init=orthogonal(kernel_init_scale),
+                                bias_init=constant(bias_init_val))(x)
+                    x = nn.tanh(x)
+                return x
+            
+            # Shared feature network
+            x = create_mlp(x, shared_hidden_sizes)
+            
+            # Create separate networks for mean and log_std, both with the same architecture
+            # Use all but the last element of policy_hidden_sizes for the hidden layers
+            policy_layers = policy_hidden_sizes[:-1]
+            
+            # Mean network
+            mean_hidden = create_mlp(x, policy_layers)
+            mean = nn.Dense(action_dim,
+                          kernel_init=orthogonal(0.01),
+                          bias_init=constant(0.0))(mean_hidden)
+            
+            # Log std network - same architecture as mean network
+            log_std_hidden = create_mlp(x, policy_layers)
+            log_std = nn.Dense(action_dim,
+                             kernel_init=orthogonal(0.01),
+                             bias_init=constant(0.0))(log_std_hidden)
+            
+            # Clip log standard deviation for numerical stability
+            log_std = jnp.clip(log_std, -20.0, 2.0)
+            
+            weights = nn.Dense(action_dim,
+                             kernel_init=orthogonal(0.01),
+                             bias_init=constant(0.0))(x)
+            
+            
+            
+            # print("policy mean out ", mean.shape, "policy std out ", log_std.shape)
+            # Stack mean and log_std to maintain shape compatibility
+            output = jnp.concatenate([mean, log_std, weights], axis=-1)
+            # print("single_pol_output", output.shape)
+            
+            return output
+    
+    return lambda: ContinuousActor()

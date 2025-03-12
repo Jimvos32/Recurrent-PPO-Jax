@@ -109,17 +109,17 @@ class MultiMask(gym.Env):
     
     def shift_polynomial(self):
         # Randomize the maximum location uniformly for each dimension.
-        self.x_max = np.random.uniform(self.x_range[0], self.x_range[1], size=(1,self.action_dim))
-        # Randomize the constant such that f(x_max) = c, and weights.
-        self.c = np.random.uniform(5.0, 20.0)
-        # print("is this random", self.c)
-        self.weights = np.random.uniform(0.5, 2.0, size=(self.action_dim,))
-        
-        
-        # self.x_max = np.random.uniform(0.5, 0.5, size=(1,self.action_dim))
+        # self.x_max = np.random.uniform(self.x_range[0], self.x_range[1], size=(1,self.action_dim))
         # # Randomize the constant such that f(x_max) = c, and weights.
-        # self.c = np.random.uniform(10.0, 10.0)
-        # self.weights = np.random.uniform(0.5, 0.5, size=(self.action_dim,))
+        # self.c = np.random.uniform(5.0, 20.0)
+        # # print("is this random", self.c)
+        # self.weights = np.random.uniform(0.5, 2.0, size=(self.action_dim,))
+        
+        
+        self.x_max = np.random.uniform(0.5, 0.5, size=(1,self.action_dim))
+        # Randomize the constant such that f(x_max) = c, and weights.
+        self.c = np.random.uniform(10.0, 10.0)
+        self.weights = np.random.uniform(0.5, 0.5, size=(self.action_dim,))
         
         
     
@@ -129,7 +129,7 @@ class MultiMask(gym.Env):
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
         # Optionally shift polynomial parameters if desired.
-        self.shift_polynomial()
+        # self.shift_polynomial()
         self.batch_size = np.random.choice(self.batches)
         
        
@@ -250,12 +250,12 @@ class MultiMask(gym.Env):
         
         # print(scaled_max.shape)
         # bb = scaled_max[0]
-        new_best = jnp.maximum(0.0, scaled_max)
+        new_best = jnp.maximum(0.0, scaled_max - self.best_rewards[0])
         
         # self.r_mse = 0.0
         # self.r_obs = 10.0
         
-        e_reward = self.r_best * scaled_max + self.r_impr * avg_imp + new_best * self.r_new_best + mse * -1 * self.r_mse + avg_scl_obs  * self.r_obs
+        e_reward = self.r_best * scaled_max + self.r_impr * avg_imp + new_best * self.r_new_best #+ mse * -1 * self.r_mse + avg_scl_obs  * self.r_obs
         e_reward = e_reward * 10
         # e_reward = jnp.mean(-jnp.abs(difference), axis=0)
         # e_reward = jnp.mean(-jnp.abs(scaled_difference), axis=0)

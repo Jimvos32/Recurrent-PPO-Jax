@@ -300,6 +300,207 @@ class BaseAgentDic:
             # jax.debug.print("pad {}\nmask {}\nact {}\n",padded_acts[0], masks[0], acts_tick[0])
             # jax.debug.print("masked {}\n{}", acts_tick[0], acts_tick_2[0])
             return padded_acts
+        
+        elif task == "gen_gmm":  
+            
+            def apply_padding_mask(expanded_array, padding_counts, pad_value=-2.0):
+                x, n, z = expanded_array.shape
+                
+                # Create indices for each position in the batch dimension
+                batch_indices = jnp.arange(n)
+                
+                # Reshape padding_counts and broadcast for comparison
+                counts_expanded = padding_counts.reshape(x, 1)
+                
+                # Create a mask where True means we should keep the original value
+                # and False means we should pad
+                mask = batch_indices < counts_expanded
+                
+                # Expand the mask to match the full shape
+                full_mask = jnp.broadcast_to(mask.reshape(x, n, 1), (x, n, z))
+                
+                # Apply the mask using where to conditionally select values
+                result = jnp.where(full_mask, expanded_array, pad_value)
+                
+                return result
+            
+            action_dim = self.eval_env.unwrapped.action_dim
+            batch_size = self.eval_env.unwrapped.max_batches
+            
+            # Split the policy output as specified
+            means_all, log_stds_all, weight_logits = jnp.split(act_logits, 3, axis=-1)
+            
+            # Determine k (number of mixtures per action dimension)
+            k = means_all.shape[-1] // action_dim
+            
+            # Reshape all parameters to separate mixture components and action dimensions
+            means_all = jnp.reshape(means_all, (-1, action_dim, k))         # shape: (N, action_dim, k)
+            log_stds_all = jnp.reshape(log_stds_all, (-1, action_dim, k))   # shape: (N, action_dim, k)
+            weight_logits = jnp.reshape(weight_logits, (-1, action_dim, k))  # shape: (N, action_dim, k)
+            
+            # print(means_all.shape)
+            
+            # Clip log_stds to prevent numerical issues
+            log_stds_all = jnp.clip(log_stds_all, -20, 2)
+            stds_all = jnp.exp(log_stds_all)
+            
+            # Calculate weights from weight_logits (softmax across mixture components for each action dim)
+            weights = jax.nn.softmax(weight_logits, axis=-1)  # shape: (N, action_dim, k)
+            
+            # Get number of parallel environments
+            N = means_all.shape[0]
+            
+            # Split random key for component selection and noise generation
+            key_cat, key_noise = jax.random.split(random_key)
+            
+            # Further split key_cat for each action dimension
+            key_cats = jax.random.split(key_cat, action_dim)
+            
+            # Sample mixture component indices for each action dimension separately
+            # Initialize component_indices with the right shape
+            component_indices = jnp.zeros((N, action_dim), dtype=jnp.int32)
+            
+            # Loop over action dimensions to sample component indices
+            for d in range(action_dim):
+                component_indices = component_indices.at[:, d].set(
+                    jax.random.categorical(key_cats[d], logits=weight_logits[:, d, :], axis=-1)
+                )
+            
+            # Broadcast parameters to include the batch dimension
+            means_expanded = jnp.broadcast_to(
+                means_all[:, None, :, :], 
+                (N, batch_size, action_dim, k)
+            )  # shape: (N, batch_size, action_dim, k)
+            
+            stds_expanded = jnp.broadcast_to(
+                stds_all[:, None, :, :], 
+                (N, batch_size, action_dim, k)
+            )  # shape: (N, batch_size, action_dim, k)
+            
+            # Prepare indices for gathering along the k dimension
+            component_indices_expanded = jnp.broadcast_to(
+                component_indices[:, None, :, None], 
+                (N, batch_size, action_dim, 1)
+            )  # shape: (N, batch_size, action_dim, 1)
+            
+            # Gather the chosen means and stds based on component indices
+            chosen_means = jnp.take_along_axis(means_expanded, component_indices_expanded, axis=-1)
+            chosen_stds = jnp.take_along_axis(stds_expanded, component_indices_expanded, axis=-1)
+            
+            # Remove the last singleton dimension
+            chosen_means = jnp.squeeze(chosen_means, axis=-1)  # shape: (N, batch_size, action_dim)
+            chosen_stds = jnp.squeeze(chosen_stds, axis=-1)    # shape: (N, batch_size, action_dim)
+            
+            # Sample noise from standard normal distribution
+            noise = jax.random.normal(key_noise, shape=chosen_means.shape)
+            
+            # Compute the final sampled actions
+            acts_tick = chosen_means + chosen_stds * noise  # shape: (N, batch_size, action_dim)
+            
+            # Apply tanh to constrain actions to [-1, 1] range
+            acts_tick = jnp.tanh(acts_tick)
+            
+            # Apply padding mask if necessary
+            if masks is not None:
+                acts_tick = apply_padding_mask(acts_tick, masks)
+            
+            return acts_tick
+        
+        elif task == "correlated_gmm":
+            def apply_padding_mask(expanded_array, padding_counts, pad_value=-2.0):
+                x, n, z = expanded_array.shape
+                
+                # Create indices for each position in the batch dimension
+                batch_indices = jnp.arange(n)
+                
+                # Reshape padding_counts and broadcast for comparison
+                counts_expanded = padding_counts.reshape(x, 1)
+                
+                # Create a mask where True means we should keep the original value
+                # and False means we should pad
+                mask = batch_indices < counts_expanded
+                
+                # Expand the mask to match the full shape
+                full_mask = jnp.broadcast_to(mask.reshape(x, n, 1), (x, n, z))
+                
+                # Apply the mask using where to conditionally select values
+                result = jnp.where(full_mask, expanded_array, pad_value)
+                
+                return result
+            
+            action_dim = self.eval_env.unwrapped.action_dim
+            batch_size = self.eval_env.unwrapped.max_batches
+            
+            # Parse the policy output - this will be different than before
+            # Now we have:
+            # 1. k sets of means (each with action_dim dimensions)
+            # 2. k sets of log_stds (each with action_dim dimensions)
+            # 3. k mixture weights (these determine which component to sample from)
+            
+            # First, determine the number of mixture components (k)
+            total_params = act_logits.shape[-1]
+            k = total_params // (2 * action_dim + 1)  # Each component has mean, log_std (both action_dim), and a weight
+            
+            # Reshape act_logits to extract means, log_stds, and weights
+            reshaped_logits = jnp.reshape(act_logits, (-1, k * (2 * action_dim + 1)))
+            
+            # Split into means, log_stds, and weights
+            means_all = reshaped_logits[..., :k*action_dim]
+            log_stds_all = reshaped_logits[..., k*action_dim:2*k*action_dim]
+            weight_logits = reshaped_logits[..., 2*k*action_dim:]
+            
+            # Reshape means and log_stds to have component structure
+            means_all = jnp.reshape(means_all, (-1, k, action_dim))  # shape: (N, k, action_dim)
+            log_stds_all = jnp.reshape(log_stds_all, (-1, k, action_dim))  # shape: (N, k, action_dim)
+            
+            # Clip log_stds to prevent numerical issues
+            log_stds_all = jnp.clip(log_stds_all, -20, 2)
+            stds_all = jnp.exp(log_stds_all)
+            
+            # Calculate mixture weights (these are the same for all action dimensions)
+            weights = jax.nn.softmax(weight_logits, axis=-1)  # shape: (N, k)
+            
+            # Get number of parallel environments
+            N = means_all.shape[0]
+            
+            # Split random key for component selection and noise generation
+            key_cat, key_noise = jax.random.split(random_key)
+            
+            # Sample mixture component indices based on weights
+            # This selects which component to use for the entire action vector
+            # Shape: (N,)
+            component_indices = jax.random.categorical(key_cat, logits=weight_logits, axis=-1)
+            
+            # Gather the chosen means and stds based on component indices
+            # We need to handle the indexing carefully to keep the action dimensions
+            
+            # Create indices for gathering
+            batch_idx = jnp.arange(N)
+            
+            # Select means and stds for the chosen components
+            # Shape: (N, action_dim)
+            chosen_means = means_all[batch_idx, component_indices]
+            chosen_stds = stds_all[batch_idx, component_indices]
+            
+            # Broadcast chosen means and stds to match batch size
+            chosen_means = jnp.broadcast_to(chosen_means[:, None, :], (N, batch_size, action_dim))
+            chosen_stds = jnp.broadcast_to(chosen_stds[:, None, :], (N, batch_size, action_dim))
+            
+            # Sample noise from standard normal distribution
+            # Using the same key for all dimensions creates correlation
+            noise = jax.random.normal(key_noise, shape=(N, batch_size, action_dim))
+            
+            # Compute the final sampled actions
+            acts_tick = chosen_means + chosen_stds * noise  # shape: (N, batch_size, action_dim)
+            
+            # Apply tanh to constrain actions to [-1, 1] range
+            acts_tick = jnp.tanh(acts_tick)
+            
+            # Apply padding mask if necessary
+            if masks is not None:
+                acts_tick = apply_padding_mask(acts_tick, masks)
+            
+            return acts_tick
             
 
             
@@ -401,6 +602,9 @@ class BaseAgentDic:
             elif self.task == "masked":
                 # print("multibatch")
                 acts_tick = self.sampling_differ("masked", act_logits, random_key, masks=masks)    
+            elif self.task == "gen_gmm":
+                # print("multibatch")
+                acts_tick = self.sampling_differ("gen_gmm", act_logits, random_key, masks=masks)    
             
                 
             
