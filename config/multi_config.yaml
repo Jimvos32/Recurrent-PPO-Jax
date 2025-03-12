@@ -1,6 +1,6 @@
 tags: null
 project_name: "varied_batch"
-seed: 1
+seed: 
 steps: 500000
 log_interval: 2048
 # eval_episodes: 0

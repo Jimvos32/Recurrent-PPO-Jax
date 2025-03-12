@@ -64,10 +64,10 @@ class RecordRollout(gym.Wrapper):
         self.frames=[]
     
     def step(self, action):
-        self.frames.append(self.env.render())
+        # self.frames.append(self.env.render())
         observations, rewards, terminated, truncated, info = self.env.step(action)
-        if (terminated or truncated):
-            if len(self.frames)>0:
-                info['frames']=np.transpose(np.stack(self.frames,0).copy(),(0,3,1,2))
-            self.frames=[]
+        # if (terminated or truncated):
+        #     if len(self.frames)>0:
+        #         info['frames']=np.transpose(np.stack(self.frames,0).copy(),(0,3,1,2))
+        #     self.frames=[]
         return observations, rewards, terminated, truncated, info

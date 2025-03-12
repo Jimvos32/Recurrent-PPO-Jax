@@ -1,6 +1,6 @@
 agent: ppo
-d_actor: [128, 64]
-actor_params_hidden: [128, 64]
+d_actor: [64, 64]
+actor_params_hidden: [64, 64]
 d_critic: 32
 num_envs: 8
 rollout_len: 128

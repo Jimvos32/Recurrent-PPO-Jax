@@ -115,6 +115,193 @@ class BaseAgentDic:
             
             return dictio
         
+    def sampling_differ(self, task, act_logits,random_key, masks=None):
+        if task == "batch":
+            # act_logits: shape (parallel_env, 1, 2 * action_dim)
+            batch_size = self.eval_env.unwrapped.batch_size  # number of samples per env
+            action_dim = act_logits.shape[-1] // 2
+
+            act_logits = jnp.repeat(act_logits, batch_size, axis=2)
+            means = act_logits[..., :action_dim]
+            log_stds = act_logits[..., action_dim:]
+            log_stds = jnp.clip(log_stds, -20.0, 2.0)
+            stds = jnp.exp(log_stds)
+
+        
+
+            # 4. Sample noise and compute actions:
+            noise = jax.random.normal(random_key, shape=means.shape)  # shape: (parallel_env, batch_size, action_dim)
+            acts_tick = means + noise * stds  # shape: (parallel_env, batch_size, action_dim)
+            # acts_tick = jnp.squeeze(acts_tick)  # shape: (parallel_env, action_dim)
+            # print("ac", acts_tick.shape)
+            
+            
+        elif task == "sampling":
+            action_dim = act_logits.shape[-1] // 2
+            means = act_logits[..., :action_dim].squeeze(-1)
+            log_stds = act_logits[..., action_dim:].squeeze(-1)
+            # print("policy_out", act_logits.shape, "mean", means.shape, "std", log_stds.shape)
+            
+            # Clip log_stds for numerical stability
+            log_stds = jnp.clip(log_stds, -20.0, 2.0)
+            stds = jnp.exp(log_stds)
+            
+            # Sample from standard normal and scale
+            noise = jax.random.normal(random_key, means.shape)
+            acts_tick = means + noise * stds
+            # jax.debug.print("dit kan echt niet meer {} {} {} ", means.shape, log_stds.shape, acts_tick.shape)
+            acts_tick = jnp.squeeze(acts_tick)
+            
+        elif task == "multibatch":
+            batch_size = self.eval_env.unwrapped.batch_size  # number of samples per env
+            action_dim = act_logits.shape[-1] // 2 # shape [parallel_env, 1, 2 * action_dim]
+
+            means = act_logits[..., :action_dim]
+            log_stds = act_logits[..., action_dim:]
+            log_stds = jnp.clip(log_stds, -20.0, 2.0)
+            stds = jnp.exp(log_stds)
+            
+            # print("means", means.shape, "log_stds", log_stds.shape)
+
+            #samples the actions
+            noise = jax.random.normal(random_key, shape=means.shape)  # shape: (parallel_env, batch_size, action_dim)
+            acts_tick = means + noise * stds  # shape: (parallel_env, batch_size, action_dim)
+        elif task == "expanded_samp":  
+            # print("pol_output", act_logits.shape)
+            means, log_stds, weight_logits = jnp.split(act_logits, 3, axis=-1) # shape: (parallel_env, 1, 3 *k)
+            log_stds = jnp.clip(log_stds, -20, 2)
+            weights = jax.nn.softmax(weight_logits, axis=-1)  # shape: (parallel_env, 1, k)
+
+            batch_size = self.eval_env.unwrapped.batch_size  # number of samples per environment
+            # print("means", means.shape, "log_stds", log_stds.shape, "weight_logits", weight_logits.shape, "weights", weights.shape, act_logits.shape)
+
+            # Get dimensions
+            N = means.shape[0]      # number of parallel envs
+            k = means.shape[-1]     # number of mixture components
+            
+            
+            # Broadcast parameters from shape (N, 1, k) to (N, batch_size, k)
+            means = jnp.broadcast_to(means, (N, batch_size, k))
+            log_stds = jnp.broadcast_to(log_stds, (N, batch_size, k))
+            weight_logits = jnp.broadcast_to(weight_logits, (N, batch_size, k))
+            weights = jnp.broadcast_to(weights, (N, batch_size, k))
+
+            # Split the random key for independent sampling.
+            key_cat, key_noise = jax.random.split(random_key)
+
+            # Sample mixture component indices from the logits.
+            # jax.random.categorical expects logits of shape (..., num_classes) and returns
+            # a sample of shape matching the input without the last dimension.
+            # Here, weight_logits has shape (N, batch_size, k) so we get (N, batch_size)
+            component_indices = jax.random.categorical(key_cat, logits=weight_logits, axis=-1)
+
+            # Expand indices so they can index the last dimension (the k components)
+            component_indices = component_indices[..., None]  # shape: (N, batch_size, 1)
+
+            # Gather the chosen means and log_stds based on the sampled component indices.
+            chosen_means = jnp.take_along_axis(means, component_indices, axis=-1)      # shape: (N, batch_size, 1)
+            chosen_log_stds = jnp.take_along_axis(log_stds, component_indices, axis=-1)  # shape: (N, batch_size, 1)
+            chosen_stds = jnp.exp(chosen_log_stds)
+
+            # Sample noise from a standard normal distribution matching the chosen parameters’ shape.
+            noise = jax.random.normal(key_noise, shape=chosen_means.shape)
+
+            # Compute the final sampled actions.
+            # acts_tick shape: (parallel_env, batch_size, 1)
+            acts_tick = chosen_means + chosen_stds * noise
+            # print("acts_tick", acts_tick.shape, )
+            
+        elif task == "multidim":  
+            action_dim = self.eval_env.unwrapped.action_dim  # Ensure your environment defines action_dim
+
+            # Split the policy output into means and log_stds.
+            means, log_stds = jnp.split(act_logits, 2, axis=-1)
+            
+            log_stds = jnp.clip(log_stds, -20, 2)
+            stds = jnp.exp(log_stds)
+
+            batch_size = self.eval_env.unwrapped.batch_size  # number of samples per environment
+
+            # Get the number of parallel environments.
+            N = means.shape[0]
+
+            # Broadcast parameters to match the batch size.
+            # New shape becomes (N, batch_size, action_dim)
+            means = jnp.broadcast_to(means, (N, batch_size, action_dim))
+            stds = jnp.broadcast_to(stds, (N, batch_size, action_dim))
+            # Sample noise from a standard normal distribution matching the shape.
+            noise = jax.random.normal(random_key, shape=means.shape)
+
+            # Compute the final sampled actions.
+            acts_tick = means + stds * noise
+
+            
+            return acts_tick
+        
+        elif task == "masked":  
+            
+            def apply_padding_mask(expanded_array, padding_counts, pad_value=-2.0):
+                x, n, z = expanded_array.shape
+                
+                # Create indices for each position in the batch dimension
+                batch_indices = jnp.arange(n)
+                
+                # Reshape padding_counts and broadcast for comparison
+                counts_expanded = padding_counts.reshape(x, 1)
+                
+                # Create a mask where True means we should keep the original value
+                # and False means we should pad
+                mask = batch_indices < counts_expanded
+                
+                # Expand the mask to match the full shape
+                full_mask = jnp.broadcast_to(mask.reshape(x, n, 1), (x, n, z))
+                
+                # Apply the mask using where to conditionally select values
+                result = jnp.where(full_mask, expanded_array, pad_value)
+                
+                return result
+            
+            
+            action_dim = self.eval_env.unwrapped.action_dim  # Ensure your environment defines action_dim
+
+            # Split the policy output into means and log_stds.
+            means, log_stds = jnp.split(act_logits, 2, axis=-1)
+            
+            log_stds = jnp.clip(log_stds, -20, 2)
+            stds = jnp.exp(log_stds)
+
+            batch_size = self.eval_env.unwrapped.max_batches  # number of samples per environment
+            
+
+            # Get the number of parallel environments.
+            N = means.shape[0]
+            
+        
+            # Broadcast parameters to match the batch size.
+            # New shape becomes (N, batch_size, action_dim)
+            means = jnp.broadcast_to(means, (N, batch_size, action_dim))
+            stds = jnp.broadcast_to(stds, (N, batch_size, action_dim))
+            
+            #Should expand into (N, max_size, action_dim) with the extra (max_size - batch_size) padded with zeros
+            
+            # Sample noise from a standard normal distribution matching the shape.
+            noise = jax.random.normal(random_key, shape=means.shape)
+
+            # Compute the final sampled actions.
+            acts_tick = means + stds * noise
+            # print("acts_tick", acts_tick.shape)
+            # print("masked", acts_tick.shape)
+            acts_tick = jnp.tanh(acts_tick)
+            
+            padded_acts = apply_padding_mask(acts_tick, masks)
+            # jax.debug.print("pad {}\nmask {}\nact {}\n",padded_acts[0], masks[0], acts_tick[0])
+            # jax.debug.print("masked {}\n{}", acts_tick[0], acts_tick_2[0])
+            return padded_acts
+            
+
+            
+        return acts_tick
+
     
     def unroll_actors(self,random_key):
         """
@@ -172,199 +359,17 @@ class BaseAgentDic:
                 hiddens.append(jax.tree_map(lambda x:x,h_tickminus1))
                 hidden_indices.append(jnp.repeat(jnp.arange(t,t+self.sequence_length).reshape(1,-1),repeats=self.env.num_envs,axis=0))
             
+           
             expanded_o = self.expand_o_tick(o_tick)
+            
+           
             act_logits,v_tick,htick=self.actor_critic_fn(model_key,self.params,expanded_o,jnp.expand_dims(term_tick,1),#jnp.expand_dims(o_tick,1),jnp.expand_dims(term_tick,1),
                                                          h_tickminus1)
             
             # print("expanded_o", expanded_o["mask"].shape)
             masks = expanded_o["mask"]
             
-            def sampling_differ(task, act_logits,random_key,  masks=None):
-                if task == "batch":
-                    # act_logits: shape (parallel_env, 1, 2 * action_dim)
-                    batch_size = self.eval_env.unwrapped.batch_size  # number of samples per env
-                    action_dim = act_logits.shape[-1] // 2
-
-                    act_logits = jnp.repeat(act_logits, batch_size, axis=2)
-                    means = act_logits[..., :action_dim]
-                    log_stds = act_logits[..., action_dim:]
-                    log_stds = jnp.clip(log_stds, -20.0, 2.0)
-                    stds = jnp.exp(log_stds)
-
-                
-
-                    # 4. Sample noise and compute actions:
-                    noise = jax.random.normal(random_key, shape=means.shape)  # shape: (parallel_env, batch_size, action_dim)
-                    acts_tick = means + noise * stds  # shape: (parallel_env, batch_size, action_dim)
-                    # acts_tick = jnp.squeeze(acts_tick)  # shape: (parallel_env, action_dim)
-                    # print("ac", acts_tick.shape)
-                    
-                    
-                elif task == "sampling":
-                    action_dim = act_logits.shape[-1] // 2
-                    means = act_logits[..., :action_dim].squeeze(-1)
-                    log_stds = act_logits[..., action_dim:].squeeze(-1)
-                    # print("policy_out", act_logits.shape, "mean", means.shape, "std", log_stds.shape)
-                    
-                    # Clip log_stds for numerical stability
-                    log_stds = jnp.clip(log_stds, -20.0, 2.0)
-                    stds = jnp.exp(log_stds)
-                    
-                    # Sample from standard normal and scale
-                    noise = jax.random.normal(random_key, means.shape)
-                    acts_tick = means + noise * stds
-                    # jax.debug.print("dit kan echt niet meer {} {} {} ", means.shape, log_stds.shape, acts_tick.shape)
-                    acts_tick = jnp.squeeze(acts_tick)
-                    
-                elif task == "multibatch":
-                    batch_size = self.eval_env.unwrapped.batch_size  # number of samples per env
-                    action_dim = act_logits.shape[-1] // 2 # shape [parallel_env, 1, 2 * action_dim]
-
-                    means = act_logits[..., :action_dim]
-                    log_stds = act_logits[..., action_dim:]
-                    log_stds = jnp.clip(log_stds, -20.0, 2.0)
-                    stds = jnp.exp(log_stds)
-                    
-                    # print("means", means.shape, "log_stds", log_stds.shape)
-
-                    #samples the actions
-                    noise = jax.random.normal(random_key, shape=means.shape)  # shape: (parallel_env, batch_size, action_dim)
-                    acts_tick = means + noise * stds  # shape: (parallel_env, batch_size, action_dim)
-                elif task == "expanded_samp":  
-                    # print("pol_output", act_logits.shape)
-                    means, log_stds, weight_logits = jnp.split(act_logits, 3, axis=-1) # shape: (parallel_env, 1, 3 *k)
-                    log_stds = jnp.clip(log_stds, -20, 2)
-                    weights = jax.nn.softmax(weight_logits, axis=-1)  # shape: (parallel_env, 1, k)
-
-                    batch_size = self.eval_env.unwrapped.batch_size  # number of samples per environment
-                    # print("means", means.shape, "log_stds", log_stds.shape, "weight_logits", weight_logits.shape, "weights", weights.shape, act_logits.shape)
-
-                    # Get dimensions
-                    N = means.shape[0]      # number of parallel envs
-                    k = means.shape[-1]     # number of mixture components
-                    
-                   
-                    # Broadcast parameters from shape (N, 1, k) to (N, batch_size, k)
-                    means = jnp.broadcast_to(means, (N, batch_size, k))
-                    log_stds = jnp.broadcast_to(log_stds, (N, batch_size, k))
-                    weight_logits = jnp.broadcast_to(weight_logits, (N, batch_size, k))
-                    weights = jnp.broadcast_to(weights, (N, batch_size, k))
-
-                    # Split the random key for independent sampling.
-                    key_cat, key_noise = jax.random.split(random_key)
-
-                    # Sample mixture component indices from the logits.
-                    # jax.random.categorical expects logits of shape (..., num_classes) and returns
-                    # a sample of shape matching the input without the last dimension.
-                    # Here, weight_logits has shape (N, batch_size, k) so we get (N, batch_size)
-                    component_indices = jax.random.categorical(key_cat, logits=weight_logits, axis=-1)
-
-                    # Expand indices so they can index the last dimension (the k components)
-                    component_indices = component_indices[..., None]  # shape: (N, batch_size, 1)
-
-                    # Gather the chosen means and log_stds based on the sampled component indices.
-                    chosen_means = jnp.take_along_axis(means, component_indices, axis=-1)      # shape: (N, batch_size, 1)
-                    chosen_log_stds = jnp.take_along_axis(log_stds, component_indices, axis=-1)  # shape: (N, batch_size, 1)
-                    chosen_stds = jnp.exp(chosen_log_stds)
-
-                    # Sample noise from a standard normal distribution matching the chosen parameters’ shape.
-                    noise = jax.random.normal(key_noise, shape=chosen_means.shape)
-
-                    # Compute the final sampled actions.
-                    # acts_tick shape: (parallel_env, batch_size, 1)
-                    acts_tick = chosen_means + chosen_stds * noise
-                    # print("acts_tick", acts_tick.shape, )
-                    
-                elif task == "multidim":  
-                    action_dim = self.eval_env.unwrapped.action_dim  # Ensure your environment defines action_dim
-
-                    # Split the policy output into means and log_stds.
-                    means, log_stds = jnp.split(act_logits, 2, axis=-1)
-                    
-                    log_stds = jnp.clip(log_stds, -20, 2)
-                    stds = jnp.exp(log_stds)
-
-                    batch_size = self.eval_env.unwrapped.batch_size  # number of samples per environment
-
-                    # Get the number of parallel environments.
-                    N = means.shape[0]
-
-                    # Broadcast parameters to match the batch size.
-                    # New shape becomes (N, batch_size, action_dim)
-                    means = jnp.broadcast_to(means, (N, batch_size, action_dim))
-                    stds = jnp.broadcast_to(stds, (N, batch_size, action_dim))
-                    # Sample noise from a standard normal distribution matching the shape.
-                    noise = jax.random.normal(random_key, shape=means.shape)
-
-                    # Compute the final sampled actions.
-                    acts_tick = means + stds * noise
-
-                    
-                    return acts_tick
-                
-                elif task == "masked":  
-                    
-                    def apply_padding_mask(expanded_array, padding_counts, pad_value=-2.0):
-                        x, n, z = expanded_array.shape
-                        
-                        # Create indices for each position in the batch dimension
-                        batch_indices = jnp.arange(n)
-                        
-                        # Reshape padding_counts and broadcast for comparison
-                        counts_expanded = padding_counts.reshape(x, 1)
-                        
-                        # Create a mask where True means we should keep the original value
-                        # and False means we should pad
-                        mask = batch_indices < counts_expanded
-                        
-                        # Expand the mask to match the full shape
-                        full_mask = jnp.broadcast_to(mask.reshape(x, n, 1), (x, n, z))
-                        
-                        # Apply the mask using where to conditionally select values
-                        result = jnp.where(full_mask, expanded_array, pad_value)
-                        
-                        return result
-                    
-                  
-                    action_dim = self.eval_env.unwrapped.action_dim  # Ensure your environment defines action_dim
-
-                    # Split the policy output into means and log_stds.
-                    means, log_stds = jnp.split(act_logits, 2, axis=-1)
-                    
-                    log_stds = jnp.clip(log_stds, -20, 2)
-                    stds = jnp.exp(log_stds)
-
-                    batch_size = self.eval_env.unwrapped.max_batches  # number of samples per environment
-                    
-
-                    # Get the number of parallel environments.
-                    N = means.shape[0]
-                    
-               
-                    # Broadcast parameters to match the batch size.
-                    # New shape becomes (N, batch_size, action_dim)
-                    means = jnp.broadcast_to(means, (N, batch_size, action_dim))
-                    stds = jnp.broadcast_to(stds, (N, batch_size, action_dim))
-                    
-                    #Should expand into (N, max_size, action_dim) with the extra (max_size - batch_size) padded with zeros
-                    
-                    # Sample noise from a standard normal distribution matching the shape.
-                    noise = jax.random.normal(random_key, shape=means.shape)
-
-                    # Compute the final sampled actions.
-                    acts_tick = means + stds * noise
-                    # print("acts_tick", acts_tick.shape)
-                    # print("masked", acts_tick.shape)
-                    acts_tick = jnp.tanh(acts_tick)
-                    
-                    padded_acts = apply_padding_mask(acts_tick, masks)
-                    # jax.debug.print("pad {}\nmask {}\nact {}\n",padded_acts[0], masks[0], acts_tick[0])
-                    # jax.debug.print("masked {}\n{}", acts_tick[0], acts_tick_2[0])
-                    return padded_acts
-                   
-
-                    
-                return acts_tick
+            
             
             
             # if self.use_gumbel_sampling and not self.continious_samlping:
@@ -374,25 +379,25 @@ class BaseAgentDic:
                 u = jax.random.uniform(random_key, shape=act_logits.shape)
                 acts_tick=jnp.argmax(act_logits - jnp.log(-jnp.log(u)), axis=-1).squeeze(axis=-1)
             elif self.task == "batch":
-                acts_tick = sampling_differ("batch", act_logits, random_key)
+                acts_tick = self.sampling_differ("batch", act_logits, random_key)
                 # print(acts_tick.shape, "\n")
                 acts_tick = jnp.squeeze(acts_tick)
                 # acts_ticka = sampling_differ("sampling", act_logits, random_key)
                 # print(acts_tick, "\n", acts_ticka, "\n")
             elif self.task == "sampling":
-                acts_tick = sampling_differ("sampling", act_logits, random_key)
+                acts_tick = self.sampling_differ("sampling", act_logits, random_key)
             elif self.task == "multibatch":
                 # print("multibatch")
-                acts_tick = sampling_differ("multibatch", act_logits, random_key)    
+                acts_tick = self.sampling_differ("multibatch", act_logits, random_key)    
             elif self.task == "expanded_samp":
                 # print("multibatch")
-                acts_tick = sampling_differ("expanded_samp", act_logits, random_key)    
+                acts_tick = self.sampling_differ("expanded_samp", act_logits, random_key)    
             elif self.task == "multidim":
                 # print("multibatch")
-                acts_tick = sampling_differ("multidim", act_logits, random_key)    
+                acts_tick = self.sampling_differ("multidim", act_logits, random_key)    
             elif self.task == "masked":
                 # print("multibatch")
-                acts_tick = sampling_differ("masked", act_logits, random_key, masks=masks)    
+                acts_tick = self.sampling_differ("masked", act_logits, random_key, masks=masks)    
             
                 
             
@@ -474,42 +479,68 @@ class BaseAgentDic:
         term_tick=jnp.zeros((1,1),dtype=bool)  #Initialize terminal state to False
         #Initialize zero hidden state at the start of each episode, shape is infered from the hidden state of the first environment
         h_tickminus1=jax.tree_map(lambda x:jnp.expand_dims(jnp.zeros(x[0].shape),0) ,self.h_tickminus1)
+        # print("eps", eval_episodes)
         for i in tqdm.tqdm(range(eval_episodes)):
-            done=True
+            done=False
             rewards=[]
             
             while not done:
                 #Take a step in the environment
                 random_key,model_key=jax.random.split(random_key)
+                # for k in o_tick.keys():
+                #     print("bef", k, o_tick[k].shape)
+                expanded_o = self.expand_o_tick(o_tick)
+                expanded_o = self.expand_o_tick(expanded_o)
+                # for k in expanded_o.keys():
+                #     print("aft", k, expanded_o[k].shape)
                 
-                thisone = self.expand_o_tick(o_tick)
-                # print("expanded_o", expanded_o)
-                # for a in expanded_o.keys():
-                #     print(a, expanded_o[a].shape)
-                #     print(a, o_tick[a].shape)
-                # print(expanded_o["actions"].shape)
-                print("o_tick", o_tick)
+                act_logits,v_tick,htick=self.actor_critic_fn(model_key,self.params,expanded_o,term_tick,h_tickminus1)
+                # if hasattr(self,'arg_max') and self.arg_max:
+                #     acts_tick=jnp.argmax(act_logits,axis=-1)
+                # else:
+                #     if self.use_gumbel_sampling:
+                #          # sample action: Gumbel-softmax trick
+                #         # see https://stats.stackexchange.com/questions/359442/sampling-from-a-categorical-distribution
+                #         u = jax.random.uniform(random_key, shape=act_logits.shape)
+                #         acts_tick=jnp.argmax(act_logits - jnp.log(-jnp.log(u)), axis=-1).squeeze(axis=-1)
+                #     else:
+                #         acts_tick=jax.random.categorical(random_key,act_logits).squeeze(axis=-1)
+                acts_tick = self.sampling_differ(self.task, act_logits,random_key, masks=expanded_o["mask"])
                 
-                act_logits,v_tick,htick=self.actor_critic_fn(model_key,self.params,thisone,term_tick,h_tickminus1)
-                if hasattr(self,'arg_max') and self.arg_max:
-                    acts_tick=jnp.argmax(act_logits,axis=-1)
-                else:
-                    if self.use_gumbel_sampling:
-                         # sample action: Gumbel-softmax trick
-                        # see https://stats.stackexchange.com/questions/359442/sampling-from-a-categorical-distribution
-                        u = jax.random.uniform(random_key, shape=act_logits.shape)
-                        acts_tick=jnp.argmax(act_logits - jnp.log(-jnp.log(u)), axis=-1).squeeze(axis=-1)
-                    else:
-                        acts_tick=jax.random.categorical(random_key,act_logits).squeeze(axis=-1)
+                # print("the shapes", act_logits.shape, acts_tick.shape)
                 o_tick,r_tick,term,trunc,info=self.eval_env.step(*jax_to_numpy(acts_tick))
+                # print("o_tick", o_tick, "r_tick", r_tick, "term", term, "trunc", trunc, "info", info)
                 o_tick,r_tick=numpy_to_jax(o_tick,r_tick)
                 done=term or trunc
                 term_tick=jnp.array([[done]],dtype=bool) #Carry forward the termination signal for the next timestep, shape expected by the actor_critic_fn is BXT
                 rewards.append(r_tick)
                 h_tickminus1=htick
             #Get the rollout frames
-            info['']
-            rollouts.append(info['frames'])
+            print("info", jnp.array(info["final_info"]["actions"]).shape) 
+            print("info", info["final_info"]["eval_scaled_diff"].shape) 
+            actions = jnp.array(info["final_info"]["actions"])
+            scaled_diff = jnp.array(info["final_info"]["eval_scaled_diff"])
+            rew = jnp.array(info["final_info"]["rewards"])
+            
+            
+            max_x = jnp.array(info["final_info"]["max_x"])
+            # print("max_cof", max_x.shape, max_y.shape)
+            conc_max = jnp.concatenate([max_x, jnp.array([[0,0]])], axis=1)
+            print("max_cof", conc_max.shape)
+            
+            eval_rew = jnp.zeros((rew.shape[0] * actions.shape[1],1), dtype=jnp.float32)  # Create an array filled with zeros
+            eval_rew = eval_rew.at[jnp.arange(rew.shape[0]) * actions.shape[1],1].set(rew)
+            print("rew", rew)
+            print(eval_rew)
+            
+            actions = jnp.reshape(actions, (actions.shape[0] * actions.shape[1], actions.shape[2]))
+            scaled_diff = jnp.reshape(scaled_diff, (scaled_diff.shape[0] * scaled_diff.shape[1], 1))
+            
+            
+            combined = jnp.concatenate([actions, scaled_diff, eval_rew], axis=1)
+            table = jnp.concatenate([conc_max, combined], axis=0)
+            
+            rollouts = table
             episode_lens.append(len(rewards))
             rewards=jnp.array(rewards,dtype=jnp.float32)
             avg_return=rlax.discounted_returns(rewards,self.gamma*jnp.ones_like(rewards),jnp.zeros_like(rewards)).mean()

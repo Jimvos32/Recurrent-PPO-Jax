@@ -1,0 +1,13 @@
+task: masked
+name: masked
+view_size: 2
+max_steps: null
+bounds: [-2, 2]
+max_episode_steps: 12
+batches: [1,1]
+action_dim: 2
+degree: 2
+batch_expand_hidden: [12]
+batch_combine_hidden: [12]
+step_expand_hidden: [12]
+input_combine_hidden: [12]

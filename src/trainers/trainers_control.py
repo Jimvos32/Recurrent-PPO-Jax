@@ -412,18 +412,22 @@ class ControlTrainer(BaseTrainer):
             self.result_data.append(metrics)
         else:
             metrics=None
-        if self.eval_interval is not None: #and self.step_count>=self.next_eval_step:
+        if self.eval_interval is not None and self.step_count>=self.next_eval_step:
             self.next_eval_step+=self.eval_interval
             avg_episode_len,avg_episode_return,rollouts=self.agent.evaluate(self.random_key,self.global_config['eval_episodes'])
-            
-            rollouts=np.concatenate(rollouts,axis=0)
+            # print("rollouts", rollouts.shape, avg_episode_len, avg_episode_return)
+            # rollouts=np.concatenate(rollouts,axis=0)
             # rollouts = np.ones((5))
+            # column_names = [f"dim_{i+1}" for i in range(rollouts.shape[1] - 2)] + ["scaled_diff", "reward"]
+            # df = pd.DataFrame(jnp.array(rollouts), columns=column_names)
+            # print(df)
             if metrics is None:
                 metrics={}
             metrics['step']=self.step_count
             metrics['eval_avg_episode_len']=float(avg_episode_len)
             metrics['eval_avg_episode_return']=float(avg_episode_return)
-            metrics['rollouts']=wandb.Video(rollouts, fps=self.global_config.get('record_fps',5), format="gif")
+            # metrics['rollouts']=wandb.Video(rollouts, fps=self.global_config.get('record_fps',5), format="gif")
+            # metrics['rollouts']=wandb.Table(dataframe=df)
         return loss,metrics,self.step_count
     
 

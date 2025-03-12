@@ -44,7 +44,7 @@ task_to_trainer={
     'masked':ControlTrainer,
 }
 
-@hydra.main(version_base=None, config_path="config", config_name="sampling_test")
+@hydra.main(version_base=None, config_path="config", config_name="small_test")
 def main(config: DictConfig):
     logger.info("Starting Job for Config:\n"+str(OmegaConf.to_yaml(config)))
     tags=config.tags.split(',') if config.tags is not None else []
@@ -63,7 +63,7 @@ def main(config: DictConfig):
     #Train the model
     kwargs={'global_args':config,'trainer_config':trainer_config,'env_config':env_config,
             'seed':config.seed,'key':key,'wandb_run':run}
-    
+    # print(kwargs['the_test'])
    
     
     trainer=task_to_trainer[env_config['task']](**kwargs)
@@ -96,4 +96,3 @@ if __name__=='__main__':
     #     mp.set_start_method('fork')
     main()
 
-    
