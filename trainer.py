@@ -43,6 +43,9 @@ task_to_trainer={
     'multidim':ControlTrainer,
     'masked':ControlTrainer,
     'gen_gmm': ControlTrainer,
+    'cor_gmm': ControlTrainer,
+    'full_params': ControlTrainer,
+    'vae': ControlTrainer,
 }
 
 @hydra.main(version_base=None, config_path="config", config_name="small_test")

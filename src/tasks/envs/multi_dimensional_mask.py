@@ -79,19 +79,19 @@ class MultiMask(gym.Env):
         self.eval_obs = []
         self.resetted = 0
         
-        self.r_best = 0.7
-        self.r_impr = 0.2
-        self.r_avg = 0.1
-        self.r_new_best = 0.5
-        self.r_mse = 0.0
-        self.r_obs = 0.0
-        
-        # self.r_best = 0.0
-        # self.r_impr = 0.0
-        # self.r_avg = 0.0
-        # self.r_new_best = 0.0
+        # self.r_best = 0.7
+        # self.r_impr = 0.2
+        # self.r_avg = 0.1
+        # self.r_new_best = 0.5
         # self.r_mse = 0.0
-        # self.r_obs = 10
+        # self.r_obs = 0.0
+        
+        self.r_best = 0.0
+        self.r_impr = 0.0
+        self.r_avg = 0.0
+        self.r_new_best = 0.0
+        self.r_mse = 1.0
+        self.r_obs = 0.0
         
         
        
@@ -255,7 +255,7 @@ class MultiMask(gym.Env):
         # self.r_mse = 0.0
         # self.r_obs = 10.0
         
-        e_reward = self.r_best * scaled_max + self.r_impr * avg_imp + new_best * self.r_new_best #+ mse * -1 * self.r_mse + avg_scl_obs  * self.r_obs
+        e_reward = self.r_best * scaled_max + self.r_impr * avg_imp + new_best * self.r_new_best + mse * -1 * self.r_mse + avg_scl_obs  * self.r_obs
         e_reward = e_reward * 10
         # e_reward = jnp.mean(-jnp.abs(difference), axis=0)
         # e_reward = jnp.mean(-jnp.abs(scaled_difference), axis=0)

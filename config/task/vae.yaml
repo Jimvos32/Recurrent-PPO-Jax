@@ -1,0 +1,14 @@
+task: vae
+name: vae
+view_size: 2
+max_steps: null
+bounds: [-2, 2]
+max_episode_steps: 12
+batches: [1,1]
+action_dim: 3
+degree: 2
+batch_expand_hidden: [128, 64]
+batch_combine_hidden: [128, 64]
+step_expand_hidden: [128, 64]
+input_combine_hidden: [128, 64]
+latent_dim: 6

@@ -9,5 +9,5 @@ eval_interval: 20000
 use_wandb: false
 defaults:
   - _self_
-  - task: masked
+  - task: vae
   - trainer: ppo

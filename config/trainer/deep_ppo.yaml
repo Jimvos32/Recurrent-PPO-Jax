@@ -1,6 +1,8 @@
 agent: ppo
 d_actor: [256, 128]
 actor_params_hidden: [256, 128]
+decoder_params_hidden: [256, 128]
+latent_dim: 6
 d_critic: 128
 num_envs: 8
 rollout_len: 256
@@ -12,7 +14,7 @@ update_epochs: 4
 norm_adv: true
 clip_coef: 0.1
 
-sample_distribution: 4
+sample_distribution: 2
 
 ent_coef: 
   initial: 0.01

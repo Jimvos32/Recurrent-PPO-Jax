@@ -72,6 +72,21 @@ def get_env_initializers(env_config):
         repr_fn=dict_unpack_mask(batch_expand_hidden=env_config["batch_expand_hidden"], 
                                  batch_combine_hidden=env_config["batch_combine_hidden"], step_expand_hidden=env_config["step_expand_hidden"], input_combine_hidden=env_config["input_combine_hidden"])
         return env_fn,env_fn,repr_fn
+    elif env_config['task']=='cor_gmm':
+        env_fn=lambda: create_masked(**env_config)
+        repr_fn=dict_unpack_mask(batch_expand_hidden=env_config["batch_expand_hidden"], 
+                                 batch_combine_hidden=env_config["batch_combine_hidden"], step_expand_hidden=env_config["step_expand_hidden"], input_combine_hidden=env_config["input_combine_hidden"])
+        return env_fn,env_fn,repr_fn
+    elif env_config['task']=='full_params':
+        env_fn=lambda: create_masked(**env_config)
+        repr_fn=dict_unpack_mask(batch_expand_hidden=env_config["batch_expand_hidden"], 
+                                 batch_combine_hidden=env_config["batch_combine_hidden"], step_expand_hidden=env_config["step_expand_hidden"], input_combine_hidden=env_config["input_combine_hidden"])
+        return env_fn,env_fn,repr_fn
+    elif env_config['task']=='vae':
+        env_fn=lambda: create_masked(**env_config)
+        repr_fn=dict_unpack_mask(batch_expand_hidden=env_config["batch_expand_hidden"], 
+                                 batch_combine_hidden=env_config["batch_combine_hidden"], step_expand_hidden=env_config["step_expand_hidden"], input_combine_hidden=env_config["input_combine_hidden"])
+        return env_fn,env_fn,repr_fn
         
        
         
@@ -164,7 +179,29 @@ class ControlTrainer(BaseTrainer):
             actor_fn = actor_model_continuous_params(self.trainer_config['d_actor'], list(self.trainer_config['actor_params_hidden']) + [eval_env.unwrapped.action_dim])
         elif name == "gen_gmm":
             # print(self.trainer_config)
-            actor_fn = actor_gmm_params(self.trainer_config['d_actor'], list(self.trainer_config['actor_params_hidden']) + [eval_env.unwrapped.action_dim])
+
+            actor_fn = actor_gmm_params(self.trainer_config['d_actor'], list(self.trainer_config['actor_params_hidden']) + 
+                                        [self.trainer_config['sample_distribution'] * eval_env.unwrapped.action_dim])
+        elif name == "cor_gmm":
+            # print(self.trainer_config)
+            gmm_components = self.trainer_config['sample_distribution'] * eval_env.unwrapped.action_dim
+            print("gmm_components", gmm_components)
+            actor_fn = actor_correlated_gmm(self.trainer_config['d_actor'], self.trainer_config['sample_distribution'], 
+                                            list(self.trainer_config['actor_params_hidden']) + 
+                                        [self.trainer_config['sample_distribution'] * eval_env.unwrapped.action_dim * eval_env.unwrapped.max_batches])
+        elif name == "full_params":
+            # print(self.trainer_config)
+
+            actor_fn = actor_full_params(self.trainer_config['d_actor'], list(self.trainer_config['actor_params_hidden']) + 
+                                        [ eval_env.unwrapped.max_batches * eval_env.unwrapped.action_dim])
+            
+        elif name == "vae":
+            # print(self.trainer_config)
+
+            actor_fn = variational(self.trainer_config['d_actor'], list(self.trainer_config['actor_params_hidden']) + 
+                                        [self.trainer_config['latent_dim']], self.trainer_config['decoder_params_hidden'] + [eval_env.unwrapped.action_dim])
+            
+        
         
 
         critic_fn=critic_model(self.trainer_config['d_critic'])
@@ -217,6 +254,7 @@ class ControlTrainer(BaseTrainer):
                                 max_grad_norm=self.trainer_config.get('max_grad_norm', 0.5),
                                 target_kl=self.trainer_config.get('target_kl', None),
                                 sequence_length=self.trainer_config.get('sequence_length', None),
+                                sample_dist=self.trainer_config.get('sample_distribution', 1),
                                 task_name=self.env_config.get('task', None))
 
         
