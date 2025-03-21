@@ -13,22 +13,22 @@ from flax.training.train_state import TrainState
 from src.models.actor_critic import *
 from typing import Callable,Tuple
 from src.agents.base_agent import BaseAgent
-from src.agents.base_agent_dic import BaseAgentDic
+from src.agents.base_agent_dic_norm import BaseAgentDicNorm
 
 
 
-class PPOAgent(BaseAgentDic):
+class PPOAgentNorm(BaseAgentDicNorm):
 
     def __init__(self,train_envs,eval_env,repr_model_fn:Callable,seq_model_fn:Tuple[Callable,Callable],
-                        actor_fn:Callable,critic_fn:Callable,optimizer:optax.GradientTransformation,
+                        actor_fn:Callable,critic_fn:Callable,optimizer:optax.GradientTransformation,norm_flow:Callable,
                          num_steps=128, gamma=0.99, lr_schedule=optax.linear_schedule,
                         gae_lambda=0.95, num_minibatches=4, update_epochs=4, norm_adv=True,
                         clip_coef=0.1, ent_schedule=optax.Schedule, vf_coef=0.5, max_grad_norm=0.5, kl_coeff=0.1,
                         target_kl=None,sequence_length=None, sample_dist=1, task_name=None) -> None:
         
         self.sample_distribution=sample_dist
-        super(PPOAgent,self).__init__(train_envs=train_envs,eval_env=eval_env,rollout_len=num_steps,repr_model_fn=repr_model_fn,seq_model_fn=seq_model_fn,
-                        actor_fn=actor_fn,critic_fn=critic_fn,use_gumbel_sampling=False,sequence_length=sequence_length, continious_sampling=False, single_dim=False, task_name=task_name)
+        super(PPOAgentNorm,self).__init__(train_envs=train_envs,eval_env=eval_env,rollout_len=num_steps,repr_model_fn=repr_model_fn,seq_model_fn=seq_model_fn,
+                        actor_fn=actor_fn,critic_fn=critic_fn,norm_flow_fn=norm_flow,use_gumbel_sampling=False,sequence_length=sequence_length, continious_sampling=False, single_dim=False, task_name=task_name)
         
         self.optimizer=optimizer
         self.num_envs = self.env.num_envs
@@ -61,10 +61,11 @@ class PPOAgent(BaseAgentDic):
             
             
             Glambda_fn=jax.vmap(rlax.lambda_returns)
-            observations,actions,rewards,terminations,critic_preds,actor_preds=data_batch['observations'],data_batch['actions'], \
-                                            data_batch['rewards'],data_batch['terminations'],data_batch['critic_preds'],data_batch['actor_preds']
+            observations,actions,rewards,terminations,critic_preds,actor_preds,flow_log_det=data_batch['observations'],data_batch['actions'], \
+                                            data_batch['rewards'],data_batch['terminations'],data_batch['critic_preds'],data_batch['actor_preds'], data_batch["flow_log_det"]
                                             
             # print("further ", actor_preds)
+            print("actor_preds", actions.shape, "dlow", flow_log_det.shape)
                                             
             gammas=self.gamma*(1-terminations)
             lambdas=self.gae_lambda*jnp.ones(self.num_envs)
@@ -75,7 +76,7 @@ class PPOAgent(BaseAgentDic):
             #Calculate the advantages using timesteps {tick} - {tick+rollout_len}
             advantages=Glambdas-critic_preds[:,:-1]
             #Calculate log probs shape (num_envs*rollout_len,num_actions)
-            def gaussian_log_prob(task, actions, act_logits):
+            def gaussian_log_prob(task, actions, act_logits, flow_log_dete):
                 # print("act_logits", act_logits.shape, "actions", actions.shape)
                 if task == "sampling":# or self.task == "batch":
                     # print("action", actions.shape)
@@ -267,7 +268,8 @@ class PPOAgent(BaseAgentDic):
                     
                 elif task == "gen_gmm":
                     epsilon = 1e-6  # small constant for numerical stability
-                    
+                    # print("act_logits", act_logits.shape, "actions", actions.shape, "flow_log_det", flow_log_det.shape)
+                    # print(ffs)
                     # Reshape act_logits to align with actions
                     act_logits = jnp.reshape(act_logits, (actions.shape[0], act_logits.shape[1], 1, act_logits.shape[-1]))
                     
@@ -309,11 +311,13 @@ class PPOAgent(BaseAgentDic):
                     
                     # Initialize log probability tensor to accumulate log probabilities for each action dimension
                     total_log_prob = jnp.zeros((N, T, batch_size))
-                    
+                    # print("act"action_dim)
                     # Calculate log probability for each action dimension separately
                     for d in range(action_dim):
+                        
                         # Extract this action dimension's values
                         action_d = u[..., d]  # shape: (N, T, batch_size)
+                        print(actions.shape, action_d.shape)
                         
                         # Broadcast action values, means, log_stds for this dimension to prepare for mixture calculation
                         # Reshape for broadcasting: (N, T, batch_size, 1) to match with (N, T, 1, k)
@@ -347,8 +351,15 @@ class PPOAgent(BaseAgentDic):
                     # Only apply correction to valid (non-padded) actions
                     correction = jnp.sum(jnp.log(1 - actions ** 2 + epsilon), axis=-1)  # shape: (N, T, batch_size)
                     
+                    flow_log_det_broadcast = jnp.expand_dims(flow_log_dete, axis=1)  # shape: (N, 1)
+                    print("flow_log_det_broadcast", flow_log_det_broadcast.shape, correction.shape, total_log_prob.shape)
+                    # flow_log_det_broadcast = jnp.broadcast_to(flow_log_det_broadcast, (N, T, batch_size))
+                    # print("flow_log_det_broadcast", flow_log_det_broadcast.shape)
+                    
                     # Final log probability
-                    log_prob = total_log_prob - correction
+                    log_prob = total_log_prob - correction - flow_log_det_broadcast
+                    
+                    
                     
                     # For padded samples, set the log probability to 0 so they do not contribute to gradients/loss
                     log_prob = jnp.where(valid_mask, log_prob, 0.0)
@@ -473,9 +484,7 @@ class PPOAgent(BaseAgentDic):
                     action_dim = self.eval_env.unwrapped.action_dim
 
                     # Reshape act_logits to align with actions
-                    act_logits = jnp.reshape(act_logits, (act_logits.shape[0], act_logits.shape[1], 1, act_logits.shape[-1]))
-                    
-                    print(act_logits.shape, actions.shape)
+                    act_logits = jnp.reshape(act_logits, (actions.shape[0], act_logits.shape[1], 1, act_logits.shape[-1]))
 
                     # Split into means and log_stds. They originally have shape (1, steps, 1, action_dim)
                     means, log_stds = jnp.split(act_logits, 2, axis=-1)
@@ -485,8 +494,6 @@ class PPOAgent(BaseAgentDic):
                     # Broadcast means and stds to shape (1, steps, batch_size, action_dim)
                     means = jnp.reshape(means, (act_logits.shape[0], act_logits.shape[1], batch_size, action_dim))
                     stds  = jnp.reshape(stds,  (act_logits.shape[0], act_logits.shape[1], batch_size, action_dim))
-                    
-                    print("means", means.shape)
 
                     variance = stds ** 2
 
@@ -503,7 +510,7 @@ class PPOAgent(BaseAgentDic):
 
                     # Compute the base Gaussian log probability for each dimension:
                     #   log N(u | mean, std) = -0.5 * (((u - mean)**2)/variance + 2*log_std + log(2*pi))
-                    base_log_prob = -0.5 * (((u - means) ** 2) / variance + 2 * stds + jnp.log(2 * jnp.pi))
+                    base_log_prob = -0.5 * (((u - means) ** 2) / variance + 2 * log_stds + jnp.log(2 * jnp.pi))
                     # Sum over the action dimensions to get the total log probability for the unsquashed actions.
                     log_prob_u = jnp.sum(base_log_prob, axis=-1)  # shape: (1, steps, batch_size)
 
@@ -530,7 +537,9 @@ class PPOAgent(BaseAgentDic):
             
          
             # print("hell ueah", self.task, actions.shape, actor_preds.shape)
-            logprobs = gaussian_log_prob(self.task, actions, actor_preds)
+            # print("actso", actions.shape, "actor_preds", flow_log_det.shape)
+            # jax.debug.print("actso {} hsdfog  {}", actions.shape, actor_preds.shape)
+            logprobs = gaussian_log_prob(self.task, actions, actor_preds, flow_log_det)
             # logprobs = gaussian_log_prob("sampling", actions, actor_preds)
             # jax.debug.print("logprobs {} \nlog_2 {}", logprobs, logprobs_2)
             
@@ -545,11 +554,11 @@ class PPOAgent(BaseAgentDic):
             
             
             def ppo_loss(params, random_key, mb_observations, mb_actions,mb_terminations,
-                            mb_logp, mb_advantages, mb_returns,mb_h_tickminus1):
+                            mb_logp, mb_advantages, mb_returns,mb_h_tickminus1, mb_flow_log_det):
                 logits_new,values_new,_=self.actor_critic_fn(random_key,params,mb_observations,mb_terminations,
                                                              mb_h_tickminus1)
                
-                newlogprobs = gaussian_log_prob(self.task, mb_actions, logits_new)
+                newlogprobs = gaussian_log_prob(self.task, mb_actions, logits_new, mb_flow_log_det)
                 
                 # normalize the logits https://gregorygundersen.com/blog/2020/02/09/log-sum-exp/
                 
@@ -565,10 +574,7 @@ class PPOAgent(BaseAgentDic):
                 
                 # print("logits", logits_new.shape, "logp", newlogprobs.shape, "entropy", entropy.shape, "values", mb_logp.shape)
 
-                # logratio = newlogprobs - mb_logp
-                max_clip = 20.0
-                logratio = jnp.clip(newlogprobs - mb_logp, -max_clip, max_clip)
-                
+                logratio = newlogprobs - mb_logp
                 ratio = jnp.exp(logratio)
                 approx_kl = ((ratio - 1) - logratio).mean()
 
@@ -609,6 +615,7 @@ class PPOAgent(BaseAgentDic):
             hiddens=data_batch['hiddens'] #A Pytree of with the leading dimension of shape num_envs*num_seqs
             hidden_indices=data_batch['hidden_indices'] #A jax array of shape (num_envsXnum_seqsXseq_len)
             num_seqs=hidden_indices.shape[1]
+            
 
             #We are gonna minibatch over num_envs and num_seqs now
 
@@ -644,6 +651,7 @@ class PPOAgent(BaseAgentDic):
                     # mb_observations=observations[mbenvinds,hidden_indices_mb.T].transpose((1,0)+tuple(range(2,observations.ndim)))
                     
                     mb_actions=actions[mbenvinds,hidden_indices_mb.T].transpose((1,0)+tuple(range(2,actions.ndim)))
+                    mb_flow_log_det=flow_log_det[mbenvinds,hidden_indices_mb.T].transpose((1,0)+tuple(range(2,flow_log_det.ndim)))
                  
                     # print("mb_observations", mb_actions.shape, actions.shape, )
                     mb_terminations=terminations[mbenvinds,hidden_indices_mb.T].transpose((1,0)+tuple(range(2,terminations.ndim)))
@@ -660,6 +668,7 @@ class PPOAgent(BaseAgentDic):
                          mb_advantages,
                          mb_returns,
                          mb_h_tickminus1,
+                         mb_flow_log_det
                      )
                     updates,optimizer_state = self.optimizer.update(grads, optimizer_state, params)
                     params = optax.apply_updates(params, updates)
@@ -678,7 +687,7 @@ class PPOAgent(BaseAgentDic):
 
         
     def reset(self,params_key,random_key):
-        super(PPOAgent,self).reset(params_key,random_key)
+        super(PPOAgentNorm,self).reset(params_key,random_key)
         self.optimizer_state=self.optimizer.init(self.params)
         self.update_tick=jnp.array(0)
 

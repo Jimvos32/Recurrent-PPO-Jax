@@ -1,5 +1,6 @@
 task: masked
 name: masked
+env: cosine
 view_size: 2
 max_steps: null
 bounds: [-2, 2]

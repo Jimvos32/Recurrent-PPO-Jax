@@ -7,14 +7,14 @@ import jax
 
 
 
-class MultiMask(gym.Env):
+class MultiCosine(gym.Env):
     """
     A Gymnasium environment where the agent interacts with a shifting quadratic function:
         f(x) = a * x^2 + b * x + c
     The peak (maximum) of the function varies across episodes.
     """
     def __init__(self, env_config=None):
-        super(MultiMask, self).__init__()
+        super(MultiCosine, self).__init__()
         # Define the allowed range for x values.
         self.x_range = env_config["bounds"]
         self.max_episode_steps = env_config["max_episode_steps"]
@@ -25,6 +25,7 @@ class MultiMask(gym.Env):
         self.name = env_config['task']
         self.degree=env_config['degree']
         self.max=env_config['max_episode_steps']
+        self.num_oscillations = env_config['num_oscillations']
        
         # print("batch", self.batches)
         
@@ -79,47 +80,57 @@ class MultiMask(gym.Env):
         self.eval_obs = []
         self.resetted = 0
         
-        # self.r_best = 0.7
-        # self.r_impr = 0.2
-        # self.r_avg = 0.1
-        # self.r_new_best = 0.5
-        # self.r_mse = 0.0
-        # self.r_obs = 0.0
-        
-        self.r_best = 0.0
-        self.r_impr = 0.0
-        self.r_avg = 0.0
-        self.r_new_best = 0.0
-        self.r_mse = 1.0
+        self.r_best = 0.7
+        self.r_impr = 0.2
+        self.r_avg = 0.1
+        self.r_new_best = 0.5
+        self.r_mse = 0.0
         self.r_obs = 0.0
+        
+        # self.r_best = 0.0
+        # self.r_impr = 0.0
+        # self.r_avg = 0.0
+        # self.r_new_best = 0.0
+        # self.r_mse = 1.0
+        # self.r_obs = 0.0
         
         
        
         
         # Initialize polynomial parameters.
-        self.x_max = None
-        self.y_min = None
+        self.max_x = None
+        self.min_y = None
         self.max_y = None
         
         self.c = None
         self.weights = None
         self.mask = None
-        self.shift_polynomial()
+        self.randomise_function()
 
     
-    def shift_polynomial(self):
-        # Randomize the maximum location uniformly for each dimension.
-        self.x_max = np.random.uniform(self.x_range[0], self.x_range[1], size=(1,self.action_dim))
-        # Randomize the constant such that f(x_max) = c, and weights.
-        self.c = np.random.uniform(5.0, 20.0)
-        # print("is this random", self.c)
-        self.weights = np.random.uniform(0.5, 2.0, size=(self.action_dim,))
+    def randomise_function(self):
+        self.c = np.random.uniform(5.0, 20.0)  # Offset
+        self.A0 = np.random.uniform(10.0, 20.0)  # Large peak amplitude
+        self.B0 = np.random.uniform(0.5, 1.5, size=(self.action_dim,))  # Large peak frequency
+        self.s0 = np.random.uniform(self.x_range[0], self.x_range[1], size=(self.action_dim,))  # Peak location
+
+        # Small oscillations (randomized)
+        self.small_A = np.random.uniform(0.2, 3.0, size=(self.action_dim, self.num_oscillations))
+        self.small_B = np.random.uniform(0.5, 4.0, size=(self.action_dim, self.num_oscillations))
         
-        
-        # self.x_max = np.random.uniform(0.5, 0.5, size=(1,self.action_dim))
-        # # Randomize the constant such that f(x_max) = c, and weights.
-        # self.c = np.random.uniform(10.0, 10.0)
-        # self.weights = np.random.uniform(0.5, 0.5, size=(self.action_dim,))
+        # Force all oscillations to peak at s0 (ensuring known max)
+        self.small_shift = np.tile(self.s0.reshape(-1, 1), (1, self.num_oscillations))  # Align peaks
+        self.small_phase = np.zeros((self.action_dim, self.num_oscillations))  # No phase shifts
+
+        # Compute known global max value (since all cosines are +1 at s0)
+        self.max_x = self.s0
+        self.max_y = self.c + self.A0 * self.action_dim + np.sum(self.small_A)
+
+        # Compute theoretical min bound (all cosines at -1)
+        self.min_y = self.c - self.A0 * self.action_dim - np.sum(self.small_A)
+
+        # Estimate empirical min by grid search
+        # self.estimate_empirical_min()
         
         
     
@@ -129,7 +140,7 @@ class MultiMask(gym.Env):
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
         # Optionally shift polynomial parameters if desired.
-        self.shift_polynomial()
+        self.randomise_function()
         self.batch_size = np.random.choice(self.batches)
         
        
@@ -139,8 +150,8 @@ class MultiMask(gym.Env):
         # print(self.batch_size, "-1")
         obs = self.compute_y(action)
         # print(self.batch_size, "0")
-        self.y_min = self.find_minimum()
-        self.max_y = self.compute_y(self.x_max)
+        # self.y_min = self.find_minimum()
+        self.max_y = self.compute_y(self.max_x)
         # print("resetting the params", self.x.shape, y.shape, "\n")
         obs = jnp.array(obs, dtype=jnp.float32)
         # self.state = jnp.squeeze(self.state)
@@ -148,10 +159,10 @@ class MultiMask(gym.Env):
         obs = obs.reshape(self.max_batches, 1)
         
         action = jnp.array(action, dtype=jnp.float32)
-        scaled_observation = (obs[:self.batch_size, :] - self.y_min) / (self.max_y - self.y_min)
+        scaled_observation = jnp.clip((obs[:self.batch_size, :] - self.min_y) / (self.max_y - self.min_y), a_min=0, a_max=1)
         
         max_sample = jnp.max(obs, axis=0)
-        scaled_max  = (max_sample - self.y_min) / (self.max_y - self.y_min)
+        scaled_max  = jnp.clip((max_sample - self.min_y) / (self.max_y - self.min_y), a_min=0, a_max=1)
         
         avg_obs = jnp.mean(scaled_observation)
         self.scaled_obs.append(avg_obs)
@@ -162,7 +173,7 @@ class MultiMask(gym.Env):
         new_best = jnp.maximum(0.0, scaled_max)
         # print("new_best", new_best)
         
-        reward = self.r_best * scaled_max + self.r_impr * avg_obs + new_best * self.r_new_best
+        reward = self.r_best * max_sample + self.r_impr * avg_obs + new_best * self.r_new_best
         # reward = jnp.sum(-jnp.abs(self.max_y - obs))#, axis=0)  # elementwise operation over the batch
         # e_reward = jnp.squeeze(reward, axis=-1)
         # comb = np.concatenate([self.x, self.state], axis=-1)
@@ -235,8 +246,8 @@ class MultiMask(gym.Env):
         # regret = jnp.abs(self.max_y - self.state)
         # c = self.state[:self.batch_size, :]
         
-        scaled_observation = (obs[:self.batch_size, :] - self.y_min) / (self.max_y - self.y_min)
-        scaled_difference = difference / (self.max_y - self.y_min)
+        scaled_observation = jnp.clip((obs[:self.batch_size, :] - self.min_y) / (self.max_y - self.min_y), a_min=0, a_max=1)
+        scaled_difference = jnp.clip(difference / (self.max_y - self.min_y), a_min=0, a_max=1)
         # jax.debug.print("my {} miny {}, obs {} diff{} scaled fi {}",self.max_y, self.y_min, self.state[:self.batch_size, :], difference,scaled_difference)
         # print("scaled_observation", scaled_observation.shape, "scaled_difference", scaled_difference.shape, "diff", difference.shape, c.shape)
         # print("batch", self.batch_size, "scaled_difference", scaled_difference, "max", self.max_y, "action", action, "obs", obs, "max_x", self.x_max)
@@ -245,20 +256,23 @@ class MultiMask(gym.Env):
         avg_scl_diff = jnp.mean(scaled_difference, axis=0)
         
         max_sample = jnp.max(obs, axis=0)
-        scaled_max  = (max_sample - self.y_min) / (self.max_y - self.y_min)
+        scaled_max  = jnp.clip((max_sample - self.min_y) / (self.max_y - self.min_y), a_min=0, a_max=1)
         
         avg_imp = jnp.mean(scaled_observation - self.scaled_obs[-1], axis=0)
         
         # print(scaled_max.shape)
         # bb = scaled_max[0]
         new_best = jnp.maximum(0.0, max_sample - self.best_rewards[0])
-        s_new_best = jnp.clip((new_best) / (self.max_y - self.y_min), a_min=0, a_max=1)
+        s_new_best = jnp.clip((new_best) / (self.max_y - self.min_y), a_min=0, a_max=1)
         
         # self.r_mse = 0.0
         # self.r_obs = 10.0
+        # print("mse", mse, "avg_imp", avg_imp, "new_best", s_new_best, "scaled_max", scaled_max, "avg_scl_obs", avg_scl_obs)
         
         e_reward = self.r_best * scaled_max + self.r_impr * avg_imp + s_new_best * self.r_new_best + mse * -1 * self.r_mse + avg_scl_obs  * self.r_obs
         e_reward = e_reward * 10
+        
+        
         # e_reward = jnp.mean(-jnp.abs(difference), axis=0)
         # e_reward = jnp.mean(-jnp.abs(scaled_difference), axis=0)
         # e_reward = avg_scl_obs
@@ -280,7 +294,10 @@ class MultiMask(gym.Env):
         
         # print("avg_scl_obs", avg_scl_obs.shape, "avg_scl_diff", avg_scl_diff.shape)
         
-
+        
+        
+        
+        
         
         self.raw_rewards.append(reward)
         self.scaled_obs.append(avg_scl_obs)
@@ -319,10 +336,10 @@ class MultiMask(gym.Env):
             
             info["scaled_obs"] = jnp.mean(jnp.array(self.scaled_obs[2:]), axis=0)
             info["best_rewards"] = self.best_rewards
-            info["success"] = ((self.best_rewards[0] - self.y_min) / (self.max_y - self.y_min)) > 0.9
+            info["success"] = ((self.best_rewards[0] - self.min_y) / (self.max_y - self.min_y)) > 0.9
             info["actions"] = self.actions
             info["eval_scaled_diff"] = jnp.array(self.eval_obs)
-            info["max_x"] = self.x_max
+            info["max_x"] = self.max_x
             # info["max_y"] = jnp.reshape(self.max_y, (1,1))
             # Reset tick and rewards for the next episode.
             self.tick = 0
@@ -371,28 +388,33 @@ class MultiMask(gym.Env):
         return observation, reward, done, truncated, info
 
     def compute_y(self, x):
-        """
-        Compute the polynomial value:
-            f(x) = c - sum_{i=1}^{action_dim} (w_i * (x_i - x_max_i)**degree)
-        """
-        
-        diff = x - self.x_max  # Compute difference
-        weighted_term = self.weights * (diff ** self.degree)  # Apply weights
-        result = self.c - np.sum(weighted_term, axis=1)  # Sum across dimensions
-        return result.squeeze()  # Convert (1,) to scalar if needed
+        x = np.atleast_2d(x)
+        result = np.full(x.shape[0], self.c)
+
+        # Add large peak
+        for i in range(self.action_dim):
+            result += self.A0 * np.cos(self.B0[i] * (x[:, i] - self.s0[i]))
+
+        # Add small oscillations
+        for i in range(self.action_dim):
+            for k in range(self.num_oscillations):
+                diff = x[:, i] - self.small_shift[i, k]
+                result += self.small_A[i, k] * np.cos(self.small_B[i, k] * diff + self.small_phase[i, k])
+
+        return result.squeeze()
     
     def find_minimum(self):
-        # Unpack the lower and upper bounds (assumed to be scalars)
-        lower, upper = self.x_range
         
-        # For each dimension, choose the bound that is farther from the maximum
-        # Note: self.x_max has shape (1, action_dim) and broadcasting is used here.
-        x_min = np.where((self.x_max - lower) > (upper - self.x_max), lower, upper)
-        
-        # Compute the function value at this minimum
-        y_min = self.compute_y(x_min)
-        return y_min
-    
+        num = int(np.sqrt(self.grid_resolution))
+        x1_vals = np.linspace(self.x_range[0], self.x_range[1], num)
+        x2_vals = np.linspace(self.x_range[0], self.x_range[1], num)
+        X1, X2 = np.meshgrid(x1_vals, x2_vals)
+        grid_points = np.column_stack([X1.ravel(), X2.ravel()])
+        y_vals = self.compute_y(grid_points)
+        min_idx = np.argmin(y_vals)
+        self.empirical_min_x = grid_points[min_idx]
+        self.empirical_min_y = y_vals[min_idx]
+
     def map_to_bounds(self, actions):
         shaped_action = jnp.reshape(actions, (self.max_batches, self.action_dim))
         # shaped_action = jnp.reshape(actions, (self.max_size, self.action_dim))

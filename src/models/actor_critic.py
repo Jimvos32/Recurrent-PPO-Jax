@@ -44,7 +44,7 @@ class ActorCriticModel(nn.Module):
         # print("seq_rep", seq_rep.shape, memory[0][0].shape)
         seq_rep=jnp.concatenate([seq_rep, inputs["step"]], axis=1)
         # print("seq_rep2", seq_rep.shape)
-        actor_out, =self.actor(seq_rep)
+        actor_out=self.actor(seq_rep)
         # print("totalinp", inputs.shape, "actor_in", seq_rep.shape, "actor_out", actor_out.shape)
         print(actor_out.shape)
         critic_out=self.critic(seq_rep)

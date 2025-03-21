@@ -10,6 +10,7 @@ from src.tasks.envs.multi_dim_env import NextMultiEnv
 from src.tasks.envs.multi_batch_env import MultiSampleEnv
 from src.tasks.envs.multi_dimensional_env import MultiDimEnv
 from src.tasks.envs.multi_dimensional_mask import MultiMask
+from src.tasks.envs.multi_dim_cosine import MultiCosine
 
 class ViewSizeWrapper(ObservationWrapper):
     """
@@ -129,6 +130,14 @@ def create_multi_dim(**kwargs):
 
 def create_masked(**kwargs):
     env = MultiMask(env_config=kwargs)
+
+    # Apply wrappers
+    env = TransformObservation(env, lambda obs: obs)
+    
+    return env
+
+def create_cosine(**kwargs):
+    env = MultiCosine(env_config=kwargs)
 
     # Apply wrappers
     env = TransformObservation(env, lambda obs: obs)

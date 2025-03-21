@@ -10,14 +10,17 @@ import logging
 from argparse import Namespace
 from src.trainers.base_trainer import BaseTrainer
 from collections import OrderedDict
-from src.tasks.envs.minigrid_env import create_minigrid_env_onehot,create_minigrid_env_pixel, create_sampling_env, create_multi_dim_env, create_multi_batch_env, create_mbatch, create_multi_dim, create_masked
+from src.tasks.envs.minigrid_env import create_minigrid_env_onehot,create_minigrid_env_pixel, create_sampling_env, create_multi_dim_env, create_multi_batch_env, create_mbatch, create_multi_dim, create_masked, create_cosine
 from src.agents.a2c import A2CAgent
 from src.agents.ppo import PPOAgent
+from src.agents.ppo_vae import PPOAgentVAE
+from src.agents.ppo_norm import PPOAgentNorm
 from src.model_fns import *
 from src.tasks.envs.wrappers import *
 from src.trainers.utils import *
 from gymnasium.wrappers import AutoResetWrapper
 from omegaconf import DictConfig, OmegaConf
+from src.model_fns.norm_fns import planar_flow, autoregressive_iaf_flow
 
 
 logger = logging.getLogger(__name__)
@@ -62,31 +65,59 @@ def get_env_initializers(env_config):
         repr_fn=dict_unpack_model()
         return env_fn,env_fn,repr_fn
     elif env_config['task']=='masked':
-        env_fn=lambda: create_masked(**env_config)
+        # env_fn=lambda: create_masked(**env_config)
+        if env_config['env'] == "polynominal":
+            env_fn=lambda: create_masked(**env_config)
+        else:
+            env_fn=lambda: create_cosine(**env_config)
         print("env_fn", env_config)
         repr_fn=dict_unpack_mask(batch_expand_hidden=env_config["batch_expand_hidden"], 
                                  batch_combine_hidden=env_config["batch_combine_hidden"], step_expand_hidden=env_config["step_expand_hidden"], input_combine_hidden=env_config["input_combine_hidden"])
         return env_fn,env_fn,repr_fn
     elif env_config['task']=='gen_gmm':
-        env_fn=lambda: create_masked(**env_config)
+        if env_config['env'] == "polynominal":
+            env_fn=lambda: create_masked(**env_config)
+        else:
+            env_fn=lambda: create_cosine(**env_config)
         repr_fn=dict_unpack_mask(batch_expand_hidden=env_config["batch_expand_hidden"], 
                                  batch_combine_hidden=env_config["batch_combine_hidden"], step_expand_hidden=env_config["step_expand_hidden"], input_combine_hidden=env_config["input_combine_hidden"])
         return env_fn,env_fn,repr_fn
     elif env_config['task']=='cor_gmm':
-        env_fn=lambda: create_masked(**env_config)
+        # env_fn=lambda: create_masked(**env_config)
+        if env_config['env'] == "polynominal":
+            print("polynominal")
+            env_fn=lambda: create_masked(**env_config)
+        else:
+            env_fn=lambda: create_cosine(**env_config)
         repr_fn=dict_unpack_mask(batch_expand_hidden=env_config["batch_expand_hidden"], 
                                  batch_combine_hidden=env_config["batch_combine_hidden"], step_expand_hidden=env_config["step_expand_hidden"], input_combine_hidden=env_config["input_combine_hidden"])
         return env_fn,env_fn,repr_fn
     elif env_config['task']=='full_params':
-        env_fn=lambda: create_masked(**env_config)
+        if env_config['env'] == "polynominal":
+            env_fn=lambda: create_masked(**env_config)
+        else:
+            env_fn=lambda: create_cosine(**env_config)
+        env_fn=lambda: create_cosine(**env_config)
         repr_fn=dict_unpack_mask(batch_expand_hidden=env_config["batch_expand_hidden"], 
                                  batch_combine_hidden=env_config["batch_combine_hidden"], step_expand_hidden=env_config["step_expand_hidden"], input_combine_hidden=env_config["input_combine_hidden"])
         return env_fn,env_fn,repr_fn
     elif env_config['task']=='vae':
-        env_fn=lambda: create_masked(**env_config)
+        # env_fn=lambda: create_masked(**env_config)
+        if env_config['env'] == "polynominal":
+            env_fn=lambda: create_masked(**env_config)
+        else:
+            env_fn=lambda: create_cosine(**env_config)
         repr_fn=dict_unpack_mask(batch_expand_hidden=env_config["batch_expand_hidden"], 
                                  batch_combine_hidden=env_config["batch_combine_hidden"], step_expand_hidden=env_config["step_expand_hidden"], input_combine_hidden=env_config["input_combine_hidden"])
         return env_fn,env_fn,repr_fn
+    
+def get_flow_func(flow_model, action_dim):
+    if (flow_model == "planar_flow"):
+        return planar_flow(action_dim)
+    elif (flow_model == "auto_reg"):
+        return autoregressive_iaf_flow(action_dim)
+    else:
+        return None
         
        
         
@@ -122,6 +153,7 @@ class ControlTrainer(BaseTrainer):
         """
 
         env_fn,eval_env_fn,repr_fn=get_env_initializers(kwargs['env_config'])
+        flow_fn = get_flow_func(kwargs['trainer_config']['dist_model'], kwargs['env_config']['action_dim'])
         self.wandb_run=kwargs['wandb_run']
         self.trainer_config=kwargs['trainer_config']
         self.env_config=kwargs['env_config']
@@ -161,8 +193,13 @@ class ControlTrainer(BaseTrainer):
             model_fn=seq_model_gtrxl(**self.trainer_config['seq_model'])
             
             
-        # print("hi my name is ", eval_env.name)
         name = eval_env.unwrapped.name
+        vae = False
+        model_dist = self.trainer_config.get('dist_model', "standard")
+        
+        if model_dist == "vae":
+            vae = True
+        vae = self.trainer_config.get('vae', False)
             
         if isinstance(eval_env.action_space, gym.spaces.Discrete):
             actor_fn = actor_model_discete(self.trainer_config['d_actor'],eval_env.action_space.n)
@@ -173,31 +210,64 @@ class ControlTrainer(BaseTrainer):
             # print ("we doing the weird side step")
             actor_fn = actor_model_gmm(self.trainer_config['d_actor'], self.trainer_config['sample_distribution'])
         elif name == "multidim":
-            actor_fn = actor_model_continuous(self.trainer_config['d_actor'], (eval_env.unwrapped.action_dim, 0))
+            if vae:
+                actor_fn = vae_action_head(eval_env.unwrapped.action_dim, seq_hidden_sizes=self.trainer_config['d_actor'],  
+                                           policy_hidden_sizes=self.trainer_config['actor_params_hidden'], latent_dim=self.trainer_config['latent_dim'])
+            else:
+                actor_fn = standard_action_head(eval_env.unwrapped.action_dim, seq_hidden_sizes=self.trainer_config['d_actor'], 
+                                                policy_layers=self.trainer_config['actor_params_hidden'])
+            # actor_fn = actor_model_continuous(self.trainer_config['d_actor'], (eval_env.unwrapped.action_dim, 0))
         elif name == "masked":
-            # print(self.trainer_config)
-            actor_fn = actor_model_continuous_params(self.trainer_config['d_actor'], list(self.trainer_config['actor_params_hidden']) + [eval_env.unwrapped.action_dim])
+            if vae:
+                actor_fn = vae_action_head(eval_env.unwrapped.action_dim, seq_hidden_sizes=self.trainer_config['d_actor'],  
+                                           policy_hidden_sizes=self.trainer_config['actor_params_hidden'], latent_dim=self.trainer_config['latent_dim'])
+            else:
+                actor_fn = standard_action_head(eval_env.unwrapped.action_dim, seq_hidden_sizes=self.trainer_config['d_actor'], 
+                                                policy_layers=self.trainer_config['actor_params_hidden'])
+            # actor_fn = actor_model_continuous_params(self.trainer_config['d_actor'], list(self.trainer_config['actor_params_hidden']) + [eval_env.unwrapped.action_dim])
         elif name == "gen_gmm":
-            # print(self.trainer_config)
+            gmm_components = self.trainer_config['sample_distribution'] * eval_env.unwrapped.action_dim
+            if vae:
+                actor_fn = gmm_vae_action_head(gmm_components, gmm_components,
+                                    shared_seq_sizes=self.trainer_config['d_actor'], policy_hidden_sizes=self.trainer_config['actor_params_hidden'],
+                                    latent_dim=self.trainer_config['latent_dim'])
+            else:
+                actor_fn = gmm_action_head(gmm_components, gmm_components,
+                                    shared_seq_sizes=self.trainer_config['d_actor'], policy_hidden_sizes=self.trainer_config['actor_params_hidden'])
+                
 
-            actor_fn = actor_gmm_params(self.trainer_config['d_actor'], list(self.trainer_config['actor_params_hidden']) + 
-                                        [self.trainer_config['sample_distribution'] * eval_env.unwrapped.action_dim])
+            # actor_fn = actor_gmm_params(self.trainer_config['d_actor'], list(self.trainer_config['actor_params_hidden']) + 
+            #                             [self.trainer_config['sample_distribution'] * eval_env.unwrapped.action_dim])
         elif name == "cor_gmm":
             # print(self.trainer_config)
-            gmm_components = self.trainer_config['sample_distribution'] * eval_env.unwrapped.action_dim
-            print("gmm_components", gmm_components)
-            actor_fn = actor_correlated_gmm(self.trainer_config['d_actor'], self.trainer_config['sample_distribution'], 
-                                            list(self.trainer_config['actor_params_hidden']) + 
-                                        [self.trainer_config['sample_distribution'] * eval_env.unwrapped.action_dim * eval_env.unwrapped.max_batches])
+            if vae:
+                actor_fn = gmm_vae_action_head(self.trainer_config['sample_distribution'], 
+                                    self.trainer_config['sample_distribution'] * eval_env.unwrapped.action_dim * eval_env.unwrapped.max_batches,
+                                    shared_seq_sizes=self.trainer_config['d_actor'], policy_hidden_sizes=self.trainer_config['actor_params_hidden'],
+                                    latent_dim=self.trainer_config['latent_dim'])
+            else:
+                actor_fn = gmm_action_head(self.trainer_config['sample_distribution'], 
+                                    self.trainer_config['sample_distribution'] * eval_env.unwrapped.action_dim * eval_env.unwrapped.max_batches,
+                                    shared_seq_sizes=self.trainer_config['d_actor'], policy_hidden_sizes=self.trainer_config['actor_params_hidden'])
+                
+            # gmm_components = self.trainer_config['sample_distribution'] * eval_env.unwrapped.action_dim
+            # print("gmm_components", gmm_components)
+            # actor_fn = actor_correlated_gmm(self.trainer_config['d_actor'], self.trainer_config['sample_distribution'], 
+            #                                 list(self.trainer_config['actor_params_hidden']) + 
+            #                             [self.trainer_config['sample_distribution'] * eval_env.unwrapped.action_dim * eval_env.unwrapped.max_batches])
         elif name == "full_params":
-            # print(self.trainer_config)
+            if vae:
+                actor_fn = vae_action_head(eval_env.unwrapped.max_batches * eval_env.unwrapped.action_dim, seq_hidden_sizes=self.trainer_config['d_actor'],  
+                                           policy_hidden_sizes=self.trainer_config['actor_params_hidden'], latent_dim=self.trainer_config['latent_dim'])
+            else:
+                actor_fn = standard_action_head(eval_env.unwrapped.max_batches * eval_env.unwrapped.action_dim, seq_hidden_sizes=self.trainer_config['d_actor'], 
+                                                policy_layers=self.trainer_config['actor_params_hidden'])
 
-            actor_fn = actor_full_params(self.trainer_config['d_actor'], list(self.trainer_config['actor_params_hidden']) + 
-                                        [ eval_env.unwrapped.max_batches * eval_env.unwrapped.action_dim])
-            
+            # actor_fn = actor_full_params(self.trainer_config['d_actor'], list(self.trainer_config['actor_params_hidden']) + 
+            #                             [ eval_env.unwrapped.max_batches * eval_env.unwrapped.action_dim])
+        
         elif name == "vae":
-            # print(self.trainer_config)
-
+            
             actor_fn = variational(self.trainer_config['d_actor'], list(self.trainer_config['actor_params_hidden']) + 
                                         [self.trainer_config['latent_dim']], self.trainer_config['decoder_params_hidden'] + [eval_env.unwrapped.action_dim])
             
@@ -238,24 +308,62 @@ class ControlTrainer(BaseTrainer):
                                 ),
                             )
             
-            # print("config", self.trainer_config, "env",self.env_config)
-            self.agent=PPOAgent(train_envs=train_envs,eval_env=eval_env,optimizer=self.optimizer, repr_model_fn=repr_fn,
-                                seq_model_fn=model_fn,actor_fn=actor_fn,critic_fn=critic_fn,
-                                num_steps=self.rollout_len,
-                                gamma=self.trainer_config.get('gamma', 0.99),
-                                gae_lambda=self.trainer_config.get('gae_lambda', 0.95),
-                                num_minibatches=self.trainer_config.get('num_minibatches', 4),
-                                update_epochs=self.trainer_config.get('update_epochs', 4),
-                                norm_adv=self.trainer_config.get('norm_adv', True),
-                                clip_coef=self.trainer_config.get('clip_coef', 0.1),
-                                lr_schedule=lr_schedule,
-                                ent_schedule=ent_schedule,
-                                vf_coef=self.trainer_config.get('vf_coef', 0.5),
-                                max_grad_norm=self.trainer_config.get('max_grad_norm', 0.5),
-                                target_kl=self.trainer_config.get('target_kl', None),
-                                sequence_length=self.trainer_config.get('sequence_length', None),
-                                sample_dist=self.trainer_config.get('sample_distribution', 1),
-                                task_name=self.env_config.get('task', None))
+            if(self.trainer_config['dist_model'] == "vae"):
+                
+                self.agent=PPOAgentVAE(train_envs=train_envs,eval_env=eval_env,optimizer=self.optimizer, repr_model_fn=repr_fn,
+                                    seq_model_fn=model_fn,actor_fn=actor_fn,critic_fn=critic_fn,
+                                    num_steps=self.rollout_len,
+                                    gamma=self.trainer_config.get('gamma', 0.99),
+                                    gae_lambda=self.trainer_config.get('gae_lambda', 0.95),
+                                    num_minibatches=self.trainer_config.get('num_minibatches', 4),
+                                    update_epochs=self.trainer_config.get('update_epochs', 4),
+                                    norm_adv=self.trainer_config.get('norm_adv', True),
+                                    clip_coef=self.trainer_config.get('clip_coef', 0.1),
+                                    lr_schedule=lr_schedule,
+                                    ent_schedule=ent_schedule,
+                                    vf_coef=self.trainer_config.get('vf_coef', 0.5),
+                                    max_grad_norm=self.trainer_config.get('max_grad_norm', 0.5),
+                                    target_kl=self.trainer_config.get('target_kl', None),
+                                    sequence_length=self.trainer_config.get('sequence_length', None),
+                                    sample_dist=self.trainer_config.get('sample_distribution', 1),
+                                    task_name=self.env_config.get('task', None))
+            elif(self.trainer_config['dist_model'] == "planar_flow" or self.trainer_config['dist_model'] == "auto_reg"):
+                self.agent=PPOAgentNorm(train_envs=train_envs,eval_env=eval_env,optimizer=self.optimizer, repr_model_fn=repr_fn,
+                                    seq_model_fn=model_fn,actor_fn=actor_fn,critic_fn=critic_fn,norm_flow=flow_fn,
+                                    num_steps=self.rollout_len,
+                                    gamma=self.trainer_config.get('gamma', 0.99),
+                                    gae_lambda=self.trainer_config.get('gae_lambda', 0.95),
+                                    num_minibatches=self.trainer_config.get('num_minibatches', 4),
+                                    update_epochs=self.trainer_config.get('update_epochs', 4),
+                                    norm_adv=self.trainer_config.get('norm_adv', True),
+                                    clip_coef=self.trainer_config.get('clip_coef', 0.1),
+                                    lr_schedule=lr_schedule,
+                                    ent_schedule=ent_schedule,
+                                    vf_coef=self.trainer_config.get('vf_coef', 0.5),
+                                    max_grad_norm=self.trainer_config.get('max_grad_norm', 0.5),
+                                    target_kl=self.trainer_config.get('target_kl', None),
+                                    sequence_length=self.trainer_config.get('sequence_length', None),
+                                    sample_dist=self.trainer_config.get('sample_distribution', 1),
+                                    task_name=self.env_config.get('task', None))
+            else:
+                # print("config", self.trainer_config, "env",self.env_config)
+                self.agent=PPOAgent(train_envs=train_envs,eval_env=eval_env,optimizer=self.optimizer, repr_model_fn=repr_fn,
+                                    seq_model_fn=model_fn,actor_fn=actor_fn,critic_fn=critic_fn,
+                                    num_steps=self.rollout_len,
+                                    gamma=self.trainer_config.get('gamma', 0.99),
+                                    gae_lambda=self.trainer_config.get('gae_lambda', 0.95),
+                                    num_minibatches=self.trainer_config.get('num_minibatches', 4),
+                                    update_epochs=self.trainer_config.get('update_epochs', 4),
+                                    norm_adv=self.trainer_config.get('norm_adv', True),
+                                    clip_coef=self.trainer_config.get('clip_coef', 0.1),
+                                    lr_schedule=lr_schedule,
+                                    ent_schedule=ent_schedule,
+                                    vf_coef=self.trainer_config.get('vf_coef', 0.5),
+                                    max_grad_norm=self.trainer_config.get('max_grad_norm', 0.5),
+                                    target_kl=self.trainer_config.get('target_kl', None),
+                                    sequence_length=self.trainer_config.get('sequence_length', None),
+                                    sample_dist=self.trainer_config.get('sample_distribution', 1),
+                                    task_name=self.env_config.get('task', None))
 
         
         self.agent.reset(params_key,self.random_key)
@@ -420,6 +528,7 @@ class ControlTrainer(BaseTrainer):
             # print("actos", jnp.array(self.actions).shape)
             # print("max_dist", jnp.array(self.actions).flatten().shape)
             # print("max_dist", jnp.array(self.max_dist).flatten().shape, jnp.array(self.actions).shape)
+            print("max_dist", jnp.array(self.max_dist).flatten().shape)
             act_dist = wandb.Histogram(jnp.array(self.actions).flatten())
             max_dist = wandb.Histogram(jnp.array(self.max_dist).flatten())
             

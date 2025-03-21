@@ -1,6 +1,6 @@
 tags: null
-project_name: "gmm"
-run_name: "gmm"
+project_name: "cosine_tests"
+run_name: "should be overriden"
 seed: 55
 steps: 500000
 log_interval: 20000
@@ -9,5 +9,5 @@ eval_interval: 20000
 use_wandb: true
 defaults:
   - _self_
-  - task: masked
+  - task: gen_gmm
   - trainer: ppo

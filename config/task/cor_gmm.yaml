@@ -1,5 +1,6 @@
 task: cor_gmm
 name: cor_gmm
+env: cosine
 view_size: 2
 max_steps: null
 bounds: [-2, 2]

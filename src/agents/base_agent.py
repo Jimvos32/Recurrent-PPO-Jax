@@ -413,7 +413,7 @@ class BaseAgent:
             while not done:
                 #Take a step in the environment
                 random_key,model_key=jax.random.split(random_key)
-                act_logits,v_tick,htick, latent=self.actor_critic_fn(model_key,self.params,jnp.expand_dims(o_tick,axis=(0,1)),term_tick,h_tickminus1)
+                act_logits,v_tick,htick, =self.actor_critic_fn(model_key,self.params,jnp.expand_dims(o_tick,axis=(0,1)),term_tick,h_tickminus1)
                 if hasattr(self,'arg_max') and self.arg_max:
                     acts_tick=jnp.argmax(act_logits,axis=-1)
                 else:

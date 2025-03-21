@@ -13,11 +13,11 @@ from flax.training.train_state import TrainState
 from src.models.actor_critic import *
 from typing import Callable,Tuple
 from src.agents.base_agent import BaseAgent
-from src.agents.base_agent_dic import BaseAgentDic
+from src.agents.base_agent_dic_vae import BaseAgentDicVAE
 
 
 
-class PPOAgent(BaseAgentDic):
+class PPOAgentVAE(BaseAgentDicVAE):
 
     def __init__(self,train_envs,eval_env,repr_model_fn:Callable,seq_model_fn:Tuple[Callable,Callable],
                         actor_fn:Callable,critic_fn:Callable,optimizer:optax.GradientTransformation,
@@ -27,7 +27,7 @@ class PPOAgent(BaseAgentDic):
                         target_kl=None,sequence_length=None, sample_dist=1, task_name=None) -> None:
         
         self.sample_distribution=sample_dist
-        super(PPOAgent,self).__init__(train_envs=train_envs,eval_env=eval_env,rollout_len=num_steps,repr_model_fn=repr_model_fn,seq_model_fn=seq_model_fn,
+        super(PPOAgentVAE,self).__init__(train_envs=train_envs,eval_env=eval_env,rollout_len=num_steps,repr_model_fn=repr_model_fn,seq_model_fn=seq_model_fn,
                         actor_fn=actor_fn,critic_fn=critic_fn,use_gumbel_sampling=False,sequence_length=sequence_length, continious_sampling=False, single_dim=False, task_name=task_name)
         
         self.optimizer=optimizer
@@ -61,8 +61,8 @@ class PPOAgent(BaseAgentDic):
             
             
             Glambda_fn=jax.vmap(rlax.lambda_returns)
-            observations,actions,rewards,terminations,critic_preds,actor_preds=data_batch['observations'],data_batch['actions'], \
-                                            data_batch['rewards'],data_batch['terminations'],data_batch['critic_preds'],data_batch['actor_preds']
+            observations,actions,rewards,terminations,critic_preds,actor_preds,latent_means,latent_stds=data_batch['observations'],data_batch['actions'], \
+                                            data_batch['rewards'],data_batch['terminations'],data_batch['critic_preds'],data_batch['actor_preds'], data_batch['latent_means'], data_batch['latent_stds']
                                             
             # print("further ", actor_preds)
                                             
@@ -145,7 +145,7 @@ class PPOAgent(BaseAgentDic):
                     act_logits = act_logits.squeeze(2)  # now shape: (N, T, 3*k)
 
                     # Split into means, log_stds, and weight logits.
-                    weight_logits, means, log_stds  = jnp.split(act_logits, 3, axis=-1)  # each is (N, T, k)
+                    weight_logits, means, log_stds = jnp.split(act_logits, 3, axis=-1)  # each is (N, T, k)
                     # Compute the mixture weights from the logits.
                     weights = jax.nn.softmax(weight_logits, axis=-1)  # (N, T, k)
 
@@ -281,9 +281,6 @@ class PPOAgent(BaseAgentDic):
                     
                     # Split the policy output into means, log_stds, and weight_logits
                     # Reshape to separate action dimensions and mixture components
-                    # means_all = act_logits[..., :action_dim * self.sample_distribution]
-                    # log_stds_all = act_logits[..., action_dim * self.sample_distribution:2 * action_dim * self.sample_distribution]
-                    # weight_logits = act_logits[..., 2 * action_dim * self.sample_distribution:]
                     means_all = act_logits[..., action_dim * self.sample_distribution:2 * action_dim * self.sample_distribution]
                     log_stds_all = act_logits[..., 2 * action_dim * self.sample_distribution:]
                     weight_logits = act_logits[..., :action_dim * self.sample_distribution]
@@ -473,9 +470,7 @@ class PPOAgent(BaseAgentDic):
                     action_dim = self.eval_env.unwrapped.action_dim
 
                     # Reshape act_logits to align with actions
-                    act_logits = jnp.reshape(act_logits, (act_logits.shape[0], act_logits.shape[1], 1, act_logits.shape[-1]))
-                    
-                    print(act_logits.shape, actions.shape)
+                    act_logits = jnp.reshape(act_logits, (actions.shape[0], act_logits.shape[1], 1, act_logits.shape[-1]))
 
                     # Split into means and log_stds. They originally have shape (1, steps, 1, action_dim)
                     means, log_stds = jnp.split(act_logits, 2, axis=-1)
@@ -485,8 +480,6 @@ class PPOAgent(BaseAgentDic):
                     # Broadcast means and stds to shape (1, steps, batch_size, action_dim)
                     means = jnp.reshape(means, (act_logits.shape[0], act_logits.shape[1], batch_size, action_dim))
                     stds  = jnp.reshape(stds,  (act_logits.shape[0], act_logits.shape[1], batch_size, action_dim))
-                    
-                    print("means", means.shape)
 
                     variance = stds ** 2
 
@@ -503,7 +496,7 @@ class PPOAgent(BaseAgentDic):
 
                     # Compute the base Gaussian log probability for each dimension:
                     #   log N(u | mean, std) = -0.5 * (((u - mean)**2)/variance + 2*log_std + log(2*pi))
-                    base_log_prob = -0.5 * (((u - means) ** 2) / variance + 2 * stds + jnp.log(2 * jnp.pi))
+                    base_log_prob = -0.5 * (((u - means) ** 2) / variance + 2 * log_stds + jnp.log(2 * jnp.pi))
                     # Sum over the action dimensions to get the total log probability for the unsquashed actions.
                     log_prob_u = jnp.sum(base_log_prob, axis=-1)  # shape: (1, steps, batch_size)
 
@@ -545,15 +538,17 @@ class PPOAgent(BaseAgentDic):
             
             
             def ppo_loss(params, random_key, mb_observations, mb_actions,mb_terminations,
-                            mb_logp, mb_advantages, mb_returns,mb_h_tickminus1):
-                logits_new,values_new,_=self.actor_critic_fn(random_key,params,mb_observations,mb_terminations,
+                            mb_logp, mb_advantages, mb_returns,mb_h_tickminus1, latent_means, latent_log_stds):
+                logits_new,values_new,_,latent=self.actor_critic_fn(random_key,params,mb_observations,mb_terminations,
                                                              mb_h_tickminus1)
                
                 newlogprobs = gaussian_log_prob(self.task, mb_actions, logits_new)
                 
                 # normalize the logits https://gregorygundersen.com/blog/2020/02/09/log-sum-exp/
                 
-            
+                print("logits", latent_means.shape, "logp", latent_means.shape, actions.shape)
+                
+                kl_loss = -0.5 * jnp.sum(1 + latent_log_stds - jnp.square(latent_means) - jnp.exp(latent_log_stds), axis=-1).mean()
                 
                 
                 logits_new = logits_new - jax.scipy.special.logsumexp(logits_new, axis=-1, keepdims=True)
@@ -565,10 +560,7 @@ class PPOAgent(BaseAgentDic):
                 
                 # print("logits", logits_new.shape, "logp", newlogprobs.shape, "entropy", entropy.shape, "values", mb_logp.shape)
 
-                # logratio = newlogprobs - mb_logp
-                max_clip = 20.0
-                logratio = jnp.clip(newlogprobs - mb_logp, -max_clip, max_clip)
-                
+                logratio = newlogprobs - mb_logp
                 ratio = jnp.exp(logratio)
                 approx_kl = ((ratio - 1) - logratio).mean()
 
@@ -586,7 +578,7 @@ class PPOAgent(BaseAgentDic):
                 v_loss = 0.5 * ((values_new - mb_returns) ** 2).mean()
 
                 entropy_loss = entropy.mean()
-                loss = pg_loss - self.ent_schedule(update_tick) * entropy_loss + v_loss * self.vf_coef
+                loss = pg_loss - self.ent_schedule(update_tick) * entropy_loss + v_loss * self.vf_coef + kl_loss * self.kl_coeff
                 return loss, (pg_loss, v_loss, entropy_loss, jax.lax.stop_gradient(approx_kl))
 
             ppo_loss_grad_fn = jax.value_and_grad(ppo_loss, has_aux=True)
@@ -644,7 +636,8 @@ class PPOAgent(BaseAgentDic):
                     # mb_observations=observations[mbenvinds,hidden_indices_mb.T].transpose((1,0)+tuple(range(2,observations.ndim)))
                     
                     mb_actions=actions[mbenvinds,hidden_indices_mb.T].transpose((1,0)+tuple(range(2,actions.ndim)))
-                 
+                    mb_latent_means=latent_means[mbenvinds,hidden_indices_mb.T].transpose((1,0)+tuple(range(2,latent_means.ndim)))
+                    mb_latent_stds=latent_stds[mbenvinds,hidden_indices_mb.T].transpose((1,0)+tuple(range(2,latent_stds.ndim)))
                     # print("mb_observations", mb_actions.shape, actions.shape, )
                     mb_terminations=terminations[mbenvinds,hidden_indices_mb.T].transpose((1,0)+tuple(range(2,terminations.ndim)))
                     mb_logp=logprobs[mbenvinds,hidden_indices_mb.T].transpose((1,0)+tuple(range(2,logprobs.ndim)))
@@ -660,6 +653,8 @@ class PPOAgent(BaseAgentDic):
                          mb_advantages,
                          mb_returns,
                          mb_h_tickminus1,
+                         mb_latent_means,
+                         mb_latent_stds
                      )
                     updates,optimizer_state = self.optimizer.update(grads, optimizer_state, params)
                     params = optax.apply_updates(params, updates)
@@ -678,7 +673,7 @@ class PPOAgent(BaseAgentDic):
 
         
     def reset(self,params_key,random_key):
-        super(PPOAgent,self).reset(params_key,random_key)
+        super(PPOAgentVAE,self).reset(params_key,random_key)
         self.optimizer_state=self.optimizer.init(self.params)
         self.update_tick=jnp.array(0)
 

@@ -48,14 +48,14 @@ task_to_trainer={
     'vae': ControlTrainer,
 }
 
-@hydra.main(version_base=None, config_path="config", config_name="small_test")
+@hydra.main(version_base=None, config_path="config", config_name="sampling_test")
 def main(config: DictConfig):
     logger.info("Starting Job for Config:\n"+str(OmegaConf.to_yaml(config)))
     tags=config.tags.split(',') if config.tags is not None else []
     if config.use_wandb and sys.platform=='win32':
         run = wandb.init(project=config.project_name,name=config.run_name,tags=tags,settings=wandb.Settings(start_method="spawn"),config=OmegaConf.to_container(config))
     elif config.use_wandb and sys.platform!='win32':
-        run = wandb.init(project=config.project_name,tags=tags,settings=wandb.Settings(start_method="fork"),config=OmegaConf.to_container(config))
+        run = wandb.init(project=config.project_name,name=config.run_name,tags=tags,settings=wandb.Settings(start_method="fork"),config=OmegaConf.to_container(config))
     else:
         run=None
     key=jax.random.PRNGKey(config.seed)

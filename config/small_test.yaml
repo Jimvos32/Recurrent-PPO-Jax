@@ -1,13 +1,14 @@
 tags: null
-project_name: "test_for_small_local"
-run_name: "small_test"
+project_name: "test_if_name"
+run_name: "it should be this name"
 seed: 55
 steps: 100000
 log_interval: 2048
 eval_episodes: 1
-eval_interval: 20000
-use_wandb: false
+eval_interval: 5000
+use_wandb: true
 defaults:
   - _self_
-  - task: vae
+  - task: gen_gmm
   - trainer: ppo
+

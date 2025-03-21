@@ -1,12 +1,14 @@
 task: gen_gmm
 name: gen_gmm
+env: cosine
 view_size: 2
 max_steps: null
-bounds: [-2, 2]
+bounds: [-5, 5]
 max_episode_steps: 12
 batches: [1,1]
 action_dim: 3
 degree: 2
+num_oscillations: 5
 batch_expand_hidden: [128, 64]
 batch_combine_hidden: [128, 64]
 step_expand_hidden: [128, 64]

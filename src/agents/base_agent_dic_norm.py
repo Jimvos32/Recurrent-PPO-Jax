@@ -21,9 +21,9 @@ def numpy_to_jax(*args,dtype=jnp.float32):
     return jax.tree_map(lambda x: jnp.array(x,dtype=dtype),args)
 
 
-class BaseAgentDic:
+class BaseAgentDicNorm:
     def __init__(self,train_envs,eval_env,rollout_len,repr_model_fn:Callable,seq_model_fn:Callable,
-                        actor_fn:Callable,critic_fn:Callable,use_gumbel_sampling=False,sequence_length=None, continious_sampling=True, single_dim=False, task_name=None) -> None:
+                        actor_fn:Callable,critic_fn:Callable,norm_flow_fn:Callable,use_gumbel_sampling=False,sequence_length=None, continious_sampling=True, single_dim=False, task_name=None) -> None:
         self.env=train_envs
         self.eval_env=eval_env
         self.rollout_len=rollout_len
@@ -33,6 +33,8 @@ class BaseAgentDic:
             assert rollout_len%sequence_length==0 
             self.sequence_length=sequence_length
         self.seq_fn,self.seq_init=seq_model_fn
+        
+        
         self.use_gumbel_sampling=use_gumbel_sampling
         self.continious_sampling = continious_sampling
         self.single_dim = single_dim
@@ -62,6 +64,27 @@ class BaseAgentDic:
         
         self.actor_critic_fn=actor_critic_fn
         
+        self.norm_flow_module = norm_flow_fn()  # Instantiate the module
+    
+        # Create a dummy input to initialize the module
+        dummy_shape = (self.eval_env.unwrapped.max_batches, self.eval_env.unwrapped.action_dim) #+ self.eval_env.unwrapped.action_dim  # Adjust shape as needed
+        dummy_input = jnp.ones(dummy_shape)
+        
+        key = jax.random.PRNGKey(0)
+        self.norm_flow_params = self.norm_flow_module.init(key, dummy_input)
+        
+        # Create a function that applies the flow, vmapped over the batch dimension
+        def norm_flow_fn_single(actions):
+            # actions shape: [S, a_dim]
+            return self.norm_flow_module.apply(self.norm_flow_params, actions)
+        
+        # Vmap over the batch dimension
+        self.norm_flow = jax.vmap(norm_flow_fn_single, in_axes=0, out_axes=0)
+        
+        # Jit the resulting function
+        self.norm_flow = jax.jit(self.norm_flow)
+            
+        # self.norm_flow()
 
         
      
@@ -121,6 +144,60 @@ class BaseAgentDic:
                     dictio[key] = added_step_dim
             
             return dictio
+        
+        
+    
+        
+
+
+    def apply_sample_ar_flow(self, raw_actions):
+        """
+        Applies an autoregressive affine transformation along the sample (s) axis.
+        
+        Args:
+            raw_actions: jnp.ndarray of shape (N, s, a_dim) — raw actions sampled from the GMM.
+        
+        Returns:
+            transformed: jnp.ndarray of shape (N, s, a_dim) — transformed raw actions.
+            log_det: jnp.ndarray of shape (N,) — the sum of log determinants for each step.
+        """
+        N, s, a_dim = raw_actions.shape
+
+        # Define the transformation for one step (i.e. for one environment step across s samples)
+        def flow_per_step(raw_samples):
+            # raw_samples shape: (s, a_dim)
+            # We'll scan over the sample dimension.
+            def step_fn(carry, sample):
+                # 'carry' can be viewed as the summary of previous samples.
+                # For the first sample, we set carry=0.
+                # Here we use a simple affine transformation:
+                # If no previous sample (carry==0), use scale=1 and shift=0.
+                # Otherwise, compute scale and shift as a function of the mean of 'carry'.
+                # print(carry)
+                # jax.debug.print("carry {}\nsample {}\n", carry, sample)
+                mean_prev =  0.0
+                scale = jnp.where(jnp.abs(mean_prev) < 1e-6, jnp.ones((a_dim,)), jnp.exp(0.1 * mean_prev))
+                shift = jnp.where(jnp.abs(mean_prev) < 1e-6, jnp.zeros((a_dim,)), 0.1 * jnp.tanh(mean_prev))
+                transformed = scale * sample + shift
+                # The log-determinant for an affine transformation is sum(log|scale|)
+                log_det = jnp.sum(jnp.log(jnp.abs(scale) + 1e-6))
+                # Update the carry: here, simply replace it with the current transformed sample.
+                # (In a more advanced design you might update a hidden state.)
+                new_carry = transformed
+                return new_carry, (transformed, log_det)
+            
+            # Initialize carry as zeros for the first sample
+            init_carry = jnp.zeros((a_dim,))
+            # Process all s samples sequentially
+            _, (transformed_samples, log_dets) = jax.lax.scan(step_fn, init_carry, raw_samples)
+            total_log_det = jnp.sum(log_dets)  # scalar for this step
+            return transformed_samples, total_log_det
+
+        # Apply the flow per environment step (vmap over N steps)
+        transformed, log_det = jax.vmap(flow_per_step)(raw_actions)
+        # transformed shape: (N, s, a_dim); log_det shape: (N,)
+        return transformed, log_det    
+        
         
     def sampling_differ(self, task, act_logits,random_key, masks=None):
         if task == "batch":
@@ -357,7 +434,6 @@ class BaseAgentDic:
             # Split random key for component selection and noise generation
             key_cat, key_noise = jax.random.split(random_key)
             
-            
             # Sample mixture component indices for each action dimension separately
             # Initialize component_indices with the right shape
             component_indices = jnp.zeros((N, batch_size, action_dim), dtype=jnp.int32)
@@ -377,16 +453,28 @@ class BaseAgentDic:
             noise = jax.random.normal(key_noise, shape=chosen_means.shape)
             
             # Compute the final sampled actions
-            acts_tick = chosen_means + chosen_stds * noise  # shape: (N, batch_size, action_dim)
+            raw_actions = chosen_means + chosen_stds * noise  # shape: (N, batch_size, action_dim)
+            # print("rasw", raw_actions.shape)
+            # print("raw_actions", type(raw_actions))
+            
+            #This is the function that should be normalisesd
+            
+            raw_actions, flow_log_det = self.norm_flow(raw_actions)
+            
+            
+            
+            
             
             # Apply tanh to constrain actions to [-1, 1] range
-            acts_tick = jnp.tanh(acts_tick)
+            acts_tick = jnp.tanh(raw_actions)
             
             # Apply padding mask if necessary
             if masks is not None:
                 acts_tick = apply_padding_mask(acts_tick, masks)
+                
+            print("raw_actions", acts_tick, "flow_log_det", flow_log_det.shape)
             
-            return acts_tick
+            return acts_tick, flow_log_det 
         
         elif task == "cor_gmm":
             def apply_padding_mask(expanded_array, padding_counts, pad_value=-2.0):
@@ -412,7 +500,6 @@ class BaseAgentDic:
             
             action_dim = self.eval_env.unwrapped.action_dim
             batch_size = self.eval_env.unwrapped.max_batches
-            
        
             N = act_logits.shape[0]
             # weight_logits = act_logits[..., (2 * self.sample_distribution):]  
@@ -648,6 +735,7 @@ class BaseAgentDic:
         rewards=[]
         critic_preds=[]
         actor_preds=[]
+        flow_log_det=[]
     
         terminations=[]
         hiddens=[] #We still store the hidden states for every start 
@@ -711,7 +799,7 @@ class BaseAgentDic:
                 acts_tick = self.sampling_differ("masked", act_logits, random_key, masks=masks)    
             elif self.task == "gen_gmm":
                 # print("multibatch")
-                acts_tick = self.sampling_differ("gen_gmm", act_logits, random_key, masks=masks)    
+                acts_tick, flow_det = self.sampling_differ("gen_gmm", act_logits, random_key, masks=masks)    
             elif self.task == "cor_gmm":
                 # print("multibatch")
                 acts_tick = self.sampling_differ("cor_gmm", act_logits, random_key, masks=masks)    
@@ -745,6 +833,7 @@ class BaseAgentDic:
             #Add action at timestep tick 
             critic_preds.append(v_tick.copy())
             actor_preds.append(act_logits.copy())
+            flow_log_det.append(flow_det)
             # print("aa", len(actor_preds))
             actions.append(acts_tick.copy())
             infos.append(info)
@@ -778,13 +867,14 @@ class BaseAgentDic:
         #Shape is num_actorsXrollout_lenX*...
         hidden_stacked=jax.tree_map(lambda *args: jnp.stack(args,1), *hiddens)
         
-        
+        # print("actions", actions[0].shape, "dlow_det", flow_log_det[0].shape)
        
         return Namespace(**{
             # 'observations':jnp.stack(observations,1),
             'observations': observations,
             'actions':jnp.stack(actions,1),
             'rewards':jnp.stack(rewards,1),
+            'flow_log_det':jnp.stack(flow_log_det,1),
          
             'terminations':jnp.stack(terminations,1),
             'infos':infos,
@@ -833,7 +923,7 @@ class BaseAgentDic:
                 #         acts_tick=jnp.argmax(act_logits - jnp.log(-jnp.log(u)), axis=-1).squeeze(axis=-1)
                 #     else:
                 #         acts_tick=jax.random.categorical(random_key,act_logits).squeeze(axis=-1)
-                acts_tick = self.sampling_differ(self.task, act_logits,random_key, masks=expanded_o["mask"])
+                acts_tick, flow_det = self.sampling_differ(self.task, act_logits,random_key, masks=expanded_o["mask"])
                 
                 # print("the shapes", act_logits.shape, acts_tick.shape)
                 o_tick,r_tick,term,trunc,info=self.eval_env.step(*jax_to_numpy(acts_tick))
@@ -846,31 +936,30 @@ class BaseAgentDic:
             #Get the rollout frames
             # print("info", jnp.array(info["final_info"]["actions"]).shape) 
             # print("info", info["final_info"]["eval_scaled_diff"].shape) 
-            # actions = jnp.array(info["final_info"]["actions"])
-            # scaled_diff = jnp.array(info["final_info"]["eval_scaled_diff"])
-            # rew = jnp.array(info["final_info"]["rewards"])
+            actions = jnp.array(info["final_info"]["actions"])
+            scaled_diff = jnp.array(info["final_info"]["eval_scaled_diff"])
+            rew = jnp.array(info["final_info"]["rewards"])
             
             
-            # max_x = jnp.array(info["final_info"]["max_x"])
-            # # print("max_cof", max_x.shape, max_y.shape)
-            # print("max_cof", max_x.shape)
-            # conc_max = jnp.concatenate([max_x, jnp.array([[0,0]])], axis=1)
-            # # print("max_cof", conc_max.shape)
+            max_x = jnp.array(info["final_info"]["max_x"])
+            # print("max_cof", max_x.shape, max_y.shape)
+            conc_max = jnp.concatenate([max_x, jnp.array([[0,0]])], axis=1)
+            # print("max_cof", conc_max.shape)
             
-            # eval_rew = jnp.zeros((rew.shape[0] * actions.shape[1],1), dtype=jnp.float32)  # Create an array filled with zeros
-            # eval_rew = eval_rew.at[jnp.arange(rew.shape[0]) * actions.shape[1],1].set(rew)
-            # # print("rew", rew)
-            # # print(eval_rew)
-            # # print("scaled_diff", scaled_diff.shape, rew.shape, actions.shape)
+            eval_rew = jnp.zeros((rew.shape[0] * actions.shape[1],1), dtype=jnp.float32)  # Create an array filled with zeros
+            eval_rew = eval_rew.at[jnp.arange(rew.shape[0]) * actions.shape[1],1].set(rew)
+            # print("rew", rew)
+            # print(eval_rew)
+            # print("scaled_diff", scaled_diff.shape, rew.shape, actions.shape)
          
-            # actions = jnp.reshape(actions, (actions.shape[0] * actions.shape[1], actions.shape[2]))
-            # scaled_diff = jnp.reshape(scaled_diff, (scaled_diff.shape[0] * scaled_diff.shape[1], 1))
+            actions = jnp.reshape(actions, (actions.shape[0] * actions.shape[1], actions.shape[2]))
+            scaled_diff = jnp.reshape(scaled_diff, (scaled_diff.shape[0] * scaled_diff.shape[1], 1))
             
-            # # print("actions", actions.shape)
-            # combined = jnp.concatenate([actions, scaled_diff, eval_rew], axis=1)
-            # table = jnp.concatenate([conc_max, combined], axis=0)
+            # print("actions", actions.shape)
+            combined = jnp.concatenate([actions, scaled_diff, eval_rew], axis=1)
+            table = jnp.concatenate([conc_max, combined], axis=0)
             
-            rollouts = None
+            rollouts = table
             episode_lens.append(len(rewards))
             rewards=jnp.array(rewards,dtype=jnp.float32)
             avg_return=rlax.discounted_returns(rewards,self.gamma*jnp.ones_like(rewards),jnp.zeros_like(rewards)).mean()

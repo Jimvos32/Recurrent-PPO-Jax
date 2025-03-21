@@ -21,7 +21,7 @@ def numpy_to_jax(*args,dtype=jnp.float32):
     return jax.tree_map(lambda x: jnp.array(x,dtype=dtype),args)
 
 
-class BaseAgentDic:
+class BaseAgentDicVAE:
     def __init__(self,train_envs,eval_env,rollout_len,repr_model_fn:Callable,seq_model_fn:Callable,
                         actor_fn:Callable,critic_fn:Callable,use_gumbel_sampling=False,sequence_length=None, continious_sampling=True, single_dim=False, task_name=None) -> None:
         self.env=train_envs
@@ -37,7 +37,7 @@ class BaseAgentDic:
         self.continious_sampling = continious_sampling
         self.single_dim = single_dim
         self.task = task_name
-        self.ac_model=nn.vmap(ActorCriticModel,
+        self.ac_model=nn.vmap(ActorCriticVAEModel,
                               variable_axes={'params': None},
                                 split_rngs={'params': False, 'vae_sample': True})(repr_model_fn,self.seq_fn,actor_fn,critic_fn)
         
@@ -56,8 +56,8 @@ class BaseAgentDic:
             """
             random_key, vae_sample_key = jax.random.split(random_key)
 
-            act_logits,values,memory=self.ac_model.apply(params,inputs,terminations,last_memory,rngs={'random': random_key, 'vae_sample': vae_sample_key})
-            return act_logits,values,memory
+            act_logits,values,memory,latent=self.ac_model.apply(params,inputs,terminations,last_memory,rngs={'random': random_key, 'vae_sample': vae_sample_key})
+            return act_logits,values,memory, latent
         
         
         self.actor_critic_fn=actor_critic_fn
@@ -175,7 +175,7 @@ class BaseAgentDic:
             acts_tick = means + noise * stds  # shape: (parallel_env, batch_size, action_dim)
         elif task == "expanded_samp":  
             # print("pol_output", act_logits.shape)
-            weight_logits, means, log_stds = jnp.split(act_logits, 3, axis=-1) # shape: (parallel_env, 1, 3 *k)
+            means, log_stds, weight_logits = jnp.split(act_logits, 3, axis=-1) # shape: (parallel_env, 1, 3 *k)
             log_stds = jnp.clip(log_stds, -20, 2)
             weights = jax.nn.softmax(weight_logits, axis=-1)  # shape: (parallel_env, 1, k)
 
@@ -333,7 +333,7 @@ class BaseAgentDic:
             batch_size = self.eval_env.unwrapped.max_batches
             
             # Split the policy output as specified
-            weight_logits, means_all, log_stds_all = jnp.split(act_logits, 3, axis=-1)
+            means_all, log_stds_all, weight_logits = jnp.split(act_logits, 3, axis=-1)
            
             N = means_all.shape[0]
             # # Reshape all parameters to separate mixture components and action dimensions
@@ -412,18 +412,15 @@ class BaseAgentDic:
             
             action_dim = self.eval_env.unwrapped.action_dim
             batch_size = self.eval_env.unwrapped.max_batches
-            
        
             N = act_logits.shape[0]
-            # weight_logits = act_logits[..., (2 * self.sample_distribution):]  
-            weight_logits = act_logits[..., :(self.sample_distribution * action_dim * batch_size)]
+            weight_logits = act_logits[..., (2 * self.sample_distribution):]  
             weight_logits = jnp.reshape(weight_logits, (N, batch_size, action_dim, self.sample_distribution))
-            gmm_params = act_logits[..., (self.sample_distribution * action_dim * batch_size):]
+            
             
         
             
-            # gmm_params = act_logits[..., :(2 * self.sample_distribution)]  
-            gmm_params = act_logits[..., (self.sample_distribution * action_dim * batch_size):]
+            gmm_params = act_logits[..., :(2 * self.sample_distribution)]  
             means, std = jnp.split(gmm_params, 2, axis=-1) 
             means_all = jnp.reshape(means, (N, 1, self.sample_distribution))  
             
@@ -648,7 +645,8 @@ class BaseAgentDic:
         rewards=[]
         critic_preds=[]
         actor_preds=[]
-    
+        latent_means=[]
+        latent_stds=[]
         terminations=[]
         hiddens=[] #We still store the hidden states for every start 
         hidden_indices=[] #To map the hidden states to the correct timestep
@@ -674,7 +672,7 @@ class BaseAgentDic:
            
             # act_logits,v_tick,htick=self.actor_critic_fn(model_key,self.params,expanded_o,jnp.expand_dims(term_tick,1),#jnp.expand_dims(o_tick,1),jnp.expand_dims(term_tick,1),
             #                                              h_tickminus1)
-            act_logits,v_tick,htick=self.actor_critic_fn(model_key,self.params,expanded_o,jnp.expand_dims(term_tick,1),#jnp.expand_dims(o_tick,1),jnp.expand_dims(term_tick,1),
+            act_logits,v_tick,htick,latent_params=self.actor_critic_fn(model_key,self.params,expanded_o,jnp.expand_dims(term_tick,1),#jnp.expand_dims(o_tick,1),jnp.expand_dims(term_tick,1),
                                                          h_tickminus1)
             
             # print("expanded_o", expanded_o["mask"].shape)
@@ -750,7 +748,8 @@ class BaseAgentDic:
             infos.append(info)
             # print(act_logits.shape, "act_logits")
             # print(latent_params[0].shape, "latent_params")
-           
+            latent_means.append(latent_params[0])
+            latent_stds.append(latent_params[1])
             o_tick=o_tickplus1
             r_tick=r_tickplus1
             h_tickminus1=htick
@@ -768,7 +767,7 @@ class BaseAgentDic:
         #get the value for timestep (tick+rollout_len+1), we need this to do bootstrapping
         random_key,model_key=jax.random.split(random_key)
         expanded_o = self.expand_o_tick(o_tick)
-        _,v_tick,_=self.actor_critic_fn(model_key,self.params,expanded_o,jnp.expand_dims(term_tick,1),h_tickminus1)#jnp.expand_dims(o_tick,1),jnp.expand_dims(term_tick,1),h_tickminus1)
+        _,v_tick,_,latent=self.actor_critic_fn(model_key,self.params,expanded_o,jnp.expand_dims(term_tick,1),h_tickminus1)#jnp.expand_dims(o_tick,1),jnp.expand_dims(term_tick,1),h_tickminus1)
         critic_preds.append(v_tick)
         #Update to timestep
         self.o_tick=o_tick.copy()
@@ -785,7 +784,8 @@ class BaseAgentDic:
             'observations': observations,
             'actions':jnp.stack(actions,1),
             'rewards':jnp.stack(rewards,1),
-         
+            'latent_means':jnp.stack(latent_means,1),
+            'latent_stds':jnp.stack(latent_stds,1),
             'terminations':jnp.stack(terminations,1),
             'infos':infos,
             'critic_preds':jnp.squeeze(jnp.stack(critic_preds,1),axis=-1), #During unrolling phase, we don't need the time dimension as it is one, instead we need the rollout_len dimension
@@ -822,7 +822,7 @@ class BaseAgentDic:
                 # for k in expanded_o.keys():
                 #     print("aft", k, expanded_o[k].shape)
                 
-                act_logits,v_tick,htick=self.actor_critic_fn(model_key,self.params,expanded_o,term_tick,h_tickminus1)
+                act_logits,v_tick,htick,latent=self.actor_critic_fn(model_key,self.params,expanded_o,term_tick,h_tickminus1)
                 # if hasattr(self,'arg_max') and self.arg_max:
                 #     acts_tick=jnp.argmax(act_logits,axis=-1)
                 # else:
@@ -846,31 +846,30 @@ class BaseAgentDic:
             #Get the rollout frames
             # print("info", jnp.array(info["final_info"]["actions"]).shape) 
             # print("info", info["final_info"]["eval_scaled_diff"].shape) 
-            # actions = jnp.array(info["final_info"]["actions"])
-            # scaled_diff = jnp.array(info["final_info"]["eval_scaled_diff"])
-            # rew = jnp.array(info["final_info"]["rewards"])
+            actions = jnp.array(info["final_info"]["actions"])
+            scaled_diff = jnp.array(info["final_info"]["eval_scaled_diff"])
+            rew = jnp.array(info["final_info"]["rewards"])
             
             
-            # max_x = jnp.array(info["final_info"]["max_x"])
-            # # print("max_cof", max_x.shape, max_y.shape)
-            # print("max_cof", max_x.shape)
-            # conc_max = jnp.concatenate([max_x, jnp.array([[0,0]])], axis=1)
-            # # print("max_cof", conc_max.shape)
+            max_x = jnp.array(info["final_info"]["max_x"])
+            # print("max_cof", max_x.shape, max_y.shape)
+            conc_max = jnp.concatenate([max_x, jnp.array([[0,0]])], axis=1)
+            # print("max_cof", conc_max.shape)
             
-            # eval_rew = jnp.zeros((rew.shape[0] * actions.shape[1],1), dtype=jnp.float32)  # Create an array filled with zeros
-            # eval_rew = eval_rew.at[jnp.arange(rew.shape[0]) * actions.shape[1],1].set(rew)
-            # # print("rew", rew)
-            # # print(eval_rew)
-            # # print("scaled_diff", scaled_diff.shape, rew.shape, actions.shape)
+            eval_rew = jnp.zeros((rew.shape[0] * actions.shape[1],1), dtype=jnp.float32)  # Create an array filled with zeros
+            eval_rew = eval_rew.at[jnp.arange(rew.shape[0]) * actions.shape[1],1].set(rew)
+            # print("rew", rew)
+            # print(eval_rew)
+            # print("scaled_diff", scaled_diff.shape, rew.shape, actions.shape)
          
-            # actions = jnp.reshape(actions, (actions.shape[0] * actions.shape[1], actions.shape[2]))
-            # scaled_diff = jnp.reshape(scaled_diff, (scaled_diff.shape[0] * scaled_diff.shape[1], 1))
+            actions = jnp.reshape(actions, (actions.shape[0] * actions.shape[1], actions.shape[2]))
+            scaled_diff = jnp.reshape(scaled_diff, (scaled_diff.shape[0] * scaled_diff.shape[1], 1))
             
-            # # print("actions", actions.shape)
-            # combined = jnp.concatenate([actions, scaled_diff, eval_rew], axis=1)
-            # table = jnp.concatenate([conc_max, combined], axis=0)
+            # print("actions", actions.shape)
+            combined = jnp.concatenate([actions, scaled_diff, eval_rew], axis=1)
+            table = jnp.concatenate([conc_max, combined], axis=0)
             
-            rollouts = None
+            rollouts = table
             episode_lens.append(len(rewards))
             rewards=jnp.array(rewards,dtype=jnp.float32)
             avg_return=rlax.discounted_returns(rewards,self.gamma*jnp.ones_like(rewards),jnp.zeros_like(rewards)).mean()
