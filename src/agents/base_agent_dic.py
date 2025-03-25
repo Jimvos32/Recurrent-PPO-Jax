@@ -380,7 +380,7 @@ class BaseAgentDic:
             acts_tick = chosen_means + chosen_stds * noise  # shape: (N, batch_size, action_dim)
             
             # Apply tanh to constrain actions to [-1, 1] range
-            acts_tick = jnp.tanh(acts_tick)
+            # acts_tick = jnp.tanh(acts_tick)
             
             # Apply padding mask if necessary
             if masks is not None:

@@ -243,6 +243,8 @@ def dict_unpack_mask(
                 module(create_mlp_layers(batch_expand_hidden))(ins)
                 for module, ins in zip(submodules, expanded_inputs)
             ]
+            
+            # for r in 
 
             # Concatenate the results of the batch related data
             squeezed = jnp.squeeze(jnp.array(results), axis=3)  # shape (2, batch_size, hidden_size)

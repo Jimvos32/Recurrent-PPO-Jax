@@ -345,10 +345,10 @@ class PPOAgent(BaseAgentDic):
                     
                     # Tanh squashing correction: for each action dimension subtract log(1 - a^2)
                     # Only apply correction to valid (non-padded) actions
-                    correction = jnp.sum(jnp.log(1 - actions ** 2 + epsilon), axis=-1)  # shape: (N, T, batch_size)
+                    #correction = jnp.sum(jnp.log(1 - actions ** 2 + epsilon), axis=-1)  # shape: (N, T, batch_size)
                     
                     # Final log probability
-                    log_prob = total_log_prob - correction
+                    log_prob = total_log_prob# - correction
                     
                     # For padded samples, set the log probability to 0 so they do not contribute to gradients/loss
                     log_prob = jnp.where(valid_mask, log_prob, 0.0)
@@ -544,6 +544,28 @@ class PPOAgent(BaseAgentDic):
             # logprobs=logprobs[jnp.arange(B*T),actions.reshape(-1)].reshape(B,T)
             # #Calculate log probs of actions takenß
             
+            def gmm_entropy(logits):
+                # logits has shape [B, T, 6], where B=parallel envs, T=timesteps.
+                # Split into three parts: mixing logits, means, and stds.
+                mixing_logits, means, stds = jnp.split(logits, 3, axis=-1)  # each of shape [B, T, 2]
+                
+                # Convert mixing logits to mixing weights using softmax.
+                pi = jax.nn.softmax(mixing_logits, axis=-1)  # shape [B, T, 2]
+                
+                # Compute the categorical entropy (discrete part).
+                discrete_entropy = -jnp.sum(pi * jnp.log(pi + 1e-8), axis=-1)  # shape [B, T]
+                
+                # Compute the entropy for each Gaussian component.
+                # Note: Ensure stds are positive. If your network outputs raw values, you may want to use a softplus.
+                gaussian_entropy = 0.5 * jnp.log(2 * jnp.pi * jnp.e * (stds ** 2))  # shape [B, T, 2]
+                
+                # Weight the continuous entropy by the mixing weights.
+                weighted_gaussian_entropy = jnp.sum(pi * gaussian_entropy, axis=-1)  # shape [B, T]
+                
+                # Total approximate GMM entropy.
+                total_entropy = discrete_entropy + weighted_gaussian_entropy  # shape [B, T]
+                return total_entropy
+            
             
             def ppo_loss(params, random_key, mb_observations, mb_actions,mb_terminations,
                             mb_logp, mb_advantages, mb_returns,mb_h_tickminus1):
@@ -556,12 +578,16 @@ class PPOAgent(BaseAgentDic):
                 
             
                 
+                # print("okay this is the ligit", logits_new.shape)
                 
-                logits_new = logits_new - jax.scipy.special.logsumexp(logits_new, axis=-1, keepdims=True)
-                logits_new = logits_new.clip(min=jnp.finfo(logits_new.dtype).min)
-                p_log_p = logits_new * jax.nn.softmax(logits_new)
-                entropy = -p_log_p.sum(-1)
-                
+                # logits_new = logits_new - jax.scipy.special.logsumexp(logits_new, axis=-1, keepdims=True)
+                # logits_new = logits_new.clip(min=jnp.finfo(logits_new.dtype).min)
+                # p_log_p = logits_new * jax.nn.softmax(logits_new)
+                # entropy = -p_log_p.sum(-1)
+                entropy = gmm_entropy(logits_new)
+                entropy = entropy.mean()
+                # jax.debug.print("entropy {}", entropy)
+                # entropy_loss = entropy.mean()
                 
                 
                 # print("logits", logits_new.shape, "logp", newlogprobs.shape, "entropy", entropy.shape, "values", mb_logp.shape)
@@ -575,8 +601,6 @@ class PPOAgent(BaseAgentDic):
 
                 if self.norm_adv:
                     mb_advantages = (mb_advantages - mb_advantages.mean()) / (mb_advantages.std() + 1e-8)
-                    
-                # print("logits", logits_new.shape, "logp", newlogprobs.shape, "entropy", entropy.shape, "mb", mb_logp.shape, "ratio", ratio.shape, "adv", mb_advantages.shape, "returns", mb_returns.shape)
 
                 # Policy loss
                 pg_loss1 = -mb_advantages * ratio
@@ -587,55 +611,10 @@ class PPOAgent(BaseAgentDic):
                 v_loss = 0.5 * ((values_new - mb_returns) ** 2).mean()
 
                 entropy_loss = entropy.mean()
-                # === Dynamic boundary penalty ===
-                valid_counts = mb_observations["mask"]  # (1, 256)
-                sample_indices = jnp.arange(mb_actions.shape[2])[None, None, :]
-                valid_samples_mask = (sample_indices < valid_counts[:, :, None])[..., None]  # (1, 256, S, 1)
-
-                boundary_penalty = jnp.mean(
-                    jnp.square(jnp.clip(jnp.abs(mb_actions), a_min=0.0)) * valid_samples_mask
-                )
-                
-                # print(mb_actions.shape)
-                # jax.debug.print("okay {}", mb_actions[0,0])
-
-                # === Dynamic diversity penalty ===
-                actions_exp_1 = mb_actions[:, :, :, None, :]  # (1, 256, S, 1, a_dim)
-                actions_exp_2 = mb_actions[:, :, None, :, :]  # (1, 256, 1, S, a_dim)
-                pairwise_diff = actions_exp_1 - actions_exp_2  # (1, 256, S, S, a_dim)
-                pairwise_dist = jnp.linalg.norm(pairwise_diff, axis=-1)  # (1, 256, S, S)
-
-                valid_samples_mask_flat = valid_samples_mask.squeeze(-1).astype(jnp.float32)  # (1, 256, S)
-                valid_mask_i = valid_samples_mask_flat[:, :, :, None]
-                valid_mask_j = valid_samples_mask_flat[:, :, None, :]
-                pairwise_valid_mask = valid_mask_i * valid_mask_j
-
-                diag_mask = 1 - jnp.eye(mb_actions.shape[2])[None, None, :, :]
-                pairwise_valid_mask *= diag_mask
-
-                pairwise_dist = pairwise_dist * pairwise_valid_mask
-                total_valid_pairs = jnp.sum(pairwise_valid_mask) + 1e-6
-                mean_pairwise_dist = jnp.sum(pairwise_dist) / total_valid_pairs
-                diversity_penalty = 1.0 / (mean_pairwise_dist + 1e-6)
-
-                boundary_penalty_weight = 1.00
-                diversity_penalty_weight = 0.00
-                # Mean-based boundary penalty
-                boundary_penalty = jnp.mean(jnp.square(mb_actions))  # Squared to make it always positive
-                
-                
-                # jax.debug.print("okay {}", mb_observations["actions"])
-                # jax.debug.print("this is the wor {}", mb_actions[0,0])
-                loss = boundary_penalty * 100
-                # loss = (pg_loss 
-                #     - self.ent_schedule(update_tick) * entropy_loss 
-                #     + v_loss * self.vf_coef 
-                #     + boundary_penalty_weight * boundary_penalty 
-                #     + diversity_penalty_weight * diversity_penalty)
-                # pg_loss = boundary_penalty
-                # v_loss = boundary_penalty
-                # entropy_loss = boundary_penalty
+                loss = pg_loss - 0 * entropy_loss + v_loss * self.vf_coef
                 return loss, (pg_loss, v_loss, entropy_loss, jax.lax.stop_gradient(approx_kl))
+
+            
 
 
             ppo_loss_grad_fn = jax.value_and_grad(ppo_loss, has_aux=True)
@@ -662,7 +641,9 @@ class PPOAgent(BaseAgentDic):
             #We are gonna minibatch over num_envs and num_seqs now
 
             def update_epoch(carry,x):
+                
                 params,optimizer_state,random_key=carry
+                # jax.debug.print("opt {}", optimizer_state[1].hyperparams['learning_rate'])
                 shuffle_key,model_key,random_key = jax.random.split(random_key,3)
                 shuffled_inds = jax.random.permutation(shuffle_key, self.num_envs*num_seqs)
                 batch_inds = shuffled_inds.reshape((self.num_minibatches, -1))

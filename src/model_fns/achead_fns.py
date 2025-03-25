@@ -16,6 +16,7 @@ def actor_model_discete(dense_dim,action_space):
 
 
 def critic_model(dense_dim):
+    print("dsfa dense dim", dense_dim)
     def thurn():
         return nn.Sequential([nn.Dense(dense_dim,kernel_init=orthogonal(jnp.sqrt(2)),
                                     bias_init=constant(0.0)),nn.tanh,nn.Dense(1,kernel_init=orthogonal(jnp.sqrt(2)),

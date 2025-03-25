@@ -19,12 +19,12 @@ dist_model: standard
 sample_distribution: 2
 
 ent_coef: 
-  initial: 0.01
+  initial: 0.00
   final: null
   max_decay_steps: 1000
   power: 1
 
-vf_coef: 0.5
+vf_coef: 0.2
 max_grad_norm: 0.5
 optimizer: 
   learning_rate: 

@@ -353,6 +353,9 @@ class ControlTrainer(BaseTrainer):
                 learning_rate['final']=learning_rate['initial'] #Set to none if you don't want decay
             if self.trainer_config['ent_coef']['final'] is None:
                 self.trainer_config['ent_coef']['final']=self.trainer_config['ent_coef']['initial']
+            
+            print()    
+            
             lr_schedule=optax.polynomial_schedule(learning_rate['initial'],learning_rate['final'],learning_rate['power'],learning_rate['max_decay_steps'])
             ent_schedule=optax.polynomial_schedule(self.trainer_config['ent_coef']['initial'],self.trainer_config['ent_coef']['final'],
                                                    self.trainer_config['ent_coef']['power'],self.trainer_config['ent_coef']['max_decay_steps'])

@@ -203,8 +203,11 @@ class MultiMask(gym.Env):
         """
         self.tick += 1
         copy = action
+        action = jnp.reshape(action, (self.max_batches, self.action_dim))
+        # print("action.shape", action.shape)
         # assert action.shape == (self.batch_size, self.action_dim), f"Expected shape {(self.batch_size, self.action_dim)}, got {action.shape}"
-        action = self.map_to_bounds(action)
+        gg = self.map_to_bounds(action)
+        # print("gg.shape", gg.shape)
         # action = np.random.uniform(self.x_range[0], self.x_range[1], size=(self.max_batches, self.action_dim))
         self.actions.append(action)
         # action = jnp.reshape(action, (self.max_batches, self.action_dim))
