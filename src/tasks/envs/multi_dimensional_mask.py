@@ -18,6 +18,7 @@ class MultiMask(gym.Env):
         # Define the allowed range for x values.
         self.x_range = env_config["bounds"]
         self.max_episode_steps = env_config["max_episode_steps"]
+        self.total_samples = env_config["total_episode_samples"]
         self.batches = env_config["batches"]
         self.max_batches = np.max(self.batches)
         self.batch_size = self.max_batches
@@ -25,6 +26,8 @@ class MultiMask(gym.Env):
         self.name = env_config['task']
         self.degree=env_config['degree']
         self.max=env_config['max_episode_steps']
+        
+        self.max_episode_steps = self.total_samples // self.batch_size
        
         # print("batch", self.batches)
         
@@ -93,9 +96,7 @@ class MultiMask(gym.Env):
         self.r_mse = 1.0
         self.r_obs = 0.0
         
-        
-       
-        
+     
         # Initialize polynomial parameters.
         self.x_max = None
         self.y_min = None
@@ -109,17 +110,17 @@ class MultiMask(gym.Env):
     
     def shift_polynomial(self):
         # Randomize the maximum location uniformly for each dimension.
-        self.x_max = np.random.uniform(self.x_range[0], self.x_range[1], size=(1,self.action_dim))
-        # Randomize the constant such that f(x_max) = c, and weights.
-        self.c = np.random.uniform(5.0, 20.0)
-        # print("is this random", self.c)
-        self.weights = np.random.uniform(0.5, 2.0, size=(self.action_dim,))
-        
-        
-        # self.x_max = np.random.uniform(0.5, 0.5, size=(1,self.action_dim))
+        # self.x_max = np.random.uniform(self.x_range[0], self.x_range[1], size=(1,self.action_dim))
         # # Randomize the constant such that f(x_max) = c, and weights.
-        # self.c = np.random.uniform(10.0, 10.0)
-        # self.weights = np.random.uniform(0.5, 0.5, size=(self.action_dim,))
+        # self.c = np.random.uniform(5.0, 20.0)
+        # # print("is this random", self.c)
+        # self.weights = np.random.uniform(0.5, 2.0, size=(self.action_dim,))
+        
+        
+        self.x_max = np.random.uniform(-0.5, -0.5, size=(1,self.action_dim))
+        # Randomize the constant such that f(x_max) = c, and weights.
+        self.c = np.random.uniform(10.0, 10.0)
+        self.weights = np.random.uniform(0.5, 0.5, size=(self.action_dim,))
         
         
     
@@ -129,8 +130,11 @@ class MultiMask(gym.Env):
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
         # Optionally shift polynomial parameters if desired.
-        self.shift_polynomial()
+        # self.shift_polynomial()
+        # print("oaky", self.batches)
         self.batch_size = np.random.choice(self.batches)
+        
+        self.max_episode_steps = self.total_samples // self.batch_size
         
        
         # Sample a batch of random x values within the allowed range.
@@ -296,7 +300,6 @@ class MultiMask(gym.Env):
         info = {}
         
         
-        
 
         if truncated:
             info["final_observation"] = obs
@@ -341,6 +344,8 @@ class MultiMask(gym.Env):
             
         # comb = np.concatenate([self.x, self.state], axis=-1)
         # print("we should not", np.array([self.tick], dtype=np.int32).shape)
+        # jax.debug.print("actions {}", action)
+        
         observation = {
             "actions": np.array(action, dtype=np.float32),
             "observations": np.array(obs, dtype=np.float32),

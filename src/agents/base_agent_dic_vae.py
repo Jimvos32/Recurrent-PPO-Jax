@@ -846,30 +846,30 @@ class BaseAgentDicVAE:
             #Get the rollout frames
             # print("info", jnp.array(info["final_info"]["actions"]).shape) 
             # print("info", info["final_info"]["eval_scaled_diff"].shape) 
-            actions = jnp.array(info["final_info"]["actions"])
-            scaled_diff = jnp.array(info["final_info"]["eval_scaled_diff"])
-            rew = jnp.array(info["final_info"]["rewards"])
+            # actions = jnp.array(info["final_info"]["actions"])
+            # scaled_diff = jnp.array(info["final_info"]["eval_scaled_diff"])
+            # rew = jnp.array(info["final_info"]["rewards"])
             
             
-            max_x = jnp.array(info["final_info"]["max_x"])
-            # print("max_cof", max_x.shape, max_y.shape)
-            conc_max = jnp.concatenate([max_x, jnp.array([[0,0]])], axis=1)
-            # print("max_cof", conc_max.shape)
+            # max_x = jnp.array(info["final_info"]["max_x"])
+            # # print("max_cof", max_x.shape, max_y.shape)
+            # conc_max = jnp.concatenate([max_x, jnp.array([[0,0]])], axis=1)
+            # # print("max_cof", conc_max.shape)
             
-            eval_rew = jnp.zeros((rew.shape[0] * actions.shape[1],1), dtype=jnp.float32)  # Create an array filled with zeros
-            eval_rew = eval_rew.at[jnp.arange(rew.shape[0]) * actions.shape[1],1].set(rew)
-            # print("rew", rew)
-            # print(eval_rew)
-            # print("scaled_diff", scaled_diff.shape, rew.shape, actions.shape)
+            # eval_rew = jnp.zeros((rew.shape[0] * actions.shape[1],1), dtype=jnp.float32)  # Create an array filled with zeros
+            # eval_rew = eval_rew.at[jnp.arange(rew.shape[0]) * actions.shape[1],1].set(rew)
+            # # print("rew", rew)
+            # # print(eval_rew)
+            # # print("scaled_diff", scaled_diff.shape, rew.shape, actions.shape)
          
-            actions = jnp.reshape(actions, (actions.shape[0] * actions.shape[1], actions.shape[2]))
-            scaled_diff = jnp.reshape(scaled_diff, (scaled_diff.shape[0] * scaled_diff.shape[1], 1))
+            # actions = jnp.reshape(actions, (actions.shape[0] * actions.shape[1], actions.shape[2]))
+            # scaled_diff = jnp.reshape(scaled_diff, (scaled_diff.shape[0] * scaled_diff.shape[1], 1))
             
-            # print("actions", actions.shape)
-            combined = jnp.concatenate([actions, scaled_diff, eval_rew], axis=1)
-            table = jnp.concatenate([conc_max, combined], axis=0)
+            # # print("actions", actions.shape)
+            # combined = jnp.concatenate([actions, scaled_diff, eval_rew], axis=1)
+            # table = jnp.concatenate([conc_max, combined], axis=0)
             
-            rollouts = table
+            rollouts = None
             episode_lens.append(len(rewards))
             rewards=jnp.array(rewards,dtype=jnp.float32)
             avg_return=rlax.discounted_returns(rewards,self.gamma*jnp.ones_like(rewards),jnp.zeros_like(rewards)).mean()

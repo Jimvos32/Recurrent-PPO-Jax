@@ -83,6 +83,14 @@ class BaseAgentDicNorm:
         
         # Jit the resulting function
         self.norm_flow = jax.jit(self.norm_flow)
+        
+        # def norm_flow_fn_single(action):
+        #     # action shape: [a_dim] for a single sample.
+        #     return self.norm_flow_module.apply(self.norm_flow_params, action)
+
+        # # First, map over the batch dimension, then over the N (or T) dimension.
+        # self.norm_flow = jax.vmap(jax.vmap(norm_flow_fn_single, in_axes=0, out_axes=0), in_axes=0, out_axes=0)
+        # self.norm_flow = jax.jit(self.norm_flow)
             
         # self.norm_flow()
 
@@ -454,27 +462,22 @@ class BaseAgentDicNorm:
             
             # Compute the final sampled actions
             raw_actions = chosen_means + chosen_stds * noise  # shape: (N, batch_size, action_dim)
-            # print("rasw", raw_actions.shape)
-            # print("raw_actions", type(raw_actions))
+           
             
             #This is the function that should be normalisesd
+            #and be implemented
             
-            raw_actions, flow_log_det = self.norm_flow(raw_actions)
-            
-            
-            
-            
+            # Compute the final sampled actions
+            acts_tick = chosen_means + chosen_stds * noise  # shape: (N, batch_size, action_dim)
             
             # Apply tanh to constrain actions to [-1, 1] range
-            acts_tick = jnp.tanh(raw_actions)
+            acts_tick = jnp.tanh(acts_tick)
             
             # Apply padding mask if necessary
             if masks is not None:
                 acts_tick = apply_padding_mask(acts_tick, masks)
-                
-            print("raw_actions", acts_tick, "flow_log_det", flow_log_det.shape)
             
-            return acts_tick, flow_log_det 
+            return acts_tick
         
         elif task == "cor_gmm":
             def apply_padding_mask(expanded_array, padding_counts, pad_value=-2.0):
@@ -620,17 +623,28 @@ class BaseAgentDicNorm:
             # Sample noise from a standard normal distribution matching the shape.
             noise = jax.random.normal(random_key, shape=means.shape)
 
-            # Compute the final sampled actions.
-            acts_tick = means + stds * noise
+            # Compute the final sampled actions
+            raw_actions = means + stds * noise  # shape: (N, batch_size, action_dim)
+           
             
-            acts_tick = jnp.tanh(acts_tick)
+            #This is the function that should be normalisesd
+            #and be implemented
+            
+            raw_actions, flow_log_det = self.norm_flow(raw_actions)
+            
+            
+            
+            
+            
+            # Apply tanh to constrain actions to [-1, 1] range
+            acts_tick = jnp.tanh(raw_actions)
             
             # Apply padding mask if necessary
             if masks is not None:
                 acts_tick = apply_padding_mask(acts_tick, masks)
 
             
-            return acts_tick
+            return acts_tick, flow_log_det
         
         elif task == "vae":  
             def apply_padding_mask(expanded_array, padding_counts, pad_value=-2.0):
@@ -805,7 +819,7 @@ class BaseAgentDicNorm:
                 acts_tick = self.sampling_differ("cor_gmm", act_logits, random_key, masks=masks)    
             elif self.task == "full_params":
                 # print("multibatch")
-                acts_tick = self.sampling_differ("full_params", act_logits, random_key, masks=masks) 
+                acts_tick, flow_det = self.sampling_differ("full_params", act_logits, random_key, masks=masks) 
             elif self.task == "vae":
                 # print("multibatch")
                 acts_tick = self.sampling_differ("masked", act_logits, random_key, masks=masks)   
@@ -936,30 +950,30 @@ class BaseAgentDicNorm:
             #Get the rollout frames
             # print("info", jnp.array(info["final_info"]["actions"]).shape) 
             # print("info", info["final_info"]["eval_scaled_diff"].shape) 
-            actions = jnp.array(info["final_info"]["actions"])
-            scaled_diff = jnp.array(info["final_info"]["eval_scaled_diff"])
-            rew = jnp.array(info["final_info"]["rewards"])
+            # actions = jnp.array(info["final_info"]["actions"])
+            # scaled_diff = jnp.array(info["final_info"]["eval_scaled_diff"])
+            # rew = jnp.array(info["final_info"]["rewards"])
             
             
-            max_x = jnp.array(info["final_info"]["max_x"])
-            # print("max_cof", max_x.shape, max_y.shape)
-            conc_max = jnp.concatenate([max_x, jnp.array([[0,0]])], axis=1)
-            # print("max_cof", conc_max.shape)
+            # max_x = jnp.array(info["final_info"]["max_x"])
+            # # print("max_cof", max_x.shape, max_y.shape)
+            # conc_max = jnp.concatenate([max_x, jnp.array([[0,0]])], axis=1)
+            # # print("max_cof", conc_max.shape)
             
-            eval_rew = jnp.zeros((rew.shape[0] * actions.shape[1],1), dtype=jnp.float32)  # Create an array filled with zeros
-            eval_rew = eval_rew.at[jnp.arange(rew.shape[0]) * actions.shape[1],1].set(rew)
-            # print("rew", rew)
-            # print(eval_rew)
-            # print("scaled_diff", scaled_diff.shape, rew.shape, actions.shape)
+            # eval_rew = jnp.zeros((rew.shape[0] * actions.shape[1],1), dtype=jnp.float32)  # Create an array filled with zeros
+            # eval_rew = eval_rew.at[jnp.arange(rew.shape[0]) * actions.shape[1],1].set(rew)
+            # # print("rew", rew)
+            # # print(eval_rew)
+            # # print("scaled_diff", scaled_diff.shape, rew.shape, actions.shape)
          
-            actions = jnp.reshape(actions, (actions.shape[0] * actions.shape[1], actions.shape[2]))
-            scaled_diff = jnp.reshape(scaled_diff, (scaled_diff.shape[0] * scaled_diff.shape[1], 1))
+            # actions = jnp.reshape(actions, (actions.shape[0] * actions.shape[1], actions.shape[2]))
+            # scaled_diff = jnp.reshape(scaled_diff, (scaled_diff.shape[0] * scaled_diff.shape[1], 1))
             
-            # print("actions", actions.shape)
-            combined = jnp.concatenate([actions, scaled_diff, eval_rew], axis=1)
-            table = jnp.concatenate([conc_max, combined], axis=0)
+            # # print("actions", actions.shape)
+            # combined = jnp.concatenate([actions, scaled_diff, eval_rew], axis=1)
+            # table = jnp.concatenate([conc_max, combined], axis=0)
             
-            rollouts = table
+            rollouts = None
             episode_lens.append(len(rewards))
             rewards=jnp.array(rewards,dtype=jnp.float32)
             avg_return=rlax.discounted_returns(rewards,self.gamma*jnp.ones_like(rewards),jnp.zeros_like(rewards)).mean()

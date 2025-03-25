@@ -470,7 +470,7 @@ class PPOAgentVAE(BaseAgentDicVAE):
                     action_dim = self.eval_env.unwrapped.action_dim
 
                     # Reshape act_logits to align with actions
-                    act_logits = jnp.reshape(act_logits, (actions.shape[0], act_logits.shape[1], 1, act_logits.shape[-1]))
+                    act_logits = jnp.reshape(act_logits, (act_logits.shape[0], act_logits.shape[1], 1, act_logits.shape[-1]))
 
                     # Split into means and log_stds. They originally have shape (1, steps, 1, action_dim)
                     means, log_stds = jnp.split(act_logits, 2, axis=-1)
@@ -480,6 +480,7 @@ class PPOAgentVAE(BaseAgentDicVAE):
                     # Broadcast means and stds to shape (1, steps, batch_size, action_dim)
                     means = jnp.reshape(means, (act_logits.shape[0], act_logits.shape[1], batch_size, action_dim))
                     stds  = jnp.reshape(stds,  (act_logits.shape[0], act_logits.shape[1], batch_size, action_dim))
+                    log_stds = jnp.reshape(log_stds,  (act_logits.shape[0], act_logits.shape[1], batch_size, action_dim))
 
                     variance = stds ** 2
 
@@ -560,7 +561,9 @@ class PPOAgentVAE(BaseAgentDicVAE):
                 
                 # print("logits", logits_new.shape, "logp", newlogprobs.shape, "entropy", entropy.shape, "values", mb_logp.shape)
 
-                logratio = newlogprobs - mb_logp
+                max_clip = 20.0
+                logratio = jnp.clip(newlogprobs - mb_logp, -max_clip, max_clip)
+                
                 ratio = jnp.exp(logratio)
                 approx_kl = ((ratio - 1) - logratio).mean()
 
@@ -578,7 +581,45 @@ class PPOAgentVAE(BaseAgentDicVAE):
                 v_loss = 0.5 * ((values_new - mb_returns) ** 2).mean()
 
                 entropy_loss = entropy.mean()
-                loss = pg_loss - self.ent_schedule(update_tick) * entropy_loss + v_loss * self.vf_coef + kl_loss * self.kl_coeff
+                # === Dynamic boundary penalty ===
+                valid_counts = mb_observations["mask"]  # (1, 256)
+                sample_indices = jnp.arange(mb_actions.shape[2])[None, None, :]
+                valid_samples_mask = (sample_indices < valid_counts[:, :, None])[..., None]  # (1, 256, S, 1)
+
+                boundary_penalty = jnp.mean(
+                    jnp.square(jnp.clip(jnp.abs(mb_actions) - 0.95, a_min=0.0)) * valid_samples_mask
+                )
+
+                # === Dynamic diversity penalty ===
+                actions_exp_1 = mb_actions[:, :, :, None, :]  # (1, 256, S, 1, a_dim)
+                actions_exp_2 = mb_actions[:, :, None, :, :]  # (1, 256, 1, S, a_dim)
+                pairwise_diff = actions_exp_1 - actions_exp_2  # (1, 256, S, S, a_dim)
+                pairwise_dist = jnp.linalg.norm(pairwise_diff, axis=-1)  # (1, 256, S, S)
+
+                valid_samples_mask_flat = valid_samples_mask.squeeze(-1).astype(jnp.float32)  # (1, 256, S)
+                valid_mask_i = valid_samples_mask_flat[:, :, :, None]
+                valid_mask_j = valid_samples_mask_flat[:, :, None, :]
+                pairwise_valid_mask = valid_mask_i * valid_mask_j
+
+                diag_mask = 1 - jnp.eye(mb_actions.shape[2])[None, None, :, :]
+                pairwise_valid_mask *= diag_mask
+
+                pairwise_dist = pairwise_dist * pairwise_valid_mask
+                total_valid_pairs = jnp.sum(pairwise_valid_mask) + 1e-6
+                mean_pairwise_dist = jnp.sum(pairwise_dist) / total_valid_pairs
+                diversity_penalty = 1.0 / (mean_pairwise_dist + 1e-6)
+
+                boundary_penalty_weight = 0.01
+                diversity_penalty_weight = 0.01
+                
+                # jax.debug.print("okay {}", mb_observations["actions"])
+
+                
+                loss = (pg_loss 
+                    - self.ent_schedule(update_tick) * entropy_loss 
+                    + v_loss * self.vf_coef 
+                    + boundary_penalty_weight * boundary_penalty 
+                    + diversity_penalty_weight * diversity_penalty)
                 return loss, (pg_loss, v_loss, entropy_loss, jax.lax.stop_gradient(approx_kl))
 
             ppo_loss_grad_fn = jax.value_and_grad(ppo_loss, has_aux=True)

@@ -1,12 +1,29 @@
-task: gen_gmm
+# name: gen_gmm
+# task: gen_gmm
+# env: cosine
+# bounds: [-5, 5]
+# # These keys will be overridden by experiment files:
+# max_episode_steps: 6
+# total_episode_samples: 40
+# batches: ${batch_value}
+# action_dim: 3
+# degree: 2
+# num_oscillations: 5
+# batch_expand_hidden: [128, 64]
+# batch_combine_hidden: [128, 64]
+# step_expand_hidden: [128, 64]
+# input_combine_hidden: [128, 64]
+
+
 name: gen_gmm
+task: gen_gmm
 env: cosine
-view_size: 2
-max_steps: null
 bounds: [-5, 5]
-max_episode_steps: 12
-batches: [1,1]
-action_dim: 3
+# These keys are set from the experiment combos:
+batches: ${experiment.combos.${experiment.choice}.batches}
+max_episode_steps: ${experiment.combos.${experiment.choice}.max_episode_steps}
+total_episode_samples: 40
+action_dim: 1
 degree: 2
 num_oscillations: 5
 batch_expand_hidden: [128, 64]

@@ -15,7 +15,6 @@ norm_adv: true
 clip_coef: 0.1
 vae: false
 dist_model: standard
-flow_norm: standard
 
 sample_distribution: 2
 

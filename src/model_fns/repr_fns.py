@@ -92,7 +92,7 @@ def dict_unpack_model(hidden_sizes=(256, 128)):
         def __call__(self, x):
             
           
-            print("probleeem")
+            
             #x is a dictionary of inputs
             # keys = ["actions", "observations", "reward"]
             # actions.shape = (batch_size, action_dim)
@@ -117,7 +117,7 @@ def dict_unpack_model(hidden_sizes=(256, 128)):
             batch_related = ["actions", "observations"]
             step_related = ["reward"]#, "best_action"]
             
-            print("x", x["actions"].shape)
+            # print("x", x["actions"].shape)
             # Expand and the data for correct parsing through vmap
             expanded_inputs = [
                 x[k][:, :, None, :]

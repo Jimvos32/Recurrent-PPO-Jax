@@ -536,6 +536,8 @@ class BaseAgentDic:
             # Compute the final sampled actions.
             acts_tick = means + stds * noise
             
+            # jax.debug.print("act {}\nstd {}\nnoise {}\n {}", means[0], stds[0], noise[0], log_stds[0])
+            
             acts_tick = jnp.tanh(acts_tick)
             
             # Apply padding mask if necessary

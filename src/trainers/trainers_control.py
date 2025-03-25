@@ -20,7 +20,7 @@ from src.tasks.envs.wrappers import *
 from src.trainers.utils import *
 from gymnasium.wrappers import AutoResetWrapper
 from omegaconf import DictConfig, OmegaConf
-from src.model_fns.norm_fns import planar_flow, autoregressive_iaf_flow
+from src.model_fns.norm_fns import planar_flow, autoregressive_flow
 
 
 logger = logging.getLogger(__name__)
@@ -65,57 +65,112 @@ def get_env_initializers(env_config):
         repr_fn=dict_unpack_model()
         return env_fn,env_fn,repr_fn
     elif env_config['task']=='masked':
-        # env_fn=lambda: create_masked(**env_config)
+        b_split = len(env_config['batches']) // 2
+        train_b, eval_b = env_config['batches'][:b_split], env_config['batches'][b_split:]
+        
         if env_config['env'] == "polynominal":
-            env_fn=lambda: create_masked(**env_config)
+            env_config['batches'] = train_b
+            train_fn=lambda: create_masked(**env_config)
+            eval_copy = env_config.copy()
+            eval_copy['batches'] = eval_b
+            eval_fn=lambda: create_masked(**env_config)
+        
         else:
-            env_fn=lambda: create_cosine(**env_config)
-        print("env_fn", env_config)
+            env_config['batches'] = train_b
+            train_fn=lambda: create_cosine(**env_config)
+            eval_copy = env_config.copy()
+            eval_copy['batches'] = eval_b
+            eval_fn=lambda: create_cosine(**env_config)
         repr_fn=dict_unpack_mask(batch_expand_hidden=env_config["batch_expand_hidden"], 
                                  batch_combine_hidden=env_config["batch_combine_hidden"], step_expand_hidden=env_config["step_expand_hidden"], input_combine_hidden=env_config["input_combine_hidden"])
-        return env_fn,env_fn,repr_fn
+        return train_fn,eval_fn,repr_fn
     elif env_config['task']=='gen_gmm':
+        b_split = len(env_config['batches']) // 2
+        train_b, eval_b = env_config['batches'][:b_split], env_config['batches'][b_split:]
+        print("this is the splitting part ", env_config['batches'])
+        
         if env_config['env'] == "polynominal":
-            env_fn=lambda: create_masked(**env_config)
+            env_config['batches'] = train_b
+            train_fn=lambda: create_masked(**env_config)
+            eval_copy = env_config.copy()
+            eval_copy['batches'] = eval_b
+            eval_fn=lambda: create_masked(**env_config)
+        
         else:
-            env_fn=lambda: create_cosine(**env_config)
+            env_config['batches'] = train_b
+            train_fn=lambda: create_cosine(**env_config)
+            eval_copy = env_config.copy()
+            eval_copy['batches'] = eval_b
+            eval_fn=lambda: create_cosine(**env_config)
         repr_fn=dict_unpack_mask(batch_expand_hidden=env_config["batch_expand_hidden"], 
                                  batch_combine_hidden=env_config["batch_combine_hidden"], step_expand_hidden=env_config["step_expand_hidden"], input_combine_hidden=env_config["input_combine_hidden"])
-        return env_fn,env_fn,repr_fn
+        return train_fn,eval_fn,repr_fn
     elif env_config['task']=='cor_gmm':
-        # env_fn=lambda: create_masked(**env_config)
+        b_split = len(env_config['batches']) // 2
+        train_b, eval_b = env_config['batches'][:b_split], env_config['batches'][b_split:]
+        
         if env_config['env'] == "polynominal":
-            print("polynominal")
-            env_fn=lambda: create_masked(**env_config)
+            env_config['batches'] = train_b
+            train_fn=lambda: create_masked(**env_config)
+            eval_copy = env_config.copy()
+            eval_copy['batches'] = eval_b
+            eval_fn=lambda: create_masked(**env_config)
+        
         else:
-            env_fn=lambda: create_cosine(**env_config)
+            env_config['batches'] = train_b
+            train_fn=lambda: create_cosine(**env_config)
+            eval_copy = env_config.copy()
+            eval_copy['batches'] = eval_b
+            eval_fn=lambda: create_cosine(**env_config)
         repr_fn=dict_unpack_mask(batch_expand_hidden=env_config["batch_expand_hidden"], 
                                  batch_combine_hidden=env_config["batch_combine_hidden"], step_expand_hidden=env_config["step_expand_hidden"], input_combine_hidden=env_config["input_combine_hidden"])
-        return env_fn,env_fn,repr_fn
+        return train_fn,eval_fn,repr_fn
     elif env_config['task']=='full_params':
+        b_split = len(env_config['batches']) // 2
+        train_b, eval_b = env_config['batches'][:b_split], env_config['batches'][b_split:]
+        
         if env_config['env'] == "polynominal":
-            env_fn=lambda: create_masked(**env_config)
+            env_config['batches'] = train_b
+            train_fn=lambda: create_masked(**env_config)
+            eval_copy = env_config.copy()
+            eval_copy['batches'] = eval_b
+            eval_fn=lambda: create_masked(**env_config)
+        
         else:
-            env_fn=lambda: create_cosine(**env_config)
-        env_fn=lambda: create_cosine(**env_config)
+            env_config['batches'] = train_b
+            train_fn=lambda: create_cosine(**env_config)
+            eval_copy = env_config.copy()
+            eval_copy['batches'] = eval_b
+            eval_fn=lambda: create_cosine(**env_config)
         repr_fn=dict_unpack_mask(batch_expand_hidden=env_config["batch_expand_hidden"], 
                                  batch_combine_hidden=env_config["batch_combine_hidden"], step_expand_hidden=env_config["step_expand_hidden"], input_combine_hidden=env_config["input_combine_hidden"])
-        return env_fn,env_fn,repr_fn
+        return train_fn,eval_fn,repr_fn
     elif env_config['task']=='vae':
-        # env_fn=lambda: create_masked(**env_config)
+        b_split = len(env_config['batches']) // 2
+        train_b, eval_b = env_config['batches'][:b_split], env_config['batches'][b_split:]
+        
         if env_config['env'] == "polynominal":
-            env_fn=lambda: create_masked(**env_config)
+            env_config['batches'] = train_b
+            train_fn=lambda: create_masked(**env_config)
+            eval_copy = env_config.copy()
+            eval_copy['batches'] = eval_b
+            eval_fn=lambda: create_masked(**env_config)
+        
         else:
-            env_fn=lambda: create_cosine(**env_config)
+            env_config['batches'] = train_b
+            train_fn=lambda: create_cosine(**env_config)
+            eval_copy = env_config.copy()
+            eval_copy['batches'] = eval_b
+            eval_fn=lambda: create_cosine(**env_config)
         repr_fn=dict_unpack_mask(batch_expand_hidden=env_config["batch_expand_hidden"], 
                                  batch_combine_hidden=env_config["batch_combine_hidden"], step_expand_hidden=env_config["step_expand_hidden"], input_combine_hidden=env_config["input_combine_hidden"])
-        return env_fn,env_fn,repr_fn
+        return train_fn,eval_fn,repr_fn
     
 def get_flow_func(flow_model, action_dim):
     if (flow_model == "planar_flow"):
         return planar_flow(action_dim)
     elif (flow_model == "auto_reg"):
-        return autoregressive_iaf_flow(action_dim)
+        return autoregressive_flow(action_dim)
     else:
         return None
         
@@ -153,6 +208,7 @@ class ControlTrainer(BaseTrainer):
         """
 
         env_fn,eval_env_fn,repr_fn=get_env_initializers(kwargs['env_config'])
+        print("env_fn", kwargs['env_config'])
         flow_fn = get_flow_func(kwargs['trainer_config']['dist_model'], kwargs['env_config']['action_dim'])
         self.wandb_run=kwargs['wandb_run']
         self.trainer_config=kwargs['trainer_config']
@@ -199,7 +255,7 @@ class ControlTrainer(BaseTrainer):
         
         if model_dist == "vae":
             vae = True
-        vae = self.trainer_config.get('vae', False)
+        # vae = self.trainer_config.get('vae', False)
             
         if isinstance(eval_env.action_space, gym.spaces.Discrete):
             actor_fn = actor_model_discete(self.trainer_config['d_actor'],eval_env.action_space.n)
@@ -309,7 +365,7 @@ class ControlTrainer(BaseTrainer):
                             )
             
             if(self.trainer_config['dist_model'] == "vae"):
-                
+                print("we are in here")
                 self.agent=PPOAgentVAE(train_envs=train_envs,eval_env=eval_env,optimizer=self.optimizer, repr_model_fn=repr_fn,
                                     seq_model_fn=model_fn,actor_fn=actor_fn,critic_fn=critic_fn,
                                     num_steps=self.rollout_len,

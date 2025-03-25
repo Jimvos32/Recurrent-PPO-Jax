@@ -1,0 +1,19 @@
+combos:
+  exp1:
+    batches: [1, 1]
+    max_episode_steps: 12
+  exp2:
+    batches: [3, 3]
+    max_episode_steps: 3
+  exp3:
+    batches: [9, 9]
+    max_episode_steps: 1
+  exp4:
+    batches: [1, 1]
+    max_episode_steps: 12
+  exp5:
+    batches: [5, 5]
+    max_episode_steps: 3
+  exp6:
+    batches: [20, 20]
+    max_episode_steps: 1

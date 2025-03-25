@@ -485,6 +485,7 @@ class PPOAgent(BaseAgentDic):
                     # Broadcast means and stds to shape (1, steps, batch_size, action_dim)
                     means = jnp.reshape(means, (act_logits.shape[0], act_logits.shape[1], batch_size, action_dim))
                     stds  = jnp.reshape(stds,  (act_logits.shape[0], act_logits.shape[1], batch_size, action_dim))
+                    log_stds = jnp.reshape(log_stds,  (act_logits.shape[0], act_logits.shape[1], batch_size, action_dim))
                     
                     print("means", means.shape)
 
@@ -503,7 +504,7 @@ class PPOAgent(BaseAgentDic):
 
                     # Compute the base Gaussian log probability for each dimension:
                     #   log N(u | mean, std) = -0.5 * (((u - mean)**2)/variance + 2*log_std + log(2*pi))
-                    base_log_prob = -0.5 * (((u - means) ** 2) / variance + 2 * stds + jnp.log(2 * jnp.pi))
+                    base_log_prob = -0.5 * (((u - means) ** 2) / variance + 2 * log_stds + jnp.log(2 * jnp.pi))
                     # Sum over the action dimensions to get the total log probability for the unsquashed actions.
                     log_prob_u = jnp.sum(base_log_prob, axis=-1)  # shape: (1, steps, batch_size)
 
@@ -586,8 +587,56 @@ class PPOAgent(BaseAgentDic):
                 v_loss = 0.5 * ((values_new - mb_returns) ** 2).mean()
 
                 entropy_loss = entropy.mean()
-                loss = pg_loss - self.ent_schedule(update_tick) * entropy_loss + v_loss * self.vf_coef
+                # === Dynamic boundary penalty ===
+                valid_counts = mb_observations["mask"]  # (1, 256)
+                sample_indices = jnp.arange(mb_actions.shape[2])[None, None, :]
+                valid_samples_mask = (sample_indices < valid_counts[:, :, None])[..., None]  # (1, 256, S, 1)
+
+                boundary_penalty = jnp.mean(
+                    jnp.square(jnp.clip(jnp.abs(mb_actions), a_min=0.0)) * valid_samples_mask
+                )
+                
+                # print(mb_actions.shape)
+                # jax.debug.print("okay {}", mb_actions[0,0])
+
+                # === Dynamic diversity penalty ===
+                actions_exp_1 = mb_actions[:, :, :, None, :]  # (1, 256, S, 1, a_dim)
+                actions_exp_2 = mb_actions[:, :, None, :, :]  # (1, 256, 1, S, a_dim)
+                pairwise_diff = actions_exp_1 - actions_exp_2  # (1, 256, S, S, a_dim)
+                pairwise_dist = jnp.linalg.norm(pairwise_diff, axis=-1)  # (1, 256, S, S)
+
+                valid_samples_mask_flat = valid_samples_mask.squeeze(-1).astype(jnp.float32)  # (1, 256, S)
+                valid_mask_i = valid_samples_mask_flat[:, :, :, None]
+                valid_mask_j = valid_samples_mask_flat[:, :, None, :]
+                pairwise_valid_mask = valid_mask_i * valid_mask_j
+
+                diag_mask = 1 - jnp.eye(mb_actions.shape[2])[None, None, :, :]
+                pairwise_valid_mask *= diag_mask
+
+                pairwise_dist = pairwise_dist * pairwise_valid_mask
+                total_valid_pairs = jnp.sum(pairwise_valid_mask) + 1e-6
+                mean_pairwise_dist = jnp.sum(pairwise_dist) / total_valid_pairs
+                diversity_penalty = 1.0 / (mean_pairwise_dist + 1e-6)
+
+                boundary_penalty_weight = 1.00
+                diversity_penalty_weight = 0.00
+                # Mean-based boundary penalty
+                boundary_penalty = jnp.mean(jnp.square(mb_actions))  # Squared to make it always positive
+                
+                
+                # jax.debug.print("okay {}", mb_observations["actions"])
+                # jax.debug.print("this is the wor {}", mb_actions[0,0])
+                loss = boundary_penalty * 100
+                # loss = (pg_loss 
+                #     - self.ent_schedule(update_tick) * entropy_loss 
+                #     + v_loss * self.vf_coef 
+                #     + boundary_penalty_weight * boundary_penalty 
+                #     + diversity_penalty_weight * diversity_penalty)
+                # pg_loss = boundary_penalty
+                # v_loss = boundary_penalty
+                # entropy_loss = boundary_penalty
                 return loss, (pg_loss, v_loss, entropy_loss, jax.lax.stop_gradient(approx_kl))
+
 
             ppo_loss_grad_fn = jax.value_and_grad(ppo_loss, has_aux=True)
 

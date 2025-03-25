@@ -61,7 +61,6 @@ class MultiDimEnv(gym.Env):
         
         # Initialize state and x.
         self.state = None
-        self.x = None
         
         # Initialize polynomial parameters.
         self.x_max = None
@@ -87,8 +86,9 @@ class MultiDimEnv(gym.Env):
         self.shift_polynomial()
         
         # Sample a batch of random x values within the allowed range.
-        self.x = np.random.uniform(self.x_range[0], self.x_range[1], size=(self.batch_size, self.action_dim))
-        y = self.compute_y(self.x)
+        action = np.random.uniform(self.x_range[0], self.x_range[1], size=(self.batch_size, self.action_dim))
+        # action = jnp.zeros((self.batch_size, self.action_dim))
+        y = self.compute_y(action)
         self.max_y = self.compute_y(self.x_max)
         # print("resetting the params", self.x.shape, y.shape, "\n")
         self.state = jnp.array(y, dtype=jnp.float32)
@@ -112,7 +112,7 @@ class MultiDimEnv(gym.Env):
         
         
         observation = {
-            "actions": np.array(self.x, dtype=np.float32),
+            "actions": np.array(action, dtype=np.float32),
             "observations": np.array(self.state, dtype=np.float32),
             "reward": np.array(reward, dtype=np.float32)
         }
@@ -140,9 +140,9 @@ class MultiDimEnv(gym.Env):
         # assert action.shape == (self.batch_size, 1), f"Expected shape {(self.batch_size, 1)}, got {action.shape}"
         # Ensure action is a JAX array and clip each element to be within x_range.
         action = jnp.array(action)
-        self.x = jnp.clip(action, self.x_range[0], self.x_range[1])
+        action = jnp.clip(action, self.x_range[0], self.x_range[1])
         # Compute the batch of y values.
-        y = self.compute_y(self.x)
+        y = self.compute_y(action)
         # print("stepping along", self.x.shape, y.shape, action.shape,"\n")
         self.state = jnp.array(y, dtype=jnp.float32)
         self.state = jnp.expand_dims(self.state, axis=-1)
@@ -188,7 +188,7 @@ class MultiDimEnv(gym.Env):
 
         # comb = np.concatenate([self.x, self.state], axis=-1)
         observation = {
-            "actions": np.array(self.x, dtype=np.float32),
+            "actions": np.array(action, dtype=np.float32),
             "observations": np.array(self.state, dtype=np.float32),
             "reward": np.array(e_reward, dtype=np.float32)
         }

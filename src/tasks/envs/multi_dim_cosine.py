@@ -109,14 +109,24 @@ class MultiCosine(gym.Env):
 
     
     def randomise_function(self):
-        self.c = np.random.uniform(5.0, 20.0)  # Offset
-        self.A0 = np.random.uniform(10.0, 20.0)  # Large peak amplitude
-        self.B0 = np.random.uniform(0.5, 1.5, size=(self.action_dim,))  # Large peak frequency
-        self.s0 = np.random.uniform(self.x_range[0], self.x_range[1], size=(self.action_dim,))  # Peak location
+        # self.c = np.random.uniform(5.0, 20.0)  # Offset
+        # self.A0 = np.random.uniform(10.0, 20.0)  # Large peak amplitude
+        # self.B0 = np.random.uniform(0.5, 1.5, size=(self.action_dim,))  # Large peak frequency
+        # self.s0 = np.random.uniform(self.x_range[0], self.x_range[1], size=(self.action_dim,))  # Peak location
+
+        # # Small oscillations (randomized)
+        # self.small_A = np.random.uniform(0.2, 3.0, size=(self.action_dim, self.num_oscillations))
+        # self.small_B = np.random.uniform(0.5, 4.0, size=(self.action_dim, self.num_oscillations))
+        
+        self.c = np.random.uniform(10.0, 10.0)  # Offset
+        self.A0 = np.random.uniform(15.0, 15.0)  # Large peak amplitude
+        self.B0 = np.random.uniform(1.1, 1.1, size=(self.action_dim,))  # Large peak frequency
+        self.s0 = np.random.uniform(0.5, 0.5, size=(self.action_dim,))  # Peak location
 
         # Small oscillations (randomized)
-        self.small_A = np.random.uniform(0.2, 3.0, size=(self.action_dim, self.num_oscillations))
-        self.small_B = np.random.uniform(0.5, 4.0, size=(self.action_dim, self.num_oscillations))
+        self.small_A = np.random.uniform(2.0, 2.0, size=(self.action_dim, self.num_oscillations))
+        self.small_B = np.random.uniform(3.0, 3.0, size=(self.action_dim, self.num_oscillations))
+        
         
         # Force all oscillations to peak at s0 (ensuring known max)
         self.small_shift = np.tile(self.s0.reshape(-1, 1), (1, self.num_oscillations))  # Align peaks

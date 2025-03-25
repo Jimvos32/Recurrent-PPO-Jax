@@ -1,0 +1,20 @@
+defaults:
+  - _self_
+  - task: gen_gmm
+  - trainer: deep_ppo
+  - experiment: combos   # loads config/experiment/combos.yaml
+
+# Default experiment selection (can be overridden on the CLI)
+experiment:
+  choice: exp1
+
+# Global settings
+tags: null
+project_name: "test_if_name"
+run_name: "it should be this name"
+seed: 55
+steps: 50000
+log_interval: 2048
+eval_episodes: 1
+eval_interval: 10000
+use_wandb: true

@@ -262,7 +262,7 @@ def actor_gmm_params(shared_hidden_sizes=(256, 128), policy_hidden_sizes=(64, 32
             # Stack mean and log_std to maintain shape compatibility
             output = jnp.concatenate([mean, log_std, weights], axis=-1)
             
-            print("the policy output", output.shape)
+            # print("the policy output", output.shape)
             # print("single_pol_output", output.shape)
             
             return output
@@ -324,13 +324,13 @@ def actor_correlated_gmm(shared_hidden_sizes=(256, 128), gmm_components=2, polic
                              kernel_init=orthogonal(0.01),
                              bias_init=constant(0.0))(weights_hidden)
             
-            print("policy mean out ", mean.shape, "policy std out ", log_std.shape)
+            # print("policy mean out ", mean.shape, "policy std out ", log_std.shape)
             
             # print("policy mean out ", mean.shape, "policy std out ", log_std.shape)
             # Stack mean and log_std to maintain shape compatibility
             output = jnp.concatenate([weights, mean, log_std], axis=-1)
             
-            print("the policy output", output.shape)
+            # print("the policy output", output.shape)
             # print("single_pol_output", output.shape)
             
             return output

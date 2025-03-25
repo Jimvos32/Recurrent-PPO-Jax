@@ -1,14 +1,20 @@
+defaults:
+  - _self_
+  - task: gen_gmm
+  - trainer: deep_ppo
+  - batch_choice: batch_1   # default choice
+
+# This key will take its value from the chosen batch_choice config file.
+batch_value: ${batch_choice.value}
+
+# Global settings (if any)
 tags: null
 project_name: "test_if_name"
 run_name: "it should be this name"
 seed: 55
-steps: 100000
+steps: 3000
 log_interval: 2048
 eval_episodes: 1
 eval_interval: 5000
-use_wandb: true
-defaults:
-  - _self_
-  - task: gen_gmm
-  - trainer: ppo
-
+# total_episode_samples: 40
+use_wandb: false
