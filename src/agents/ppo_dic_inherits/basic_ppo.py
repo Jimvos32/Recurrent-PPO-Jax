@@ -129,6 +129,8 @@ class BasePPO(RootAgent):
                 m_values = jnp.mean(values_new)
                 mb_advantages = jnp.mean(mb_advantages)
                 
+                
+                
                 loss = pg_loss - self.ent_schedule(update_tick) * entropy_loss + v_loss * self.vf_coef
                 return loss, (pg_loss, v_loss, entropy_loss, jax.lax.stop_gradient(approx_kl), 
                               (m_new_logprobs, m_logprobs, m_ratio, m_returns, m_values, mb_advantages))

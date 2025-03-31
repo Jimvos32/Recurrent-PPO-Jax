@@ -1,7 +1,7 @@
 task: full_params
 name: full_params
 env: cosine
-bounds: [-5, 5]
+bounds: [-2, 2]
 # These keys are set from the experiment combos:
 batches: ${experiment.combos.${experiment.choice}.batches}
 max_episode_steps: ${experiment.combos.${experiment.choice}.max_episode_steps}
