@@ -23,7 +23,7 @@ def jax_to_numpy(*args):
 def numpy_to_jax(*args, dtype=jnp.float32):
     return jax.tree_map(lambda x: jnp.array(x, dtype=dtype), args)
 
-class RootAgent:
+class SequenceAgent:
     """
     This class holds all the common agent logic (reset, unroll, evaluate, etc.)
     It does not itself implement the sampling functions; instead, it expects
@@ -157,17 +157,15 @@ class RootAgent:
             observations = self.stack_dict_obs(o_tick, observations)
             rewards.append(r_tick.copy())
             terminations.append(term_tick.copy())
-            
-            # print("terminations", term_tick.shape, term_tick)
             random_key, model_key = jax.random.split(random_key)
-            # print("the shapes", observations["step"].shape, len(h_tickminus1), h_tickminus1[0].shape, h_tickminus1[1].shape)
+            # print("the shapes", observations["step"].shape, len(h_tickminus1), len(h_tickminus1[0]), h_tickminus1[0][0].shape)
             
             if t % self.sequence_length == 0:
                 hiddens.append(jax.tree_map(lambda x: x, h_tickminus1))
                 hidden_indices.append(jnp.repeat(jnp.arange(t, t+self.sequence_length).reshape(1, -1),
                                                  repeats=self.env.num_envs, axis=0))
                 
-                
+                print("hidden_indices", len(hidden_indices), hidden_indices[0].shape, hidden_indices[0], t, self.sequence_length, jnp.array(terminations).shape, jnp.array(hiddens).shape)
             expanded_o = self.expand_o_tick(o_tick)
             act_logits, v_tick, htick = self.actor_critic_fn(model_key, self.params,
                                                                expanded_o,

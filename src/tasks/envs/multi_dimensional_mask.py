@@ -135,6 +135,7 @@ class MultiMask(gym.Env):
         # Optionally shift polynomial parameters if desired.
         self.shift_polynomial()
         self.batch_size = np.random.choice(self.batches)
+        self.mask = self.batch_size
         
         self.max_episode_steps = self.total_samples // self.batch_size
         
@@ -166,7 +167,7 @@ class MultiMask(gym.Env):
         
         self.tick = 0
         self.raw_rewards = []
-        self.best_rewards = obs
+        self.best_rewards = jnp.max(obs, axis=0)
         
         # print("start", self.best_rewards[0], self.y_min, self.max_y)
         
@@ -194,7 +195,7 @@ class MultiMask(gym.Env):
         self.tick += 1
                 
         action = jnp.reshape(action, (self.max_batches, self.action_dim))  
-        assert action.shape == (self.batch_size, self.action_dim), f"Expected shape {(self.batch_size, self.action_dim)}, got {action.shape}"
+        assert action.shape == (self.max_batches, self.action_dim), f"Expected shape {(self.max_batches, self.action_dim)}, got {action.shape}"
         action = self.map_to_bounds(action)
         self.actions.append(action)
       
@@ -265,9 +266,9 @@ class MultiMask(gym.Env):
         # print("reward", reward.shape)
         reward = jnp.squeeze(e_reward, axis=-1)
     
-        
-        if self.best_rewards[0] < max_sample:
-            self.best_rewards = self.best_rewards.at[0].set(max_sample)
+        # print("okay ", self.best_rewards.shape, "max_sample", max_sample.shape, obs.shape)
+        if self.best_rewards < max_sample:
+            self.best_rewards = max_sample#self.best_rewards.at[0].set(max_sample)
          
         self.raw_rewards.append(reward)
         self.scaled_obs.append(avg_scl_obs)
@@ -289,7 +290,7 @@ class MultiMask(gym.Env):
             total_reward = jnp.sum(jnp.array(self.raw_rewards), axis=0)
             info["reward_per_episode"] = total_reward
             info["rewards"] = self.raw_rewards
-            info["s_rewards"] = self.scaled_rewards
+            info["s_rewards"] = jnp.mean(jnp.array(self.scaled_rewards))
             
             info["batch_mse"] = jnp.mean(jnp.array(self.mse), axis=0)
             info["last_scaled_diff"] = avg_scl_diff
@@ -297,17 +298,18 @@ class MultiMask(gym.Env):
             info["scaled_diff"] = jnp.mean(jnp.array(self.scaled_diff), axis=0)
             info["scaled_obs"] = jnp.mean(jnp.array(self.scaled_obs[2:]), axis=0)
             info["best_rewards"] = self.best_rewards
-            info["success"] = ((self.best_rewards[0] - self.y_min) / (self.max_y - self.y_min)) > 0.95
+            info["success"] = ((self.best_rewards - self.y_min) / (self.max_y - self.y_min)) > 0.95
             # print("success", info["success"], self.best_rewards[0], self.y_min, self.max_y, ((self.best_rewards[0] - self.y_min) / (self.max_y - self.y_min)))
-            info["actions"] = self.actions
+            info["actions"] = jnp.reshape(jnp.array(self.actions)[:,:self.batch_size], (self.batch_size * self.max_episode_steps, self.action_dim))
             info["eval_scaled_diff"] = jnp.array(self.eval_obs)
             info["max_x"] = self.x_max
+            
             # Reset tick and rewards for the next episode.
             self.tick = 0
             self.raw_rewards = []
             self.tick = 0
             self.scaled_rewards = []
-            self.best_rewards = []
+            self.best_rewards = jnp.finfo(np.float64).min
             self.scaled_diff = []
             self.scaled_obs = []
             self.mse = []

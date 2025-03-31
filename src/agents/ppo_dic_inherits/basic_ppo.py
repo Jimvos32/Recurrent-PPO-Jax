@@ -18,8 +18,9 @@ import optax
 import jax
 import jax.numpy as jnp
 from src.agents.ppo_dic_inherits.root_agent import RootAgent
+from src.agents.ppo_dic_inherits.seq_agent import SequenceAgent
 
-class BasePPO(RootAgent):
+class BasePPO(SequenceAgent):
     """
     PPOAgent builds on the generic agent logic in SamplingParent.
     It adds PPO update logic (not fully implemented here) and is configured
@@ -34,7 +35,7 @@ class BasePPO(RootAgent):
         
         self.sample_distribution=sample_dist
         super(BasePPO,self).__init__(train_envs=train_envs,eval_env=eval_env,rollout_len=num_steps,repr_model_fn=repr_model_fn,seq_model_fn=seq_model_fn,
-                        actor_fn=actor_fn,critic_fn=critic_fn,sampling_impl_class=sampling_impl,sequence_length=sequence_length, single_dim=False, task_name=task_name)
+                        actor_fn=actor_fn,critic_fn=critic_fn,sampling_impl_class=sampling_impl,sequence_length=None, single_dim=False, task_name=task_name)
         
         self.optimizer=optimizer
         self.num_envs = self.env.num_envs

@@ -474,49 +474,65 @@ class ControlTrainer(BaseTrainer):
         #     info["best_rewards"] = self.best_rewards
         #     info["success"] = ((self.best_rewards[0] - self.y_min) / (self.max_y - self.y_min)) > 0.9
         # Increase the step counter
+        
+        leaves=[info for info in infos if '_final_info' in info]
+        
+        final_leaves = [leaf['_final_info'] for leaf in leaves if 'final_info' in leaf['_final_info']]
+        
+      
+        # print("this is the all over of them all", leaves[0]["final_info"][0]["final_info"]["s_rewards"])
+       
+        
+        
+        # for leaf in final_leaves:
+        for leaf in leaves:
+            for k in leaf["final_info"]:
+                if k != None:
+                    # print("f_info", k["final_info"])
+                    s_rewards = jnp.array(k["final_info"]["s_rewards"],dtype=jnp.float32)
+                    avg_rew = jnp.mean(s_rewards)
+                    self.scaled_rewards.append(avg_rew)
+                    best_rew = jnp.array(k["final_info"]["best_rewards"],dtype=jnp.float32)
+                    self.best_rewards.append(jnp.mean(best_rew))
+                    mse = jnp.array(k["final_info"]["batch_mse"],dtype=jnp.float32)
+                    self.mse.append(jnp.mean(mse))
+                    lsd = jnp.array(k["final_info"]["last_scaled_diff"],dtype=jnp.float32)
+                    self.last_scaled_diff.append(jnp.mean(lsd))
+                    lso = jnp.array(k["final_info"]["last_scaled_obs"],dtype=jnp.float32)
+                    self.last_scaled_obs.append(jnp.mean(lso))
+                    sd = jnp.array(k["final_info"]["scaled_diff"],dtype=jnp.float32)
+                    self.scaled_diff.append(jnp.mean(sd))
+                    so = jnp.array(k["final_info"]["scaled_obs"],dtype=jnp.float32)
+                    
+                    self.scaled_obs.append(jnp.mean(so))
+                    success = jnp.array(k["final_info"]["success"],dtype=jnp.bool)
+                    # print("success", success.shape, success[start:end].shape)
+                    # [start:end]
+                    self.success.append(success[0])
+                    max_x = jnp.array(k["final_info"]["max_x"],dtype=jnp.float32)
+                    # self.max_dist = jnp.concatenate([self.max_dist,max_x]) 
+                    
+                    # print("max_x", max_x.shape, jnp.array(k["final_info"]["max_x"],dtype=jnp.float32).shape, start, end)
+                    self.max_dist.append(max_x)
+                    # print("actions", jnp.array(k["final_info"]["actions"],dtype=jnp.float32).shape)
+                    actions = jnp.array(k["final_info"]["actions"],dtype=jnp.float32)
+                    actions = jnp.mean(actions, axis=0)
+                 
+                    self.actions.append(actions)
+                    
+                
+           
+        
+        leaves=[info for info in infos if '_final_info' in info]
+        
+        
         self.step_count+=(self.B)
+        
+        x = 0
         
         #Iterate over the leaves and extract the final_info data
         for leaf in leaves:
-             for k in leaf["final_info"]:
-                # start = self.log_steps * self.rollout_len
-                # end = start + self.rollout_len
-                # print("start", start, "end", end)
-                #  print(k["final_info"]["s_rewards"])
-                # print("rew", jnp.array(k["final_info"]["s_rewards"],dtype=jnp.float32).shape)
-                s_rewards = jnp.array(k["final_info"]["s_rewards"],dtype=jnp.float32)
-                avg_rew = jnp.mean(s_rewards)
-                self.scaled_rewards.append(avg_rew)
-                best_rew = jnp.array(k["final_info"]["best_rewards"],dtype=jnp.float32)
-                self.best_rewards.append(jnp.mean(best_rew))
-                mse = jnp.array(k["final_info"]["batch_mse"],dtype=jnp.float32)
-                self.mse.append(jnp.mean(mse))
-                lsd = jnp.array(k["final_info"]["last_scaled_diff"],dtype=jnp.float32)
-                self.last_scaled_diff.append(jnp.mean(lsd))
-                lso = jnp.array(k["final_info"]["last_scaled_obs"],dtype=jnp.float32)
-                self.last_scaled_obs.append(jnp.mean(lso))
-                sd = jnp.array(k["final_info"]["scaled_diff"],dtype=jnp.float32)
-                self.scaled_diff.append(jnp.mean(sd))
-                so = jnp.array(k["final_info"]["scaled_obs"],dtype=jnp.float32)
-                
-                self.scaled_obs.append(jnp.mean(so))
-                success = jnp.array(k["final_info"]["success"],dtype=jnp.bool)
-                # print("success", success.shape, success[start:end].shape)
-                # [start:end]
-                self.success.append(success[0])
-                max_x = jnp.array(k["final_info"]["max_x"],dtype=jnp.float32)
-                # self.max_dist = jnp.concatenate([self.max_dist,max_x]) 
-                
-                # print("max_x", max_x.shape, jnp.array(k["final_info"]["max_x"],dtype=jnp.float32).shape, start, end)
-                self.max_dist.append(max_x)
-                # print("actions", jnp.array(k["final_info"]["actions"],dtype=jnp.float32).shape)
-                actions = jnp.array(k["final_info"]["actions"],dtype=jnp.float32)
-                # self.actions = jnp.concatenate([self.actions,actions]) 
-                # print("okat", actions.shape)
-                # print("sme", best_rew.shape)
-                self.actions.append(actions)
-                
-           
+         
              for env_info in leaf['final_info'][leaf['_final_info']]:  
                  if 'final_info' in env_info:
                      for key,value in env_info['final_info'].items(): #AutoResetWrapper adds everything in info to final_info after reset along with info from first timestep
@@ -541,7 +557,7 @@ class ControlTrainer(BaseTrainer):
                 #  self.scaled_rewards.append(jnp.mean(s_rewards))
                  
                  
-
+        
         self.log_steps+=1
         # Log the data
         end_time=time.time()
