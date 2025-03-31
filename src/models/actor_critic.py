@@ -33,6 +33,7 @@ class ActorCriticModel(nn.Module):
         Returns:
             _type_: _description_
         """
+        
        
         rep = self.repr_model(inputs)
         # TXlatent_dim, image or otherwise, they are always flattened
@@ -42,13 +43,18 @@ class ActorCriticModel(nn.Module):
         # print("rep2", rep.shape, terminations.shape, last_memory[0][0].shape)
         seq_rep,memory=self.seq_model(rep,terminations,last_memory)
         # print("seq_rep", seq_rep.shape, memory[0][0].shape)
+        
         seq_rep=jnp.concatenate([seq_rep, inputs["step"]], axis=1)
         # print("seq_rep2", seq_rep.shape)
         actor_out=self.actor(seq_rep)
         # print("totalinp", inputs.shape, "actor_in", seq_rep.shape, "actor_out", actor_out.shape)
-        print(actor_out.shape)
+        # print("actor_out", actor_out.shape, inputs["step"].shape, inputs["reward"].shape)
+        # means = actor_out.shape[-1] // 2
+        # actor_out = actor_out.at[:, :means].set(jnp.full_like(actor_out[:, :means], inputs["reward"]))
         critic_out=self.critic(seq_rep)
+        # jax.debug.print("actor  out: \n{}\n", actor_out[0])
         # print(actor_out.shape, critic_out.shape)
+        # jax.debug.print("we are called in seq {} {}", last_memory[0][0][0], inputs["step"])
         return actor_out,critic_out,memory
     
     
@@ -90,7 +96,6 @@ class ActorCriticVAEModel(nn.Module):
         # print("seq_rep2", seq_rep.shape)
         actor_out, latent_vars = self.actor(seq_rep)
         # print("totalinp", inputs.shape, "actor_in", seq_rep.shape, "actor_out", actor_out.shape)
-        print(actor_out.shape)
         critic_out=self.critic(seq_rep)
         # print(actor_out.shape, critic_out.shape)
         return actor_out,critic_out,memory, latent_vars

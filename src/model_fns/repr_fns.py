@@ -224,13 +224,20 @@ def dict_unpack_mask(
                     variable_axes={'params': None},
                     split_rngs={'params': False}
                 )
-
-            # Dynamically create submodules, one for each field
-            submodules = [create_vmap_mlp() for _ in x.keys()]
-
-            # Split the fields into batch related and step related
+                
             batch_related = ["actions", "observations"]
             step_related = ["reward"]
+
+            # Dynamically create submodules, one for each field
+            submodules = [create_vmap_mlp() for _ in batch_related]
+
+            # Split the fields into batch related and step related
+            
+            
+            # for k in x.keys():
+            #     print(k, x[k])
+            
+            
             
             # Expand the data for correct parsing through vmap
             expanded_inputs = [
@@ -238,19 +245,24 @@ def dict_unpack_mask(
                 for k in batch_related
             ]
             
+           
+            
             # Process the batch related input through its corresponding MLP / Sequential
             results = [
                 module(create_mlp_layers(batch_expand_hidden))(ins)
                 for module, ins in zip(submodules, expanded_inputs)
             ]
+           
             
-            # for r in 
 
             # Concatenate the results of the batch related data
             squeezed = jnp.squeeze(jnp.array(results), axis=3)  # shape (2, batch_size, hidden_size)
             
+            
+            
             batch_related_data = jnp.transpose(squeezed, (1, 2, 0, 3))  # shape (batch_size, 2, hidden_size)
             flattened_batch = batch_related_data.reshape((batch_related_data.shape[0], batch_related_data.shape[1], -1))
+            
             
             # vmap over batch related data such that action and observation can have learned correlation
             action_mapping = nn.vmap(  
@@ -264,14 +276,18 @@ def dict_unpack_mask(
                 create_mlp_layers(batch_combine_hidden)
             )(flattened_batch)
             
+            
             # Handle masked batches
             mask = jnp.asarray(x["mask"], dtype=jnp.int32)
             batch_averaged = jnp.sum(expanded_input, axis=1)
             batch_normalised = jnp.divide(batch_averaged, mask)
             
+            
+            
             # Process step-related data
             step_expans = nn.Sequential(create_mlp_layers(step_expand_hidden))
             step_related_data = step_expans(x["reward"])
+            
             
             # Combine the step related data with the batch related data
             batch_with_step = jnp.concatenate([batch_normalised, step_related_data], axis=1)

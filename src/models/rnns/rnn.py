@@ -22,8 +22,9 @@ class LSTM(nn.Module):
         class LSTMout(nn.Module):
             @nn.compact    
             def __call__(self,carry,inputs):
+                
                 inputs,terminate=inputs
-                # print("aa", carry[0].shape, carry[1].shape)
+     
                 if reset_on_terminate:
                     #Reset hidden state on termination
                     carry=jax.lax.cond(terminate,lambda:jax.tree_map(lambda x:jnp.zeros_like(x),carry),lambda:carry)
@@ -51,6 +52,7 @@ class LSTMMultiLayer(nn.Module):
         inputs: TXinput_dim
         terminations: T
         """
+        
         new_memory=[None]*self.n_layers
         for i in range(self.n_layers):
             if i == 0:

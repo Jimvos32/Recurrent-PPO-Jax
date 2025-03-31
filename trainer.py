@@ -64,12 +64,12 @@ def main(config: DictConfig):
     print(config.task)
     # logger.info("Starting Job for Config:\n"+str(OmegaConf.to_yaml(config)))
     norm = "-norm:" + config.trainer.dist_model if config.trainer.dist_model != "standard" else ""
-    run_name = "method " + config.task.task +"-batch "+  str(config.task.batches) + "-samples "+ str(config.task.total_episode_samples) + norm +"-seed "+str(config.seed)
+    run_name = "method " + config.task.task +"-batch "+  str(config.task.batches) + "-samples "+ str(config.task.total_episode_samples) + norm +"-seed "+str(config.seed) + "- " + config.run_name
     degree = config.task.num_oscillations if config.task.env == "cosine" else config.task.degree
 
-    project_name = "env " + config.task.env + "-dim " + str(config.task.action_dim) + "-deg " + str(degree) + "-bounds " + str(config.task.bounds)
+    project_name = "env " + config.task.env + "-dim " + str(config.task.action_dim) + "-deg " + str(degree) + "-bounds " + str(config.task.bounds) + "-" + config.project_name
     tags=config.tags.split(',') if config.tags is not None else []
-    project_name = "debugging"
+    # project_name = "debugging"
     
     tags = [("m" + config.task.task + "b" + str(config.task.batches) + "s" + str(config.task.total_episode_samples))]
     print("Tags:", tags)

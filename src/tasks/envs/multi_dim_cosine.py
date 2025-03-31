@@ -19,7 +19,7 @@ class MultiCosine(gym.Env):
         self.x_range = env_config["bounds"]
         self.max_episode_steps = env_config["max_episode_steps"]
         self.batches = env_config["batches"]
-        self.max_batches = np.max(self.batches)
+        self.max_batches = env_config["max_batches"]
         self.batch_size = self.max_batches
         self.action_dim = env_config['action_dim']
         self.name = env_config['task']

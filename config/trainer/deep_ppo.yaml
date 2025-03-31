@@ -19,7 +19,7 @@ dist_model: standard
 sample_distribution: 2
 
 ent_coef: 
-  initial: 0.00
+  initial: 0.01
   final: null
   max_decay_steps: 1000
   power: 1

@@ -21,9 +21,38 @@ from src.trainers.utils import *
 from gymnasium.wrappers import AutoResetWrapper
 from omegaconf import DictConfig, OmegaConf
 from src.model_fns.norm_fns import planar_flow, autoregressive_flow
+from src.agents.ppo_dic_inherits.basic_ppo import BasePPO
+from src.agents.ppo_dic_inherits.inh_agents.full_params_agent import FullParamsSampling
+
 
 
 logger = logging.getLogger(__name__)
+
+
+def create_train_eval_envs(env_config):
+    max_value = max(env_config['batches'])
+    env_config['max_batches'] = max_value
+    b_split = len(env_config['batches']) // 2
+    train_b, eval_b = env_config['batches'][:b_split], env_config['batches'][b_split:]
+    env_config['batches'] = train_b
+    eval_config = env_config.copy()
+    eval_config['batches'] = eval_b
+    
+    
+    if env_config['env'] == "polynominal":
+        train_fn=lambda: create_masked(**env_config)        
+        eval_fn=lambda: create_masked(**eval_config)
+    
+    elif env_config['env'] == "cosine":
+        train_fn=lambda: create_cosine(**env_config)
+        eval_fn=lambda: create_cosine(**eval_config)
+        
+    repr_fn=dict_unpack_mask(batch_expand_hidden=env_config["batch_expand_hidden"], 
+                                 batch_combine_hidden=env_config["batch_combine_hidden"], 
+                                 step_expand_hidden=env_config["step_expand_hidden"], 
+                                 input_combine_hidden=env_config["input_combine_hidden"])
+    
+    return train_fn,eval_fn, repr_fn
 
 
 def get_env_initializers(env_config):
@@ -65,105 +94,19 @@ def get_env_initializers(env_config):
         repr_fn=dict_unpack_model()
         return env_fn,env_fn,repr_fn
     elif env_config['task']=='masked':
-        b_split = len(env_config['batches']) // 2
-        train_b, eval_b = env_config['batches'][:b_split], env_config['batches'][b_split:]
-        
-        if env_config['env'] == "polynominal":
-            env_config['batches'] = train_b
-            train_fn=lambda: create_masked(**env_config)
-            eval_copy = env_config.copy()
-            eval_copy['batches'] = eval_b
-            eval_fn=lambda: create_masked(**env_config)
-        
-        else:
-            env_config['batches'] = train_b
-            train_fn=lambda: create_cosine(**env_config)
-            eval_copy = env_config.copy()
-            eval_copy['batches'] = eval_b
-            eval_fn=lambda: create_cosine(**env_config)
-        repr_fn=dict_unpack_mask(batch_expand_hidden=env_config["batch_expand_hidden"], 
-                                 batch_combine_hidden=env_config["batch_combine_hidden"], step_expand_hidden=env_config["step_expand_hidden"], input_combine_hidden=env_config["input_combine_hidden"])
+        train_fn,eval_fn,repr_fn=create_train_eval_envs(env_config)
         return train_fn,eval_fn,repr_fn
     elif env_config['task']=='gen_gmm':
-        b_split = len(env_config['batches']) // 2
-        train_b, eval_b = env_config['batches'][:b_split], env_config['batches'][b_split:]
-        print("this is the splitting part ", env_config['batches'])
-        
-        if env_config['env'] == "polynominal":
-            env_config['batches'] = train_b
-            train_fn=lambda: create_masked(**env_config)
-            eval_copy = env_config.copy()
-            eval_copy['batches'] = eval_b
-            eval_fn=lambda: create_masked(**env_config)
-        
-        else:
-            env_config['batches'] = train_b
-            train_fn=lambda: create_cosine(**env_config)
-            eval_copy = env_config.copy()
-            eval_copy['batches'] = eval_b
-            eval_fn=lambda: create_cosine(**env_config)
-        repr_fn=dict_unpack_mask(batch_expand_hidden=env_config["batch_expand_hidden"], 
-                                 batch_combine_hidden=env_config["batch_combine_hidden"], step_expand_hidden=env_config["step_expand_hidden"], input_combine_hidden=env_config["input_combine_hidden"])
+        train_fn,eval_fn,repr_fn=create_train_eval_envs(env_config)
         return train_fn,eval_fn,repr_fn
     elif env_config['task']=='cor_gmm':
-        b_split = len(env_config['batches']) // 2
-        train_b, eval_b = env_config['batches'][:b_split], env_config['batches'][b_split:]
-        
-        if env_config['env'] == "polynominal":
-            env_config['batches'] = train_b
-            train_fn=lambda: create_masked(**env_config)
-            eval_copy = env_config.copy()
-            eval_copy['batches'] = eval_b
-            eval_fn=lambda: create_masked(**env_config)
-        
-        else:
-            env_config['batches'] = train_b
-            train_fn=lambda: create_cosine(**env_config)
-            eval_copy = env_config.copy()
-            eval_copy['batches'] = eval_b
-            eval_fn=lambda: create_cosine(**env_config)
-        repr_fn=dict_unpack_mask(batch_expand_hidden=env_config["batch_expand_hidden"], 
-                                 batch_combine_hidden=env_config["batch_combine_hidden"], step_expand_hidden=env_config["step_expand_hidden"], input_combine_hidden=env_config["input_combine_hidden"])
+        train_fn,eval_fn,repr_fn=create_train_eval_envs(env_config)
         return train_fn,eval_fn,repr_fn
     elif env_config['task']=='full_params':
-        b_split = len(env_config['batches']) // 2
-        train_b, eval_b = env_config['batches'][:b_split], env_config['batches'][b_split:]
-        
-        if env_config['env'] == "polynominal":
-            env_config['batches'] = train_b
-            train_fn=lambda: create_masked(**env_config)
-            eval_copy = env_config.copy()
-            eval_copy['batches'] = eval_b
-            eval_fn=lambda: create_masked(**env_config)
-        
-        else:
-            env_config['batches'] = train_b
-            train_fn=lambda: create_cosine(**env_config)
-            eval_copy = env_config.copy()
-            eval_copy['batches'] = eval_b
-            eval_fn=lambda: create_cosine(**env_config)
-        repr_fn=dict_unpack_mask(batch_expand_hidden=env_config["batch_expand_hidden"], 
-                                 batch_combine_hidden=env_config["batch_combine_hidden"], step_expand_hidden=env_config["step_expand_hidden"], input_combine_hidden=env_config["input_combine_hidden"])
+        train_fn,eval_fn,repr_fn=create_train_eval_envs(env_config)
         return train_fn,eval_fn,repr_fn
     elif env_config['task']=='vae':
-        b_split = len(env_config['batches']) // 2
-        train_b, eval_b = env_config['batches'][:b_split], env_config['batches'][b_split:]
-        
-        if env_config['env'] == "polynominal":
-            env_config['batches'] = train_b
-            train_fn=lambda: create_masked(**env_config)
-            eval_copy = env_config.copy()
-            eval_copy['batches'] = eval_b
-            eval_fn=lambda: create_masked(**env_config)
-        
-        else:
-            env_config['batches'] = train_b
-            train_fn=lambda: create_cosine(**env_config)
-            eval_copy = env_config.copy()
-            eval_copy['batches'] = eval_b
-            eval_fn=lambda: create_cosine(**env_config)
-        repr_fn=dict_unpack_mask(batch_expand_hidden=env_config["batch_expand_hidden"], 
-                                 batch_combine_hidden=env_config["batch_combine_hidden"], step_expand_hidden=env_config["step_expand_hidden"], input_combine_hidden=env_config["input_combine_hidden"])
+        train_fn,eval_fn,repr_fn=create_train_eval_envs(env_config)
         return train_fn,eval_fn,repr_fn
     
 def get_flow_func(flow_model, action_dim):
@@ -208,7 +151,6 @@ class ControlTrainer(BaseTrainer):
         """
 
         env_fn,eval_env_fn,repr_fn=get_env_initializers(kwargs['env_config'])
-        print("env_fn", kwargs['env_config'])
         flow_fn = get_flow_func(kwargs['trainer_config']['dist_model'], kwargs['env_config']['action_dim'])
         self.wandb_run=kwargs['wandb_run']
         self.trainer_config=kwargs['trainer_config']
@@ -312,6 +254,8 @@ class ControlTrainer(BaseTrainer):
             #                                 list(self.trainer_config['actor_params_hidden']) + 
             #                             [self.trainer_config['sample_distribution'] * eval_env.unwrapped.action_dim * eval_env.unwrapped.max_batches])
         elif name == "full_params":
+            sampling_imp = FullParamsSampling
+
             if vae:
                 actor_fn = vae_action_head(eval_env.unwrapped.max_batches * eval_env.unwrapped.action_dim, seq_hidden_sizes=self.trainer_config['d_actor'],  
                                            policy_hidden_sizes=self.trainer_config['actor_params_hidden'], latent_dim=self.trainer_config['latent_dim'])
@@ -354,7 +298,6 @@ class ControlTrainer(BaseTrainer):
             if self.trainer_config['ent_coef']['final'] is None:
                 self.trainer_config['ent_coef']['final']=self.trainer_config['ent_coef']['initial']
             
-            print()    
             
             lr_schedule=optax.polynomial_schedule(learning_rate['initial'],learning_rate['final'],learning_rate['power'],learning_rate['max_decay_steps'])
             ent_schedule=optax.polynomial_schedule(self.trainer_config['ent_coef']['initial'],self.trainer_config['ent_coef']['final'],
@@ -366,6 +309,38 @@ class ControlTrainer(BaseTrainer):
                                     learning_rate=self.trainer_config['ent_coef']['initial'], **optimizer_config
                                 ),
                             )
+            
+            sequence_steps = eval_env.unwrapped.max_episode_steps
+            print("se", sequence_steps)
+            
+            agent_config = {
+                "train_envs": train_envs,
+                "eval_env": eval_env,
+                "optimizer": self.optimizer,
+                "repr_model_fn": repr_fn,
+                "seq_model_fn": model_fn,
+                "actor_fn": actor_fn,
+                "critic_fn": critic_fn,
+                "lr_schedule": lr_schedule,
+                "ent_schedule": ent_schedule,
+                
+
+                "num_steps": self.rollout_len,
+                "gamma": self.trainer_config.get("gamma", 0.99),
+                "gae_lambda": self.trainer_config.get("gae_lambda", 0.95),
+                "num_minibatches": self.trainer_config.get("num_minibatches", 4),
+                "update_epochs": self.trainer_config.get("update_epochs", 4),
+                "norm_adv": self.trainer_config.get("norm_adv", True),
+                "clip_coef": self.trainer_config.get("clip_coef", 0.1),
+                "vf_coef": self.trainer_config.get("vf_coef", 0.5),
+                "max_grad_norm": self.trainer_config.get("max_grad_norm", 0.5),
+                "target_kl": self.trainer_config.get("target_kl", None),
+                "sequence_length": sequence_steps,#self.trainer_config.get("sequence_length", None),
+                "sample_dist": self.trainer_config.get("sample_distribution", 1),
+                "task_name": self.env_config.get("task", None),
+                "sampling_impl": sampling_imp
+            }
+
             
             if(self.trainer_config['dist_model'] == "vae"):
                 print("we are in here")
@@ -383,7 +358,7 @@ class ControlTrainer(BaseTrainer):
                                     vf_coef=self.trainer_config.get('vf_coef', 0.5),
                                     max_grad_norm=self.trainer_config.get('max_grad_norm', 0.5),
                                     target_kl=self.trainer_config.get('target_kl', None),
-                                    sequence_length=self.trainer_config.get('sequence_length', None),
+                                    sequence_length=self.trainer_config.get('max', None),
                                     sample_dist=self.trainer_config.get('sample_distribution', 1),
                                     task_name=self.env_config.get('task', None))
             elif(self.trainer_config['dist_model'] == "planar_flow" or self.trainer_config['dist_model'] == "auto_reg"):
@@ -405,24 +380,25 @@ class ControlTrainer(BaseTrainer):
                                     sample_dist=self.trainer_config.get('sample_distribution', 1),
                                     task_name=self.env_config.get('task', None))
             else:
-                # print("config", self.trainer_config, "env",self.env_config)
-                self.agent=PPOAgent(train_envs=train_envs,eval_env=eval_env,optimizer=self.optimizer, repr_model_fn=repr_fn,
-                                    seq_model_fn=model_fn,actor_fn=actor_fn,critic_fn=critic_fn,
-                                    num_steps=self.rollout_len,
-                                    gamma=self.trainer_config.get('gamma', 0.99),
-                                    gae_lambda=self.trainer_config.get('gae_lambda', 0.95),
-                                    num_minibatches=self.trainer_config.get('num_minibatches', 4),
-                                    update_epochs=self.trainer_config.get('update_epochs', 4),
-                                    norm_adv=self.trainer_config.get('norm_adv', True),
-                                    clip_coef=self.trainer_config.get('clip_coef', 0.1),
-                                    lr_schedule=lr_schedule,
-                                    ent_schedule=ent_schedule,
-                                    vf_coef=self.trainer_config.get('vf_coef', 0.5),
-                                    max_grad_norm=self.trainer_config.get('max_grad_norm', 0.5),
-                                    target_kl=self.trainer_config.get('target_kl', None),
-                                    sequence_length=self.trainer_config.get('sequence_length', None),
-                                    sample_dist=self.trainer_config.get('sample_distribution', 1),
-                                    task_name=self.env_config.get('task', None))
+                # # print("config", self.trainer_config, "env",self.env_config)
+                # self.agent=PPOAgent(train_envs=train_envs,eval_env=eval_env,optimizer=self.optimizer, repr_model_fn=repr_fn,
+                #                     seq_model_fn=model_fn,actor_fn=actor_fn,critic_fn=critic_fn,
+                #                     num_steps=self.rollout_len,
+                #                     gamma=self.trainer_config.get('gamma', 0.99),
+                #                     gae_lambda=self.trainer_config.get('gae_lambda', 0.95),
+                #                     num_minibatches=self.trainer_config.get('num_minibatches', 4),
+                #                     update_epochs=self.trainer_config.get('update_epochs', 4),
+                #                     norm_adv=self.trainer_config.get('norm_adv', True),
+                #                     clip_coef=self.trainer_config.get('clip_coef', 0.1),
+                #                     lr_schedule=lr_schedule,
+                #                     ent_schedule=ent_schedule,
+                #                     vf_coef=self.trainer_config.get('vf_coef', 0.5),
+                #                     max_grad_norm=self.trainer_config.get('max_grad_norm', 0.5),
+                #                     target_kl=self.trainer_config.get('target_kl', None),
+                #                     sequence_length=self.trainer_config.get('sequence_length', None),
+                #                     sample_dist=self.trainer_config.get('sample_distribution', 1),
+                #                     task_name=self.env_config.get('task', None))
+                self.agent = BasePPO(**agent_config)
 
         
         self.agent.reset(params_key,self.random_key)
@@ -455,6 +431,18 @@ class ControlTrainer(BaseTrainer):
         self.max_dist=[]
         self.actions=[]
         
+        self.new_log=[]
+        self.log=[]
+        self.ratio=[]
+        self.ret=[]
+        self.vals=[]
+        self.advantage=[]
+        self.grad_l2=[]
+        self.params_l2=[]
+        
+        
+        
+        
         
         if 'eval_interval' in self.global_config:
             self.eval_interval=self.global_config['eval_interval']
@@ -469,7 +457,8 @@ class ControlTrainer(BaseTrainer):
         #Measure steps per second
         start_time=time.time()
 
-        (loss,(value_loss,entropy_loss,actor_loss,rewards),infos)=self.agent.step(self.random_key)
+        (loss,(value_loss,entropy_loss,actor_loss,rewards), \
+            (new_log, log, ratio, ret, vals, advantage, grad_l2, params_l2), infos)=self.agent.step(self.random_key)
         #Extract info data across all actors and steps
         #Get the leaves of the infos tree where the final_info key is present
         # print("infos", infos)
@@ -509,6 +498,7 @@ class ControlTrainer(BaseTrainer):
                 sd = jnp.array(k["final_info"]["scaled_diff"],dtype=jnp.float32)
                 self.scaled_diff.append(jnp.mean(sd))
                 so = jnp.array(k["final_info"]["scaled_obs"],dtype=jnp.float32)
+                
                 self.scaled_obs.append(jnp.mean(so))
                 success = jnp.array(k["final_info"]["success"],dtype=jnp.bool)
                 # print("success", success.shape, success[start:end].shape)
@@ -560,6 +550,16 @@ class ControlTrainer(BaseTrainer):
         self.critic_losses.append(value_loss)
         self.actor_losses.append(actor_loss)
         self.entropy_losses.append(entropy_loss)
+        
+        self.new_log.append(new_log)
+        self.log.append(log)
+        self.ratio.append(ratio)
+        self.ret.append(ret)
+        self.vals.append(vals)
+        self.advantage.append(advantage)
+        self.grad_l2.append(grad_l2)
+        self.params_l2.append(params_l2)
+        
         self.reward_sum+=rewards.sum()
         if self.step_count>=self.next_log_step:
             #Calculate the mean of the elements in statistic_data and log them, finally clear the statistic_data
@@ -575,6 +575,16 @@ class ControlTrainer(BaseTrainer):
             loss=np.mean(self.losses)
             reward_mean=float(self.reward_sum/self.log_interval)
             return_mean=np.mean(self.average_return_per_episode)
+            
+            n_log_p = np.mean(self.new_log)
+            log_p = np.mean(self.log)
+            m_ratio = np.mean(self.ratio)
+            m_ret = np.mean(self.ret)
+            m_vals = np.mean(self.vals)
+            m_advantage = np.mean(self.advantage)
+            m_grad_l2 = np.mean(self.grad_l2)
+            m_params_l2 = np.mean(self.params_l2)
+            
             
             scaled_mean=np.mean(self.scaled_rewards)
             best_mean=np.mean(self.best_rewards)
@@ -610,15 +620,30 @@ class ControlTrainer(BaseTrainer):
             self.max_dist=[]
             self.actions=[]
             
+            self.new_log=[]
+            self.log=[]
+            self.ratio=[]
+            self.ret=[]
+            self.vals=[]
+            self.advantage=[]
+            self.grad_l2=[]
+            self.params_l2=[]
+            
             
             self.average_return_per_episode=[]
-            metrics={'step':self.step_count,'sps':mean_sps,'loss':loss,'critic_loss':critic_loss,
-                                    'actor_loss':actor_loss,'entropy_loss':entropy_loss,'mean_reward':reward_mean,
-                                    'return_per_episode':return_mean, 
+            metrics={'step':self.step_count,'sps':mean_sps,'loss/loss':loss,'loss/critic_loss':critic_loss,
+                                    'loss/actor_loss':actor_loss,'loss/entropy_loss':entropy_loss,'env_metrics/mean_reward':reward_mean,
+                                    'env_metrics/return_per_episode':return_mean, 
                                     
-            'scaled_distance':scaled_mean, 'distance best action':best_mean, 
-                                    'scaled_diff':scaled_diff_mean, 'last_scaled_diff':last_scaled_diff_mean, 'scaled_obs':scaled_obs_mean, 
-                                    'last_scaled_obs':last_scaled_obs_mean, 'mse':mse_mean, 'success':success_mean, 'actions':act_dist, 'max_dist':max_dist,
+            'env_metrics/scaled_distance':scaled_mean, 'env_metrics/distance best action':best_mean, 
+                                    'env_metrics/scaled_diff':scaled_diff_mean, 'env_metrics/last_scaled_diff':last_scaled_diff_mean, 'env_metrics/scaled_obs':scaled_obs_mean, 
+                                    'env_metrics/last_scaled_obs':last_scaled_obs_mean, 'env_metrics/mse':mse_mean, 'env_metrics/success':success_mean, 'env_metrics/actions':act_dist, 
+                                    'env_metrics/max_dist':max_dist,
+                                    'loss/new log prob':n_log_p, 'loss/log prob':log_p, 'loss/ratio':m_ratio, 'loss/return':m_ret, 'loss/value predicition':m_vals, 'loss/advantage':m_advantage, 
+                                    'loss/grad l2':m_grad_l2, 'loss/params l2':m_params_l2,
+                                   
+                                    
+                                    
                                     **metrics
                                     }
             self.result_data.append(metrics)

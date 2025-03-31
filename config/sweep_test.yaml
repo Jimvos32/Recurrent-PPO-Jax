@@ -10,8 +10,8 @@ experiment:
 
 # Global settings
 tags: null
-project_name: "test_if_name"
-run_name: "it should be this name"
+project_name: "testing123"
+run_name: ""
 seed: 55
 steps: 50000
 log_interval: 2048

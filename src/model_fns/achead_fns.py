@@ -16,10 +16,9 @@ def actor_model_discete(dense_dim,action_space):
 
 
 def critic_model(dense_dim):
-    print("dsfa dense dim", dense_dim)
     def thurn():
         return nn.Sequential([nn.Dense(dense_dim,kernel_init=orthogonal(jnp.sqrt(2)),
-                                    bias_init=constant(0.0)),nn.tanh,nn.Dense(1,kernel_init=orthogonal(jnp.sqrt(2)),
+                                    bias_init=constant(0.0)),nn.relu,nn.Dense(1,kernel_init=orthogonal(jnp.sqrt(2)),
                                     bias_init=constant(0.0)),lambda x:jnp.squeeze(x,axis=-1)])
     return thurn
 
@@ -423,7 +422,7 @@ class MLP(nn.Module):
 class Latent(nn.Module):
     hidden_sizes: tuple
     latent_dim: int
-    activation: Callable = nn.tanh
+    activation: Callable = nn.relu
     
     @nn.compact
     def __call__(self, x):
@@ -560,6 +559,12 @@ def standard_action_head(output_size, seq_hidden_sizes=(64,64), policy_layers=(6
        
             # Clip log standard deviation for numerical stability
             log_std = jnp.clip(log_std, -20.0, 2.0)
+            
+            # print(mean.shape, log_std.shape)
+            
+            # mean = jnp.linspace(0.1, 0.9, mean.shape[0] * mean.shape[1]).reshape(mean.shape[0], mean.shape[1])
+            # # jax.debug.print("mean {} \n{}", mean, mean.shape)
+            # log_std = jnp.full_like(log_std, 0.01)
             
             # Stack mean and log_std to maintain shape compatibility
             output = jnp.concatenate([mean, log_std], axis=-1)
