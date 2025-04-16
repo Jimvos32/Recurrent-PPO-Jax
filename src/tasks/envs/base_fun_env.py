@@ -30,14 +30,14 @@ class BaseOptimizationEnv(gym.Env, abc.ABC):
         self.max_episode_steps = self.total_samples // self.batch_size
 
         # Reward scaling parameters (common across environments)
-        self.r_best = 0.1
-        self.r_impr = 0.2
+        self.r_best = 0.8
+        self.r_impr = 0.1
         self.r_avg = 0.0
-        self.r_new_best = 0.2
+        self.r_new_best = 0.1
         self.r_mse = 0.0
         self.r_obs = 0.0
         self.b_pen = 0.0
-        self.r_suc = 12.0
+        self.r_suc = 3.0
         self.r_scale = 10
 
         # Define action and observation spaces.

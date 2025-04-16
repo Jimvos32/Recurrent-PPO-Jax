@@ -173,7 +173,7 @@ class RootAgent:
             masks = expanded_o.get("mask", None)
            
             acts_tick = self.sampling_impl.sampling_differ(act_logits, random_key, masks)
-            o_tickplus1, r_tickplus1, term_tickplus1, trunc_tickplus1, info = self.env.step(*jax_to_numpy(acts_tick))
+            o_tickplus1, r_tickplus1, term_tickplus1, trunc_tickplus1, info = self.env.step(*self.jax_to_numpy(acts_tick))
             o_tickplus1, r_tickplus1 = self.numpy_to_jax(o_tickplus1, r_tickplus1)
             term_tickplus1, trunc_tickplus1 = self.numpy_to_jax(term_tickplus1, trunc_tickplus1, dtype=bool)
             term_tickplus1 = jnp.logical_or(term_tickplus1, trunc_tickplus1)

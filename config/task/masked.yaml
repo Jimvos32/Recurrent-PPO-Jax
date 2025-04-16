@@ -12,3 +12,4 @@ batch_expand_hidden: [128, 64]
 batch_combine_hidden: [128, 64]
 step_expand_hidden: [128, 64]
 input_combine_hidden: [128, 64]
+tag: no_tag

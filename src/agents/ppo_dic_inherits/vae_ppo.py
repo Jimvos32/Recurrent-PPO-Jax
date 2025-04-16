@@ -259,14 +259,15 @@ class VAEPPO(RootAgent):
                     return kl_loss, reconstruction_loss
                     
                 kl_loss, reconstruct_loss = vae_loss(mb_latent_mu, mb_latent_std, masked_recon)
-                variational_loss = kl_loss + reconstruct_loss * 0.1
+                variational_loss = kl_loss + reconstruct_loss * 0.01
                 
+                # print("kl_loss", kl_loss, "recon_loss", reconstruct_loss, "vae_loss", variational_loss, "entropy", entropy, "entropy_loss", entropy_loss)
+                # jax.debug.print("kl_loss {} recon_loss {} vae_loss {} entropy {} entropy_loss {}", kl_loss, reconstruct_loss, variational_loss, entropy, entropy_loss)
                 # loss = pg_loss + v_loss * self.vf_coef #+ stable_pen
                 loss = pg_loss - self.ent_schedule(update_tick) * entropy_loss + v_loss * self.vf_coef + self.kl_coeff * variational_loss
                 # jax.debug.print("extropy {}", entropy_loss)
                 # loss = entropy_loss #* -1
                 
-                # loss = entropy_loss * -1
                 # print("loss", loss, "pg_loss", pg_loss, "v_loss", v_loss, "entropy_loss", entropy_loss, "s", s, "entropy", entropy)
                 return loss, (pg_loss, v_loss, entropy_loss, jax.lax.stop_gradient(approx_kl), 
                               (m_new_logprobs, m_logprobs, m_ratio, m_returns, m_values, mb_advantages, average_logits, variational_loss, kl_loss, reconstruct_loss))

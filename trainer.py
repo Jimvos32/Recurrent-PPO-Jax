@@ -48,6 +48,7 @@ task_to_trainer={
     'cor_gmm': ControlTrainer,
     'full_params': ControlTrainer,
     'vae': ControlTrainer,
+    'flow_jax': ControlTrainer,
 }
 
 @hydra.main(version_base=None, config_path="config", config_name="sweep_test")
@@ -82,7 +83,7 @@ def main(config: DictConfig):
         run = wandb.init(project=project_name,name=run_name,tags=tags,settings=wandb.Settings(start_method="fork"),config=OmegaConf.to_container(config))
     else:
         run=None
-    key=jax.random.PRNGKey(config.seed)
+    key=jax.random.key(config.seed)
     np.random.seed(config.seed)
     random.seed(config.seed)
     trainer_config=config.trainer

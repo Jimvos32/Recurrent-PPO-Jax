@@ -22,7 +22,7 @@ sample_distribution: 4
 
 ent_coef: 
   initial: 0.3
-  final: 0.1
+  final: 0.0
   max_decay_steps: 1000
   power: 1
 

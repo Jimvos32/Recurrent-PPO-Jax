@@ -54,7 +54,6 @@ class FullParamsSampling(SamplingImplBase):
         
         
         log_prob_per_dim = jax.scipy.stats.norm.logpdf(u, means, stds)
-        print("log_prob_per_dim shape", log_prob_per_dim.shape, "uw", u.shape, "means", means.shape, "stsd", stds.shape)
     
         # Sum log probabilities across action dimensions
         base_log_prob = jnp.sum(log_prob_per_dim, axis=-1)  # Shape: (N, T, batch_size)

@@ -112,18 +112,18 @@ class BasePPO(RootAgent):
             #Calculate the advantages using timesteps {tick} - {tick+rollout_len}
             advantages=Glambdas-critic_preds[:,:-1]
             
-            scatter_dict = {}
-            s_act = actions.flatten()
-            s_rew = rewards[:,1:].flatten()
-            s_crit = critic_preds[:,1:].flatten()
-            s_adv = advantages.flatten()
-            s_gl = Glambdas.flatten()
+            # scatter_dict = {}
+            # s_act = actions.flatten()
+            # s_rew = rewards[:,1:].flatten()
+            # s_crit = critic_preds[:,1:].flatten()
+            # s_adv = advantages.flatten()
+            # s_gl = Glambdas.flatten()
             
-            scatter_dict['actions'] = s_act
-            scatter_dict['rewards'] = s_rew
-            scatter_dict['critic_preds'] = s_crit
-            scatter_dict['advantages'] = s_adv
-            scatter_dict['glambdas'] = s_gl
+            # scatter_dict['actions'] = s_act
+            # scatter_dict['rewards'] = s_rew
+            # scatter_dict['critic_preds'] = s_crit
+            # scatter_dict['advantages'] = s_adv
+            # scatter_dict['glambdas'] = s_gl
             
             
             
@@ -182,6 +182,8 @@ class BasePPO(RootAgent):
                 m_values = jnp.mean(values_new)
                 mb_advantages = jnp.mean(mb_advantages)
                 
+                
+                
                 # jax.debug.print("l2_norm {}", l2_norm(params))
                 # decay_coef = 0.01
                 # weight_decay = l2_norm(params) * decay_coef
@@ -193,8 +195,8 @@ class BasePPO(RootAgent):
                 # avg_stds = jnp.mean(stds)
                 
                 
-                stable_pen = 1#(avg_stds  * 0 + l2_norm(params) * 0.2) * stability_coef
                 
+                stable_pen = 1#(avg_stds  * 0 + l2_norm(params) * 0.2) * stability_coef
              
                 # jax.debug.print("stable pen {} foed {} tick {} pg {} entrop {} v {}", stable_pen, stability_coef, update_tick, pg_loss, self.ent_schedule(update_tick) * entropy_loss, self.vf_coef *v_loss)
                 
@@ -203,10 +205,11 @@ class BasePPO(RootAgent):
                 # jax.debug.print("extropy {}", entropy_loss)
                 # loss = entropy_loss #* -1
                 
+                # jax.debug.print("pg {} {} {} ", v_loss, pg_loss, entropy_loss)
                 # loss = entropy_loss * -1
                 # print("loss", loss, "pg_loss", pg_loss, "v_loss", v_loss, "entropy_loss", entropy_loss, "s", s, "entropy", entropy)
                 return loss, (pg_loss, v_loss, entropy_loss, jax.lax.stop_gradient(approx_kl), 
-                              (m_new_logprobs, m_logprobs, m_ratio, m_returns, m_values, mb_advantages, average_logits, stable_pen))
+                              (m_new_logprobs, m_logprobs, m_ratio, m_returns, m_values, mb_advantages, average_logits, stable_pen, 1,1))
 
                     
             
@@ -320,7 +323,7 @@ class BasePPO(RootAgent):
             losses=jax.tree_map(lambda x:jnp.mean(x, axis=0),losses)
             # update_info=jax.tree_map(lambda x:x.mean(),update_info)
             loss, pg_loss, v_loss, entropy_loss, approx_kl, update_info = losses
-            update_info = update_info + (scatter_dict,)
+            # update_info = update_info + (scatter_dict,)
             return (loss, pg_loss, v_loss, entropy_loss, approx_kl, update_info),params, optimizer_state#, update_info
         self.update_ppo = update_ppo
 

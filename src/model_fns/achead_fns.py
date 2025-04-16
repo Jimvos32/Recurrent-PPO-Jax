@@ -676,6 +676,48 @@ def mvn_action_head(flat_act, rank, shared_seq_sizes=(256, 128), policy_hidden_s
     
     return lambda: ContinuousActor()
 
+def mvn_flow_head(cov_dim, shared_seq_sizes=(256, 128), policy_hidden_sizes=(64, 32)):
+    """Actor model for continuous action spaces with parameterizable layer sizes.
+    
+    Args:
+        shared_hidden_sizes: Tuple of hidden layer sizes for the shared network
+        policy_hidden_sizes: Tuple of hidden layer sizes for both mean and log_std networks,
+                            with the last value being used as the action dimension
+    
+    Returns:
+        A function that returns a ContinuousActor module
+    """
+    # Extract action dimension from the last element of policy_hidden_sizes
+    
+    class ContinuousActor(nn.Module):
+        @nn.compact
+        def __call__(self, x):
+            # Helper function to create an MLP with given hidden sizes
+            sequentializer = MLP(hidden_sizes=shared_seq_sizes[:-1], output_size=shared_seq_sizes[-1])
+            seq = sequentializer(x)
+            
+            # Create separate networks for mean and log_std, both with the same architecture
+            # Use all but the last element of policy_hidden_sizes for the hidden layers
+            policy_layers = policy_hidden_sizes[:-1]
+            
+            mean_hidden = MLP(hidden_sizes=policy_layers, output_size=cov_dim)
+            mean = mean_hidden(seq)
+            
+            lower_chol_triangle = cov_dim * (cov_dim + 1) // 2
+            log_std_hidden = MLP(hidden_sizes=policy_layers, output_size=lower_chol_triangle)
+            log_std = log_std_hidden(seq)
+            
+            projection = PolicyParameterClipping()
+            means, stds = projection(mean, log_std)
+            
+            output = jnp.concatenate([means, stds], axis=-1)
+            
+            # print(output.shape, "output shape")
+            
+            return output
+    
+    return lambda: ContinuousActor()
+
 def latent_model(shared_hidden_sizes=(256, 128), latent_dim=2): 
     class ContinuousActor(nn.Module):
         @nn.compact

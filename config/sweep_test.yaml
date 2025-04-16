@@ -14,8 +14,8 @@ project_name: "testing123"
 run_name: ""
 seed: 77
 steps: 200000
-log_interval: 1024
-eval_episodes: 20
-eval_interval: 100000
-use_wandb: false
+log_interval: 4096
+eval_episodes: 200
+eval_interval: 10000
+use_wandb: true
 

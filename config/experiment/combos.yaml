@@ -13,10 +13,10 @@ combos:
     max_episode_steps: 12
   exp5:
     batches: [3, 3]
-    max_episode_steps: 3
+    max_episode_steps: 4
   exp6:
-    batches: [9, 9]
-    max_episode_steps: 3
+    batches: [12, 12]
+    max_episode_steps: 1
   exp7:
     batches: [1, 1]
     max_episode_steps: 16

@@ -26,6 +26,7 @@ from src.agents.ppo_dic_inherits.vae_ppo import VAEPPO
 from src.agents.ppo_dic_inherits.inh_agents.full_params_agent import FullParamsSampling
 from src.agents.ppo_dic_inherits.inh_agents.cor_gmm_agent import CorrelatedGaussianMixture 
 from src.agents.ppo_dic_inherits.inh_agents.low_mvn_agent import LowRankMVN 
+from src.agents.ppo_dic_inherits.inh_agents.flow_jax_agent import FlowMVN
 
 
 
@@ -118,6 +119,9 @@ def get_env_initializers(env_config):
     elif env_config['task']=='low_mvn':
         train_fn,eval_fn,repr_fn=create_train_eval_envs(env_config)
         return train_fn,eval_fn,repr_fn
+    elif env_config['task']=='flow_jax':
+        train_fn,eval_fn,repr_fn=create_train_eval_envs(env_config)
+        return train_fn,eval_fn,repr_fn
     
 def get_flow_func(flow_model, action_dim):
     if (flow_model == "planar_flow"):
@@ -189,6 +193,7 @@ class ControlTrainer(BaseTrainer):
         eval_env.reset(seed=eval_seeds)
         logger.info("Observation space: "+str(eval_env.observation_space))
         logger.info("Action space: "+str(eval_env.action_space))
+        
 
         params_key,self.random_key=jax.random.split(kwargs['key'])
         
@@ -296,7 +301,17 @@ class ControlTrainer(BaseTrainer):
             actor_fn = variational(self.trainer_config['d_actor'], list(self.trainer_config['actor_params_hidden']) + 
                                         [self.trainer_config['latent_dim']], self.trainer_config['decoder_params_hidden'] + [eval_env.unwrapped.action_dim])
             
-        
+        elif name == "flow_jax":
+            sampling_imp = FlowMVN
+            
+            policy_out = eval_env.unwrapped.action_dim
+            # policy_out = eval_env.unwrapped.action_dim * eval_env.unwrapped.max_batches
+            # policy_out = covariance + covariance * (covariance + 1) // 2
+            
+            
+            actor_fn = mvn_action_head(policy_out, self.trainer_config['sample_distribution'],
+                                    shared_seq_sizes=self.trainer_config['d_actor'], policy_hidden_sizes=self.trainer_config['actor_params_hidden'])
+            
         
 
         critic_fn=critic_model(self.trainer_config['d_critic'])
