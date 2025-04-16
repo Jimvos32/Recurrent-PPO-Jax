@@ -56,7 +56,7 @@ class BaseAgentDicVAE:
             """
             random_key, vae_sample_key = jax.random.split(random_key)
 
-            act_logits,values,memory,latent=self.ac_model.apply(params,inputs,terminations,last_memory,rngs={'random': random_key, 'vae_sample': vae_sample_key})
+            act_logits,values,memory,latent,=self.ac_model.apply(params,inputs,terminations,last_memory,rngs={'random': random_key, 'vae_sample': vae_sample_key})
             return act_logits,values,memory, latent
         
         

@@ -1,7 +1,9 @@
 agent: ppo
-d_actor: [256, 128]
-actor_params_hidden: [256, 128]
-decoder_params_hidden: [256, 128]
+d_actor: [128, 64, 32]
+lstm_seqential: [64,64]
+recon_hidden: [64, 64]
+actor_params_hidden: [64, 32]
+decoder_params_hidden: [64, 32]
 latent_dim: 6
 d_critic: 128
 num_envs: 8
@@ -16,15 +18,21 @@ clip_coef: 0.1
 vae: false
 dist_model: standard
 
-sample_distribution: 2
+sample_distribution: 4
 
 ent_coef: 
-  initial: 0.01
-  final: null
+  initial: 0.3
+  final: 0.1
   max_decay_steps: 1000
   power: 1
 
-vf_coef: 0.5
+stability_coef: 
+  initial: 0.06
+  final: 0
+  max_decay_steps: 1000
+  power: 2
+
+vf_coef: 0.4
 max_grad_norm: 0.5
 optimizer: 
   learning_rate: 

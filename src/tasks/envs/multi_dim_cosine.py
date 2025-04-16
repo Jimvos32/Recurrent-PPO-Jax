@@ -83,9 +83,10 @@ class MultiCosine(gym.Env):
         self.r_best = 0.7
         self.r_impr = 0.2
         self.r_avg = 0.1
-        self.r_new_best = 0.5
+        self.r_new_best = 0.1
         self.r_mse = 0.0
         self.r_obs = 0.0
+        self.r_scale = 10
         
         # self.r_best = 0.0
         # self.r_impr = 0.0
@@ -157,14 +158,11 @@ class MultiCosine(gym.Env):
         # Sample a batch of random x values within the allowed range.
         # action = np.random.uniform(self.x_range[0], self.x_range[1], size=(self.max_batches, self.action_dim))
         action = np.zeros((self.batch_size, self.action_dim))
-        # print(self.batch_size, "-1")
         obs = self.compute_y(action)
-        # print(self.batch_size, "0")
-        # self.y_min = self.find_minimum()
+       
         self.max_y = self.compute_y(self.max_x)
-        # print("resetting the params", self.x.shape, y.shape, "\n")
+        
         obs = jnp.array(obs, dtype=jnp.float32)
-        # self.state = jnp.squeeze(self.state)
         obs = jnp.expand_dims(obs, axis=-1)
         obs = obs.reshape(self.max_batches, 1)
         
@@ -180,10 +178,11 @@ class MultiCosine(gym.Env):
         # print(type(scaled_max), "1", scaled_max.shape)
         # bb = scaled_max[0]
         # new_best = jnp.max(jnp.array([0.0, bb]))
-        new_best = jnp.maximum(0.0, scaled_max)
+        new_best = scaled_max
         # print("new_best", new_best)
         
-        reward = self.r_best * max_sample + self.r_impr * avg_obs + new_best * self.r_new_best
+        reward = self.r_best * scaled_max + self.r_impr * avg_obs + new_best * self.r_new_best
+        reward = reward * self.r_scale
         # reward = jnp.sum(-jnp.abs(self.max_y - obs))#, axis=0)  # elementwise operation over the batch
         # e_reward = jnp.squeeze(reward, axis=-1)
         # comb = np.concatenate([self.x, self.state], axis=-1)
@@ -218,9 +217,20 @@ class MultiCosine(gym.Env):
           - truncated flag (True when max_episode_steps is reached)
           - info (episode summary when truncated)
         """
+        def boundary_penalty(x, epsilon=0.05):
+            # Absolute mask for values near the boundary
+            mask = jnp.abs(x) > (1 - epsilon)
+            # Sum of absolute values where mask is true
+            penalty = jnp.sum(jnp.abs(x) * mask)
+            return penalty
+        
+        boundary_penalty_value = boundary_penalty(action)   
+        print("boundary_penalty_value", boundary_penalty_value)
+        
+        
         self.tick += 1
-        copy = action
-        # assert action.shape == (self.batch_size, self.action_dim), f"Expected shape {(self.batch_size, self.action_dim)}, got {action.shape}"
+        action = jnp.reshape(action, (self.max_batches, self.action_dim))  
+        assert action.shape == (self.batch_size, self.action_dim), f"Expected shape {(self.batch_size, self.action_dim)}, got {action.shape}"
         action = self.map_to_bounds(action)
         # action = np.random.uniform(self.x_range[0], self.x_range[1], size=(self.max_batches, self.action_dim))
         self.actions.append(action)
@@ -269,6 +279,7 @@ class MultiCosine(gym.Env):
         scaled_max  = jnp.clip((max_sample - self.min_y) / (self.max_y - self.min_y), a_min=0, a_max=1)
         
         avg_imp = jnp.mean(scaled_observation - self.scaled_obs[-1], axis=0)
+        ns_imp  = jnp.mean(obs[:self.batch_size, :] - (self.scaled_obs[-1] * (self.max_y - self.y_min)), axis=0)
         
         # print(scaled_max.shape)
         # bb = scaled_max[0]
@@ -280,7 +291,9 @@ class MultiCosine(gym.Env):
         # print("mse", mse, "avg_imp", avg_imp, "new_best", s_new_best, "scaled_max", scaled_max, "avg_scl_obs", avg_scl_obs)
         
         e_reward = self.r_best * scaled_max + self.r_impr * avg_imp + s_new_best * self.r_new_best + mse * -1 * self.r_mse + avg_scl_obs  * self.r_obs
-        e_reward = e_reward * 10
+        s_reward = self.r_best * max_sample + self.r_impr * ns_imp + new_best * self.r_new_best + mse * -1 * self.r_mse + scaled_observation  * self.r_obs
+
+        e_reward = e_reward * self.r_scale
         
         
         # e_reward = jnp.mean(-jnp.abs(difference), axis=0)

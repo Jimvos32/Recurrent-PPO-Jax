@@ -16,12 +16,7 @@ from src.models.actor_critic import ActorCriticModel, nn
 
 logger = logging.getLogger(__name__)
 
-# Helper functions (same as before)
-def jax_to_numpy(*args):
-    return jax.tree_map(lambda x: np.array(x), args)
 
-def numpy_to_jax(*args, dtype=jnp.float32):
-    return jax.tree_map(lambda x: jnp.array(x, dtype=dtype), args)
 
 class RootAgent:
     """
@@ -60,35 +55,43 @@ class RootAgent:
         self.task = task_name
         max_batch = self.eval_env.unwrapped.max_batches
         action_dim = self.eval_env.unwrapped.action_dim
-        self.sampling_impl = sampling_impl_class(action_dim=action_dim, max_batch=max_batch)
+        self.sampling_impl = sampling_impl_class(action_dim=action_dim, max_batch=max_batch, sampling_distribution=self.sample_distribution)
         self.sampling_impl.agent = self  # give access to env
 
-        # Build the actor-critic model
-        self.ac_model = nn.vmap(ActorCriticModel,
-                                variable_axes={'params': None},
-                                split_rngs={'params': False, 'vae_sample': True})(
-                                    repr_model_fn, self.seq_fn, actor_fn, critic_fn)
+        # # Build the actor-critic model
+        # self.ac_model = nn.vmap(ActorCriticModel,
+        #                         variable_axes={'params': None},
+        #                         split_rngs={'params': False, 'vae_sample': True})(
+        #                             repr_model_fn, self.seq_fn, actor_fn, critic_fn)
 
-        @jax.jit
-        def actor_critic_fn(random_key, params, inputs, terminations, last_memory):
-            # jax.debug.print("is this thei first {} {} ", terminations.shape, inputs[inputs])
-            random_key, vae_sample_key = jax.random.split(random_key)
+        # @jax.jit
+        # def actor_critic_fn(random_key, params, inputs, terminations, last_memory):
+        #     # jax.debug.print("is this thei first {} {} ", terminations.shape, inputs[inputs])
+        #     random_key, vae_sample_key = jax.random.split(random_key)
             
         
-            if terminations.shape == ():
-                terminations = jnp.expand_dims(jnp.expand_dims(terminations, 0), 0)
+        #     if terminations.shape == ():
+        #         terminations = jnp.expand_dims(jnp.expand_dims(terminations, 0), 0)
             
-            act_logits, values, memory = self.ac_model.apply(
-                params, inputs, terminations, last_memory,
-                rngs={'random': random_key, 'vae_sample': vae_sample_key})
+        #     act_logits, values, memory = self.ac_model.apply(
+        #         params, inputs, terminations, last_memory,
+        #         rngs={'random': random_key, 'vae_sample': vae_sample_key})
             
            
             
-            # jax.debug.print("act_logits {} values {} memory{}, inputs {} terminations {}", 
-            #                 act_logits.shape, values.shape, memory[0][0].shape, inputs["step"].shape, terminations.shape)
-            return act_logits, values, memory
+        #     # jax.debug.print("act_logits {} values {} memory{}, inputs {} terminations {}", 
+        #     #                 act_logits.shape, values.shape, memory[0][0].shape, inputs["step"].shape, terminations.shape)
+        #     return act_logits, values, memory
 
-        self.actor_critic_fn = actor_critic_fn
+        # self.actor_critic_fn = actor_critic_fn
+        
+        
+    # Helper functions (same as before)
+    def jax_to_numpy(self, *args):
+        return jax.tree_map(lambda x: np.array(x), args)
+
+    def numpy_to_jax(self, *args, dtype=jnp.float32):
+        return jax.tree_map(lambda x: jnp.array(x, dtype=dtype), args)
 
     def reset(self, params_key, random_key):
         self.tick = 0
@@ -171,8 +174,8 @@ class RootAgent:
            
             acts_tick = self.sampling_impl.sampling_differ(act_logits, random_key, masks)
             o_tickplus1, r_tickplus1, term_tickplus1, trunc_tickplus1, info = self.env.step(*jax_to_numpy(acts_tick))
-            o_tickplus1, r_tickplus1 = numpy_to_jax(o_tickplus1, r_tickplus1)
-            term_tickplus1, trunc_tickplus1 = numpy_to_jax(term_tickplus1, trunc_tickplus1, dtype=bool)
+            o_tickplus1, r_tickplus1 = self.numpy_to_jax(o_tickplus1, r_tickplus1)
+            term_tickplus1, trunc_tickplus1 = self.numpy_to_jax(term_tickplus1, trunc_tickplus1, dtype=bool)
             term_tickplus1 = jnp.logical_or(term_tickplus1, trunc_tickplus1)
             critic_preds.append(v_tick.copy())
             actor_preds.append(act_logits.copy())
@@ -223,11 +226,15 @@ class RootAgent:
         o_tick,_=self.eval_env.reset()
         episode_lens=[]
         episode_avgreturns=[]
+        avg_rewards=[]
+        success_rate=[]
+        avg_scaled_diff=[]
+        avg_best_act=[]
+        
         rollouts=[]
         term_tick=jnp.zeros((1,1),dtype=bool)  #Initialize terminal state to False
         #Initialize zero hidden state at the start of each episode, shape is infered from the hidden state of the first environment
         h_tickminus1=jax.tree_map(lambda x:jnp.expand_dims(jnp.zeros(x[0].shape),0) ,self.h_tickminus1)
-        # print("eps", eval_episodes)
         for i in tqdm.tqdm(range(eval_episodes)):
             done=False
             rewards=[]
@@ -257,13 +264,20 @@ class RootAgent:
                 acts_tick = self.sampling_impl.sampling_differ(act_logits, random_key, expanded_o.get("mask", None))
                 
                 # print("the shapes", act_logits.shape, acts_tick.shape)
-                o_tick,r_tick,term,trunc,info=self.eval_env.step(*jax_to_numpy(acts_tick))
+                o_tick,r_tick,term,trunc,info=self.eval_env.step(*self.jax_to_numpy(acts_tick))
+                
                 # print("o_tick", o_tick, "r_tick", r_tick, "term", term, "trunc", trunc, "info", info)
-                o_tick,r_tick=numpy_to_jax(o_tick,r_tick)
+                # print("o_tick", o_tick, "r_tick", r_tick, "term", term, "trunc", trunc, "info", info)
+                o_tick,r_tick=self.numpy_to_jax(o_tick,r_tick)
                 done=term or trunc
                 term_tick=jnp.array([[done]],dtype=bool) #Carry forward the termination signal for the next timestep, shape expected by the actor_critic_fn is BXT
                 rewards.append(r_tick)
                 h_tickminus1=htick
+                if done:
+                    avg_rewards.append(info["final_info"]["reward_per_episode"].tolist())
+                    avg_scaled_diff.append(info["final_info"]["scaled_diff"].tolist())
+                    avg_best_act.append(info["final_info"]["best_rewards"].tolist())
+                    success_rate.append(info["final_info"]["success"].tolist())
             #Get the rollout frames
             # print("info", jnp.array(info["final_info"]["actions"]).shape) 
             # print("info", info["final_info"]["eval_scaled_diff"].shape) 
@@ -291,12 +305,24 @@ class RootAgent:
             # combined = jnp.concatenate([actions, scaled_diff, eval_rew], axis=1)
             # table = jnp.concatenate([conc_max, combined], axis=0)
             
+            
+            
+            
             rollouts = None
             episode_lens.append(len(rewards))
             rewards=jnp.array(rewards,dtype=jnp.float32)
             avg_return=rlax.discounted_returns(rewards,self.gamma*jnp.ones_like(rewards),jnp.zeros_like(rewards)).mean()
             episode_avgreturns.append(avg_return)
+            
+            
+        # eval_stats =     
+        eval_stats = {}
+        eval_stats["avg_rew"] = jnp.array(avg_rewards).mean()
+        eval_stats["regret"] = jnp.array(avg_scaled_diff).mean()
+        eval_stats["best"] = jnp.array(avg_best_act).mean()
+        eval_stats["success"] = jnp.array(success_rate).mean()
+            
         avg_episode_len=jnp.array(episode_lens).mean()
         avg_episode_return=jnp.array(episode_avgreturns).mean()
-        return avg_episode_len,avg_episode_return,rollouts
+        return avg_episode_len,avg_episode_return,rollouts, eval_stats
 

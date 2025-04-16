@@ -166,7 +166,7 @@ class MultiMask(gym.Env):
         
         self.tick = 0
         self.raw_rewards = []
-        self.best_rewards = obs
+        self.best_rewards = max_sample
         
         # print("start", self.best_rewards[0], self.y_min, self.max_y)
         
@@ -192,6 +192,9 @@ class MultiMask(gym.Env):
           - info (episode summary when truncated)
         """
         self.tick += 1
+        
+        
+        
                 
         action = jnp.reshape(action, (self.max_batches, self.action_dim))  
         assert action.shape == (self.batch_size, self.action_dim), f"Expected shape {(self.batch_size, self.action_dim)}, got {action.shape}"
@@ -229,11 +232,15 @@ class MultiMask(gym.Env):
         # print("scaled_observation", scaled_observation.shape, "scaled_difference", scaled_difference.shape, "diff", difference.shape, c.shape)
         # print("batch", self.batch_size, "scaled_difference", scaled_difference, "max", self.max_y, "action", action, "obs", obs, "max_x", self.x_max)
         
+        
+        
         avg_scl_obs = jnp.mean(scaled_observation, axis=0)
         avg_scl_diff = jnp.mean(scaled_difference, axis=0)
         
         max_sample = jnp.max(obs, axis=0)
         scaled_max  = (max_sample - self.y_min) / (self.max_y - self.y_min)
+        
+        print("scaled_max", scaled_observation.shape, "max_sample", self.scaled_obs[-1].shape)
         
         avg_imp = jnp.mean(scaled_observation - self.scaled_obs[-1], axis=0)
         ns_imp  = jnp.mean(obs[:self.batch_size, :] - (self.scaled_obs[-1] * (self.max_y - self.y_min)), axis=0)

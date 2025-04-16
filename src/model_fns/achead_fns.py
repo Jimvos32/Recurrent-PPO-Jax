@@ -414,7 +414,7 @@ class MLP(nn.Module):
         # Final output layer (usually without an activation function)
         x = nn.Dense(
             self.output_size,
-            kernel_init=orthogonal(jnp.sqrt(2)),
+            kernel_init=orthogonal(0.8),
             bias_init=constant(0.0)
         )(x)
         return x
@@ -487,7 +487,7 @@ def variational(shared_hidden_sizes=(256, 128), actor_params_hidden=(64,32), pol
     
     return lambda: ContinuousActor()
 
-def vae_action_head(out_size, seq_hidden_sizes=(128, 64), policy_hidden_sizes=(64, 64), latent_dim=2):
+def vae_action_head(out_size, seq_hidden_sizes=(128, 64), policy_hidden_sizes=(64, 64), recon_hidden_layer=(64,64), latent_dim=2):
     """Actor model for continuous action spaces with parameterizable layer sizes.
     
     Args:
@@ -509,6 +509,10 @@ def vae_action_head(out_size, seq_hidden_sizes=(128, 64), policy_hidden_sizes=(6
             decoder = MLP(hidden_sizes=seq_hidden_sizes[:-1], output_size=seq_hidden_sizes[-1])
             decoded = decoder(x)
             
+            reconstructor = MLP(hidden_sizes=recon_hidden_layer, output_size=out_size)
+            target = reconstructor(x)
+            
+            
             latent_sampling = Latent(hidden_sizes=[], latent_dim=latent_dim)
             latent_sample, (latent_means, latent_stds) = latent_sampling(decoded)
           
@@ -525,7 +529,7 @@ def vae_action_head(out_size, seq_hidden_sizes=(128, 64), policy_hidden_sizes=(6
             
             # Stack mean and log_std to maintain shape compatibility
             output = jnp.concatenate([mean, log_std], axis=-1)
-            return output, (latent_means, latent_stds)
+            return output, (latent_means, latent_stds), target
     
     return lambda: ContinuousActor()
 
@@ -546,28 +550,23 @@ def standard_action_head(output_size, seq_hidden_sizes=(64,64), policy_layers=(6
         @nn.compact
         def __call__(self, x):
             # Helper function to create an MLP with given hidden sizes
-            
+            # print(seq_hidden_sizes, "we are used")
             sequentializer = MLP(hidden_sizes=seq_hidden_sizes[:-1], output_size=seq_hidden_sizes[-1])
             seq = sequentializer(x)
         
-            mean_hidden = MLP(hidden_sizes=policy_layers, output_size=output_size)
+            mean_hidden = MLP(hidden_sizes=policy_layers, output_size=output_size, activation=nn.tanh)
             mean = mean_hidden(seq)
             
-            log_std_hidden = MLP(hidden_sizes=policy_layers, output_size=output_size)
+            log_std_hidden = MLP(hidden_sizes=policy_layers, output_size=output_size, activation=nn.tanh)
             log_std = log_std_hidden(seq)
             
-       
-            # Clip log standard deviation for numerical stability
-            log_std = jnp.clip(log_std, -20.0, 2.0)
+            projection = PolicyParameterClipping()
+            means, stds = projection(mean, log_std)
             
-            # print(mean.shape, log_std.shape)
-            
-            # mean = jnp.linspace(0.1, 0.9, mean.shape[0] * mean.shape[1]).reshape(mean.shape[0], mean.shape[1])
-            # # jax.debug.print("mean {} \n{}", mean, mean.shape)
-            # log_std = jnp.full_like(log_std, 0.01)
+            # jax.debug.print("std {} means {}", stds[0,0], means[0,0])
             
             # Stack mean and log_std to maintain shape compatibility
-            output = jnp.concatenate([mean, log_std], axis=-1)
+            output = jnp.concatenate([means, stds], axis=-1)
             return output
     
     return lambda: ContinuousActor()
@@ -603,14 +602,107 @@ def gmm_action_head(gmm_components, sample_points, shared_seq_sizes=(256, 128), 
             log_std_hidden = MLP(hidden_sizes=policy_layers, output_size=gmm_components)
             log_std = log_std_hidden(seq)
             
-            log_std = jnp.clip(log_std, -20.0, 2.0)
+            projection = PolicyParameterClipping()
+            means, stds = projection(mean, log_std)
+            
             
             weights_hidden = MLP(hidden_sizes=policy_layers, output_size=sample_points)
             weights = weights_hidden(seq)
             
-            output = jnp.concatenate([weights, mean, log_std], axis=-1)
+            # jax.debug.print("std {} weights {}", stds[0,0], weights[0,0])
+            # samplist = jnp.arange(sample_points)
+            # print(weights.shape, "weights shape", means.shape, stds.shape)
+            # weights = weights.at[0,:2].set(jnp.array([0.0, 0.0]))
+            
+            output = jnp.concatenate([weights, means, stds], axis=-1)
+            
+            # print(output.shape, "output shape")
             
             return output
+    
+    return lambda: ContinuousActor()
+
+
+def mvn_action_head(flat_act, rank, shared_seq_sizes=(256, 128), policy_hidden_sizes=(64, 32)):
+    """Actor model for continuous action spaces with parameterizable layer sizes.
+    
+    Args:
+        shared_hidden_sizes: Tuple of hidden layer sizes for the shared network
+        policy_hidden_sizes: Tuple of hidden layer sizes for both mean and log_std networks,
+                            with the last value being used as the action dimension
+    
+    Returns:
+        A function that returns a ContinuousActor module
+    """
+    # Extract action dimension from the last element of policy_hidden_sizes
+    
+    class ContinuousActor(nn.Module):
+        @nn.compact
+        def __call__(self, x):
+            # Helper function to create an MLP with given hidden sizes
+            sequentializer = MLP(hidden_sizes=shared_seq_sizes[:-1], output_size=shared_seq_sizes[-1])
+            seq = sequentializer(x)
+            
+            # Create separate networks for mean and log_std, both with the same architecture
+            # Use all but the last element of policy_hidden_sizes for the hidden layers
+            policy_layers = policy_hidden_sizes[:-1]
+            
+            mean_hidden = MLP(hidden_sizes=policy_layers, output_size=flat_act)
+            mean = mean_hidden(seq)
+            
+            log_std_hidden = MLP(hidden_sizes=policy_layers, output_size=flat_act)
+            log_std = log_std_hidden(seq)
+            
+            projection = PolicyParameterClipping()
+            means, stds = projection(mean, log_std)
+            
+            # jax.debug.print("std {} means {}", stds[0,0], means[0,0])
+            output_size_we = flat_act * rank
+            # print(flat_act, "flat_act", rank, "rank", flat_act * rank, "flat_act * rank", x.shape, output_size_we)
+            output_size_we = flat_act * rank
+            weights_hidden = MLP(hidden_sizes=policy_layers, output_size=output_size_we)
+            weights = weights_hidden(seq)
+            
+            # jax.debug.print("std {} weights {}", stds[0,0], weights[0,0])
+            # samplist = jnp.arange(sample_points)
+            # print(weights.shape, "weights shape", means.shape, stds.shape)
+            # weights = weights.at[0,:2].set(jnp.array([0.0, 0.0]))
+            
+            output = jnp.concatenate([means, stds, weights], axis=-1)
+            
+            # print(output.shape, "output shape")
+            
+            return output
+    
+    return lambda: ContinuousActor()
+
+def latent_model(shared_hidden_sizes=(256, 128), latent_dim=2): 
+    class ContinuousActor(nn.Module):
+        @nn.compact
+        def __call__(self, x):
+            # Helper function to create an MLP with given hidden sizes
+            sequentializer = MLP(hidden_sizes=shared_hidden_sizes[:-1], output_size=shared_hidden_sizes[-1])
+            seq = sequentializer(x)
+            
+            #this part should be able to turn on and of 
+            latent_sampling = Latent(hidden_sizes=[], latent_dim=latent_dim)
+            latent_sample, (latent_means, latent_stds) = latent_sampling(seq)
+            #until here 
+            
+            return latent_sample, (latent_means, latent_stds)
+    
+    return lambda: ContinuousActor()
+
+def recon_head(recon_hidden_layer=(64,64), out_size=2):
+
+    class ContinuousActor(nn.Module):
+        @nn.compact
+        def __call__(self, x):
+        
+            reconstructor = MLP(hidden_sizes=recon_hidden_layer, output_size=out_size)
+            target = reconstructor(x)
+            
+            return target
     
     return lambda: ContinuousActor()
 
@@ -661,3 +753,21 @@ def gmm_vae_action_head(gmm_components, sample_points, shared_seq_sizes=(64, 64)
             return output, (latent_means, latent_stds)
     
     return lambda: ContinuousActor()
+
+
+class PolicyParameterClipping(nn.Module):
+    """Multivariate Normal distribution parametrized by a given module"""
+    bounds: tuple[jax.typing.ArrayLike, jax.typing.ArrayLike] = (-5.0, 5.0)
+    scale_init: jax.typing.ArrayLike = 1.0  # Can also be an Array.
+
+    @nn.compact
+    def __call__(self, mean, stddev) -> tuple[jax.Array, jax.Array]:
+
+        stddev = jnp.clip(
+            jax.nn.softplus(self.scale_init + stddev),
+            a_min=1e-4, a_max=2.0
+        )
+        
+        mean = jnp.clip(mean, a_min=self.bounds[0], a_max=self.bounds[1])
+
+        return mean, stddev

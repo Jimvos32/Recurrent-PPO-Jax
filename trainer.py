@@ -44,6 +44,7 @@ task_to_trainer={
     'multidim':ControlTrainer,
     'masked':ControlTrainer,
     'gen_gmm': ControlTrainer,
+    'low_mvn': ControlTrainer,
     'cor_gmm': ControlTrainer,
     'full_params': ControlTrainer,
     'vae': ControlTrainer,
@@ -58,21 +59,22 @@ def main(config: DictConfig):
     #     config.task.batches = [ast.literal_eval(x) if isinstance(x, str) else x for x in config.task.batches]
     
     # print("Batches used for this run:", config.task.batches)
-    print("Resolved task.batches =", config.task.batches)
-    print("Resolved task.max_episode_steps =", config.task.max_episode_steps)
+    # print("Resolved task.batches =", config.task.batches)
+    # print("Resolved task.max_episode_steps =", config.task.max_episode_steps)
 
-    print(config.task)
     # logger.info("Starting Job for Config:\n"+str(OmegaConf.to_yaml(config)))
     norm = "-norm:" + config.trainer.dist_model if config.trainer.dist_model != "standard" else ""
-    run_name = "method " + config.task.task +"-batch "+  str(config.task.batches) + "-samples "+ str(config.task.total_episode_samples) + norm +"-seed "+str(config.seed) + "- " + config.run_name
+    rand = "rand_" if config.task.random == True else ""
+    run_name = rand + "method " + config.task.task +"-batch "+  str(config.task.batches) + "-samples "+ str(config.task.total_episode_samples) + norm +"-seed "+str(config.seed) + "- " + config.run_name
     degree = config.task.num_oscillations if config.task.env == "cosine" else config.task.degree
+    
+    
 
     project_name = "env " + config.task.env + "-dim " + str(config.task.action_dim) + "-deg " + str(degree) + "-bounds " + str(config.task.bounds) + "-" + config.project_name
     tags=config.tags.split(',') if config.tags is not None else []
     # project_name = "debugging"
     
     tags = [("m" + config.task.task + "b" + str(config.task.batches) + "s" + str(config.task.total_episode_samples))]
-    print("Tags:", tags)
     
     if config.use_wandb and sys.platform=='win32':
         run = wandb.init(project=project_name,name=run_name,tags=tags,settings=wandb.Settings(start_method="spawn"),config=OmegaConf.to_container(config))
@@ -89,7 +91,7 @@ def main(config: DictConfig):
     
     env_config['batches'] = config.task.batches
     env_config['max_episode_steps'] = env_config['total_episode_samples'] // env_config['batches'][0]
-    print("env", env_config)
+    # print("env", env_config)
    
     #Train the model
     kwargs={'global_args':config,'trainer_config':trainer_config,'env_config':env_config,

@@ -11,6 +11,9 @@ from src.tasks.envs.multi_batch_env import MultiSampleEnv
 from src.tasks.envs.multi_dimensional_env import MultiDimEnv
 from src.tasks.envs.multi_dimensional_mask import MultiMask
 from src.tasks.envs.multi_dim_cosine import MultiCosine
+from src.tasks.envs.function_envs.poly_env import PolyEnv
+from src.tasks.envs.function_envs.cosine_env import CosineEnv
+from src.tasks.envs.function_envs.ackley_env import AckleyEnv
 
 class ViewSizeWrapper(ObservationWrapper):
     """
@@ -137,7 +140,23 @@ def create_masked(**kwargs):
     return env
 
 def create_cosine(**kwargs):
-    env = MultiCosine(env_config=kwargs)
+    env = CosineEnv(env_config=kwargs)
+
+    # Apply wrappers
+    env = TransformObservation(env, lambda obs: obs)
+    
+    return env
+
+def create_poly(**kwargs):
+    env = PolyEnv(env_config=kwargs)
+
+    # Apply wrappers
+    env = TransformObservation(env, lambda obs: obs)
+    
+    return env
+
+def create_ackley(**kwargs):
+    env = AckleyEnv(env_config=kwargs)
 
     # Apply wrappers
     env = TransformObservation(env, lambda obs: obs)

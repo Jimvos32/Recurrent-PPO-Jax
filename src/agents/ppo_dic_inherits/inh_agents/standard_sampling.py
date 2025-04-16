@@ -1,7 +1,8 @@
 import jax.numpy as jnp
 
 class SamplingImplBase:
-    def __init__(self, max_batch, action_dim):
+    def __init__(self, max_batch, action_dim, sampling_distribution=1):
+        self.sample_distribution = sampling_distribution
         self.action_dim = action_dim
         self.batch_size = max_batch
     
@@ -19,7 +20,7 @@ class SamplingImplBase:
     def gaussian_log_prob(self, actions, logits):
         raise NotImplementedError
 
-    def entropy(self, logits, mask):
+    def entropy(self, logits, mask, key=None):
         raise NotImplementedError
 
 

@@ -63,6 +63,8 @@ class ActorCriticVAEModel(nn.Module):
     seq_model_fn:Callable
     actor_fn:Callable
     critic_fn:Callable
+    latent_fn:Callable
+    predictor_fn:Callable
 
 
     def setup(self):
@@ -70,6 +72,8 @@ class ActorCriticVAEModel(nn.Module):
         self.seq_model=self.seq_model_fn()
         self.actor=self.actor_fn()
         self.critic=self.critic_fn()
+        self.latent=self.latent_fn()
+        self.predictor=self.predictor_fn()
     
     @nn.compact
     def __call__(self,inputs,terminations,last_memory):  
@@ -93,10 +97,20 @@ class ActorCriticVAEModel(nn.Module):
         seq_rep,memory=self.seq_model(rep,terminations,last_memory)
         # print("seq_rep", seq_rep.shape, memory[0][0].shape)
         seq_rep=jnp.concatenate([seq_rep, inputs["step"]], axis=1)
-        # print("seq_rep2", seq_rep.shape)
-        actor_out, latent_vars = self.actor(seq_rep)
-        # print("totalinp", inputs.shape, "actor_in", seq_rep.shape, "actor_out", actor_out.shape)
+        
         critic_out=self.critic(seq_rep)
+        # print("seq_rep2", seq_rep.shape)
+        # print("critic_out", critic_out.shape, inputs["step"].shape, inputs["reward"].shape)
+        latent_space, latent_vars = self.latent(seq_rep)
+        
+        target = self.predictor(seq_rep)
+        target = jnp.squeeze(inputs["observations"], axis=-1)
+        
+        
+        actor_out = self.actor(latent_space)
+        # print("totalinp", inputs.shape, "actor_in", seq_rep.shape, "actor_out", actor_out.shape)
+        
         # print(actor_out.shape, critic_out.shape)
-        return actor_out,critic_out,memory, latent_vars
+        print("actor_out", target.shape, inputs["step"].shape, inputs["observations"].shape)
+        return actor_out,critic_out,memory, latent_vars, target
 
