@@ -1,0 +1,21 @@
+name: ${experiment.combos.${experiment.choice}.name}
+task: ${experiment.combos.${experiment.choice}.task}
+env_train: ${experiment.combos.${experiment.choice}.env_train}
+env_test: ${experiment.combos.${experiment.choice}.env_test}
+function_types: []
+bounds: ${experiment.combos.${experiment.choice}.bounds}
+# These keys are set from the experiment combos:
+batches: ${experiment.combos.${experiment.choice}.batches}
+max_batches: -1
+total_episode_samples: ${experiment.combos.${experiment.choice}.total_episode_samples}
+max_episode_steps: -1
+action_dim: ${experiment.combos.${experiment.choice}.action_dim}
+degree: ${experiment.combos.${experiment.choice}.degree}
+rank: ${experiment.combos.${experiment.choice}.rank}
+num_oscillations: ${experiment.combos.${experiment.choice}.oscilations}
+random: ${experiment.combos.${experiment.choice}.random}
+batch_expand_hidden: [128, 64]
+batch_combine_hidden: [128, 64]
+step_expand_hidden: [128, 64]
+input_combine_hidden: [128, 64]
+tag: no_tag

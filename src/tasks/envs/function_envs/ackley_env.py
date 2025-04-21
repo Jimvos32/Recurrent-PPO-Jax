@@ -28,10 +28,11 @@ class AckleyEnv(BaseOptimizationEnv):
     """
     
     def __init__(self, env_config=None):
-        super().__init__(env_config)
+        
         self.a_bounds = env_config.get("a_bounds", (15.0, 20.0))
         self.b_bounds = env_config.get("b_bounds", (0.1, 0.2))
         self.c_bounds = env_config.get("c_bounds", (2 * np.pi, 2 * np.pi))
+        super().__init__(env_config)
     
     def initialize_function(self):
         # Set Ackley parameters (use the values provided in env_config or defaults)

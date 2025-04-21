@@ -522,6 +522,113 @@ class VAEPPO(RootAgent):
             'latents_std': jnp.stack(latents_stds, 1),
             'targets': jnp.stack(targets, 1),
         })
+    
+    def evaluate(self,random_key,eval_episodes):
+        #Evaluate the agent for evaluation_steps
+        #Create a single zero hidden state
+        #Get the hidden state from the first actor
+        o_tick,_=self.eval_env.reset()
+        episode_lens=[]
+        episode_avgreturns=[]
+        avg_rewards=[]
+        success_rate=[]
+        avg_scaled_diff=[]
+        avg_best_act=[]
+        
+        rollouts=[]
+        term_tick=jnp.zeros((1,1),dtype=bool)  #Initialize terminal state to False
+        #Initialize zero hidden state at the start of each episode, shape is infered from the hidden state of the first environment
+        h_tickminus1=jax.tree_map(lambda x:jnp.expand_dims(jnp.zeros(x[0].shape),0) ,self.h_tickminus1)
+        for i in tqdm.tqdm(range(eval_episodes)):
+            done=False
+            rewards=[]
+            
+            while not done:
+                #Take a step in the environment
+                random_key,model_key=jax.random.split(random_key)
+                # for k in o_tick.keys():
+                #     print("bef", k, o_tick[k].shape)
+               
+                expanded_o = self.expand_o_tick(o_tick, eval=True)
+                expanded_o = self.expand_o_tick(expanded_o, eval=True)
+                # for k in expanded_o.keys():
+                #     print("aft", k, expanded_o[k].shape)
+                
+                act_logits,v_tick,htick,latent,target=self.actor_critic_fn(model_key,self.params,expanded_o,term_tick,h_tickminus1)
+                # if hasattr(self,'arg_max') and self.arg_max:
+                #     acts_tick=jnp.argmax(act_logits,axis=-1)
+                # else:
+                #     if self.use_gumbel_sampling:
+                #          # sample action: Gumbel-softmax trick
+                #         # see https://stats.stackexchange.com/questions/359442/sampling-from-a-categorical-distribution
+                #         u = jax.random.uniform(random_key, shape=act_logits.shape)
+                #         acts_tick=jnp.argmax(act_logits - jnp.log(-jnp.log(u)), axis=-1).squeeze(axis=-1)
+                #     else:
+                #         acts_tick=jax.random.categorical(random_key,act_logits).squeeze(axis=-1)
+                acts_tick = self.sampling_impl.sampling_differ(act_logits, random_key, expanded_o.get("mask", None))
+                
+                # print("the shapes", act_logits.shape, acts_tick.shape)
+                o_tick,r_tick,term,trunc,info=self.eval_env.step(*self.jax_to_numpy(acts_tick))
+                
+                # print("o_tick", o_tick, "r_tick", r_tick, "term", term, "trunc", trunc, "info", info)
+                # print("o_tick", o_tick, "r_tick", r_tick, "term", term, "trunc", trunc, "info", info)
+                o_tick,r_tick=self.numpy_to_jax(o_tick,r_tick)
+                done=term or trunc
+                term_tick=jnp.array([[done]],dtype=bool) #Carry forward the termination signal for the next timestep, shape expected by the actor_critic_fn is BXT
+                rewards.append(r_tick)
+                h_tickminus1=htick
+                if done:
+                    avg_rewards.append(info["final_info"]["reward_per_episode"].tolist())
+                    avg_scaled_diff.append(info["final_info"]["scaled_diff"].tolist())
+                    avg_best_act.append(info["final_info"]["best_rewards"].tolist())
+                    success_rate.append(info["final_info"]["success"].tolist())
+            #Get the rollout frames
+            # print("info", jnp.array(info["final_info"]["actions"]).shape) 
+            # print("info", info["final_info"]["eval_scaled_diff"].shape) 
+            # actions = jnp.array(info["final_info"]["actions"])
+            # scaled_diff = jnp.array(info["final_info"]["eval_scaled_diff"])
+            # rew = jnp.array(info["final_info"]["rewards"])
+            
+            
+            # max_x = jnp.array(info["final_info"]["max_x"])
+            # # print("max_cof", max_x.shape, max_y.shape)
+            # print("max_cof", max_x.shape)
+            # conc_max = jnp.concatenate([max_x, jnp.array([[0,0]])], axis=1)
+            # # print("max_cof", conc_max.shape)
+            
+            # eval_rew = jnp.zeros((rew.shape[0] * actions.shape[1],1), dtype=jnp.float32)  # Create an array filled with zeros
+            # eval_rew = eval_rew.at[jnp.arange(rew.shape[0]) * actions.shape[1],1].set(rew)
+            # # print("rew", rew)
+            # # print(eval_rew)
+            # # print("scaled_diff", scaled_diff.shape, rew.shape, actions.shape)
+         
+            # actions = jnp.reshape(actions, (actions.shape[0] * actions.shape[1], actions.shape[2]))
+            # scaled_diff = jnp.reshape(scaled_diff, (scaled_diff.shape[0] * scaled_diff.shape[1], 1))
+            
+            # # print("actions", actions.shape)
+            # combined = jnp.concatenate([actions, scaled_diff, eval_rew], axis=1)
+            # table = jnp.concatenate([conc_max, combined], axis=0)
+            
+            
+            
+            
+            rollouts = None
+            episode_lens.append(len(rewards))
+            rewards=jnp.array(rewards,dtype=jnp.float32)
+            avg_return=rlax.discounted_returns(rewards,self.gamma*jnp.ones_like(rewards),jnp.zeros_like(rewards)).mean()
+            episode_avgreturns.append(avg_return)
+            
+            
+        # eval_stats =     
+        eval_stats = {}
+        eval_stats["avg_rew"] = jnp.array(avg_rewards).mean()
+        eval_stats["regret"] = jnp.array(avg_scaled_diff).mean()
+        eval_stats["best"] = jnp.array(avg_best_act).mean()
+        eval_stats["success"] = jnp.array(success_rate).mean()
+            
+        avg_episode_len=jnp.array(episode_lens).mean()
+        avg_episode_return=jnp.array(episode_avgreturns).mean()
+        return avg_episode_len,avg_episode_return,rollouts, eval_stats
 
 
 

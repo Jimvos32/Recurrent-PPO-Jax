@@ -67,11 +67,13 @@ def main(config: DictConfig):
     norm = "-norm:" + config.trainer.dist_model if config.trainer.dist_model != "standard" else ""
     rand = "rand_" if config.task.random == True else ""
     run_name = rand + "method " + config.task.task +"-batch "+  str(config.task.batches) + "-samples "+ str(config.task.total_episode_samples) + norm +"-seed "+str(config.seed) + "- " + config.run_name
-    degree = config.task.num_oscillations if config.task.env == "cosine" else config.task.degree
+    # degree = config.task.num_oscillations if config.task.env == "cosine" else config.task.degree
     
+    # print("degree", config.task.env, config.task.action_dim, config.task.bounds, "prject", config.project_name)
     
-
-    project_name = "env " + config.task.env + "-dim " + str(config.task.action_dim) + "-deg " + str(degree) + "-bounds " + str(config.task.bounds) + "-" + config.project_name
+    env = "train" + str(config.task.env_train) + "-test" + str(config.task.env_test)
+    print("asdg", env)
+    project_name = "env " + env + "-dim " + str(config.task.action_dim) + "-bounds " + str(config.task.bounds) + "-" + config.project_name
     tags=config.tags.split(',') if config.tags is not None else []
     # project_name = "debugging"
     

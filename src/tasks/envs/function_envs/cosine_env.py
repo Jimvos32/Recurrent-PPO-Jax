@@ -6,13 +6,14 @@ class CosineEnv(BaseOptimizationEnv):
     Environment based on cosine functions with additional small oscillations.
     """
     def __init__(self, env_config=None):
-        super().__init__(env_config)
+        
         self.num_oscillations = env_config["num_oscillations"]
         self.c_bounds = env_config.get("c_bounds", (5.0, 20.0))
         self.A_bounds = env_config.get("A_bounds", (10.0, 20.0))
         self.B_bounds = env_config.get("B_bounds", (0.5, 1.5))
         self.small_A_bounds = env_config.get("small_A_bounds", (0.2, 3.0))
         self.small_B_bounds = env_config.get("small_B_bounds", (0.5, 4.0))
+        super().__init__(env_config)
 
     def initialize_function(self):
         

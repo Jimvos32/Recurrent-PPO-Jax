@@ -692,6 +692,7 @@ def mvn_flow_head(cov_dim, shared_seq_sizes=(256, 128), policy_hidden_sizes=(64,
     class ContinuousActor(nn.Module):
         @nn.compact
         def __call__(self, x):
+                        
             # Helper function to create an MLP with given hidden sizes
             sequentializer = MLP(hidden_sizes=shared_seq_sizes[:-1], output_size=shared_seq_sizes[-1])
             seq = sequentializer(x)
@@ -704,11 +705,16 @@ def mvn_flow_head(cov_dim, shared_seq_sizes=(256, 128), policy_hidden_sizes=(64,
             mean = mean_hidden(seq)
             
             lower_chol_triangle = cov_dim * (cov_dim + 1) // 2
+            
+            # print(lower_chol_triangle, "lower_chol_triangle")
             log_std_hidden = MLP(hidden_sizes=policy_layers, output_size=lower_chol_triangle)
             log_std = log_std_hidden(seq)
             
             projection = PolicyParameterClipping()
             means, stds = projection(mean, log_std)
+            
+            # print(stds.shape, "stds shape", means.shape, "means shape")
+            # jax.debug.print("std {} means {}", stds[0,0], means[0,0])
             
             output = jnp.concatenate([means, stds], axis=-1)
             

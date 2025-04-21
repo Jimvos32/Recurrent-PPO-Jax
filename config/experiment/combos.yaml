@@ -26,6 +26,65 @@ combos:
   exp9:
     batches: [16, 16]
     max_episode_steps: 1
+  exp10:
+    batches: [1, 1]
+    dist_model: standard
+    project_name: "test"
+    name: "flow_jax"
+    task: "flow_jax"
+    env_train: ["poly", "cosine"]
+    env_test: ["ackley"]
+    steps: 200000
+    
+    bounds: [-5, 5]
+    total_episode_samples: 12
+    action_dim: 1
+    degree: 2
+    rank: 2
+    oscilations: 5
+    random: false
+    sample_distribution: 5
+
+  flow_test:
+    batches: [1, 1]
+    dist_model: standard
+    project_name: "flow_test"
+    name: "full_params"
+    task: "full_params"
+    env_train: ["poly"]
+    env_test: ["ackley"]
+    steps: 500000
+    
+    bounds: [-5, 5]
+    total_episode_samples: 25
+    action_dim: 3
+    degree: 2
+    rank: 2
+    oscilations: 5
+    random: false
+    sample_distribution: 5
+
+  # flow_test_old:
+  #   batches: [1, 1]
+  #   dist_model: standard
+  #   project_name: "flow_test"
+  #   name: "flow_jax"
+  #   task: "flow_jax"
+  #   env_train: ["poly"]
+  #   env_test: ["ackley"]
+  #   steps: 500000
+    
+  #   bounds: [-5, 5]
+  #   total_episode_samples: 25
+  #   action_dim: 3
+  #   degree: 2
+  #   rank: 2
+  #   oscilations: 5
+  #   random: false
+  #   sample_distribution: 5
+
+
+
   
 
  

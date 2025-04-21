@@ -10,7 +10,7 @@ import logging
 from argparse import Namespace
 from src.trainers.base_trainer import BaseTrainer
 from collections import OrderedDict
-from src.tasks.envs.minigrid_env import create_minigrid_env_onehot,create_minigrid_env_pixel, create_sampling_env, create_multi_dim_env, create_multi_batch_env, create_mbatch, create_multi_dim, create_ackley, create_cosine, create_poly
+from src.tasks.envs.minigrid_env import create_minigrid_env_onehot,create_minigrid_env_pixel, create_sampling_env, create_multi_dim_env, create_multi_batch_env, create_mbatch, create_multi_dim, create_multi_fun_env, create_multi_batch_env, create_multi_dim
 from src.agents.a2c import A2CAgent
 from src.agents.ppo import PPOAgent
 from src.agents.ppo_vae import PPOAgentVAE
@@ -37,34 +37,47 @@ logger = logging.getLogger(__name__)
 def create_train_eval_envs(env_config):
     max_value = max(env_config['batches'])
     env_config['max_batches'] = max_value
+    env_config['function_types'] = env_config['env_train']
     b_split = len(env_config['batches']) // 2
     train_b, eval_b = env_config['batches'][:b_split], env_config['batches'][b_split:]
     env_config['batches'] = train_b
     eval_config = env_config.copy()
     eval_config['batches'] = eval_b
+    eval_config['function_types'] = env_config['env_test']
+    
+    print("train batches", env_config)
+    
+    train_fn = lambda: create_multi_fun_env(**env_config)
+    eval_fn = lambda: create_multi_fun_env(**eval_config)
     
     
-    if env_config['env'] == "polynominal":
-        train_fn=lambda: create_poly(**env_config)        
-        eval_fn=lambda: create_poly(**eval_config)
+    # if env_config['env'] == "polynominal":
+    #     train_fn=lambda: create_poly(**env_config)        
+    #     eval_fn=lambda: create_poly(**eval_config)
     
-    elif env_config['env'] == "cosine":
-        train_fn=lambda: create_cosine(**env_config)
-        eval_fn=lambda: create_cosine(**eval_config)
-    elif env_config['env'] == "ackley":
-        train_fn=lambda: create_ackley(**env_config)
-        eval_fn=lambda: create_ackley(**eval_config)
+    # elif env_config['env'] == "cosine":
+    #     train_fn=lambda: create_cosine(**env_config)
+    #     eval_fn=lambda: create_cosine(**eval_config)
+    # elif env_config['env'] == "ackley":
+    #     train_fn=lambda: create_ackley(**env_config)
+    #     eval_fn=lambda: create_ackley(**eval_config)
         
     repr_fn=dict_unpack_mask(batch_expand_hidden=env_config["batch_expand_hidden"], 
                                  batch_combine_hidden=env_config["batch_combine_hidden"], 
                                  step_expand_hidden=env_config["step_expand_hidden"], 
                                  input_combine_hidden=env_config["input_combine_hidden"])
     
+    
+    print("train_fn", type(train_fn))#, "eval_fn", eval_fn, "repr_fn", repr_fn)   
+    
     return train_fn,eval_fn, repr_fn
 
 
 def get_env_initializers(env_config):
-    env_config=OmegaConf.to_container(env_config)
+    task = env_config['task']
+    print("env_config", env_config['task'], env_config['task'] == "flow_jax")
+    # env_config=OmegaConf.to_container(env_config)
+    print("env_config", env_config['task'], env_config['task'] == "flow_jax")
     if env_config['task']=='minigrid_pixel':
         env_fn=lambda: create_minigrid_env_pixel(**env_config)
         repr_fn=atari_conv_repr_model()
@@ -101,27 +114,11 @@ def get_env_initializers(env_config):
         env_fn=lambda: create_multi_dim(**env_config)
         repr_fn=dict_unpack_model()
         return env_fn,env_fn,repr_fn
-    elif env_config['task']=='masked':
+    else:
         train_fn,eval_fn,repr_fn=create_train_eval_envs(env_config)
         return train_fn,eval_fn,repr_fn
-    elif env_config['task']=='gen_gmm':
-        train_fn,eval_fn,repr_fn=create_train_eval_envs(env_config)
-        return train_fn,eval_fn,repr_fn
-    elif env_config['task']=='cor_gmm':
-        train_fn,eval_fn,repr_fn=create_train_eval_envs(env_config)
-        return train_fn,eval_fn,repr_fn
-    elif env_config['task']=='full_params':
-        train_fn,eval_fn,repr_fn=create_train_eval_envs(env_config)
-        return train_fn,eval_fn,repr_fn
-    elif env_config['task']=='vae':
-        train_fn,eval_fn,repr_fn=create_train_eval_envs(env_config)
-        return train_fn,eval_fn,repr_fn
-    elif env_config['task']=='low_mvn':
-        train_fn,eval_fn,repr_fn=create_train_eval_envs(env_config)
-        return train_fn,eval_fn,repr_fn
-    elif env_config['task']=='flow_jax':
-        train_fn,eval_fn,repr_fn=create_train_eval_envs(env_config)
-        return train_fn,eval_fn,repr_fn
+    
+ 
     
 def get_flow_func(flow_model, action_dim):
     if (flow_model == "planar_flow"):
@@ -178,7 +175,7 @@ class ControlTrainer(BaseTrainer):
         train_seeds=np.random.randint(0,9999,size=self.num_envs,dtype=int).tolist()
         eval_seeds=int(np.random.randint(0,9999,size=1,dtype=int))
         env_type=kwargs['trainer_config'].get('env_pool','async')
-        # print("env type", env_type)
+        print("env type", env_type)
         env_type = 'sync'
         if env_type=='async':
             
@@ -205,7 +202,7 @@ class ControlTrainer(BaseTrainer):
             model_fn=seq_model_gtrxl(**self.trainer_config['seq_model'])
             
             
-        name = eval_env.unwrapped.name
+        name = self.env_config['task']
         vae = False
         model_dist = self.trainer_config.get('dist_model', "standard")
         
@@ -309,10 +306,9 @@ class ControlTrainer(BaseTrainer):
             # policy_out = covariance + covariance * (covariance + 1) // 2
             
             
-            actor_fn = mvn_action_head(policy_out, self.trainer_config['sample_distribution'],
-                                    shared_seq_sizes=self.trainer_config['d_actor'], policy_hidden_sizes=self.trainer_config['actor_params_hidden'])
+            actor_fn = mvn_flow_head(policy_out, shared_seq_sizes=self.trainer_config['d_actor'], 
+                                     policy_hidden_sizes=self.trainer_config['actor_params_hidden'])
             
-        
 
         critic_fn=critic_model(self.trainer_config['d_critic'])
         #Setup optimizer
@@ -415,7 +411,7 @@ class ControlTrainer(BaseTrainer):
                                     sample_dist=self.trainer_config.get('sample_distribution', 1),
                                     task_name=self.env_config.get('task', None))
             else:
-            
+                print("we should b eher ")
                 self.agent = BasePPO(**agent_config)
 
         
@@ -441,13 +437,10 @@ class ControlTrainer(BaseTrainer):
         self.best_rewards=[]
         self.mse=[]
         self.last_scaled_diff=[]
-        self.last_scaled_obs=[]
         self.scaled_diff=[]
-        self.scaled_obs=[]
         self.success=[]
         self.max_dist=[]
         self.actions=[]
-        
         self.new_log=[]
         self.log=[]
         self.ratio=[]
@@ -512,17 +505,14 @@ class ControlTrainer(BaseTrainer):
                 self.mse.append(jnp.mean(mse))
                 lsd = jnp.array(k["final_info"]["last_scaled_diff"],dtype=jnp.float32)
                 self.last_scaled_diff.append(jnp.mean(lsd))
-                lso = jnp.array(k["final_info"]["last_scaled_obs"],dtype=jnp.float32)
-                self.last_scaled_obs.append(jnp.mean(lso))
+               
                 sd = jnp.array(k["final_info"]["scaled_diff"],dtype=jnp.float32)
                 self.scaled_diff.append(jnp.mean(sd))
-                so = jnp.array(k["final_info"]["scaled_obs"],dtype=jnp.float32)
-                
-                self.scaled_obs.append(jnp.mean(so))
+        
                 success = jnp.array(k["final_info"]["success"],dtype=jnp.bool)
                 # print("success", success.shape, success[start:end].shape)
                 # [start:end]
-                self.success.append(success[0])
+                self.success.append(success)
                 max_x = jnp.array(k["final_info"]["max_x"],dtype=jnp.float32)
                 # self.max_dist = jnp.concatenate([self.max_dist,max_x]) 
                 
@@ -620,8 +610,8 @@ class ControlTrainer(BaseTrainer):
             best_mean=np.mean(self.best_rewards)
             scaled_diff_mean=np.mean(self.scaled_diff)
             last_scaled_diff_mean=np.mean(self.last_scaled_diff)
-            scaled_obs_mean=np.mean(self.scaled_obs)
-            last_scaled_obs_mean=np.mean(self.last_scaled_obs)
+            # scaled_obs_mean=np.mean(self.scaled_obs)
+            # last_scaled_obs_mean=np.mean(self.last_scaled_obs)
             mse_mean=np.mean(self.mse)
             success_mean=np.mean(self.success)
             # print("actos", jnp.array(self.actions).shape)
@@ -654,9 +644,9 @@ class ControlTrainer(BaseTrainer):
             self.best_rewards=[]
             self.mse=[]
             self.last_scaled_diff=[]
-            self.last_scaled_obs=[]
+            # self.last_scaled_obs=[]
             self.scaled_diff=[]
-            self.scaled_obs=[]
+            # self.scaled_obs=[]
             self.success=[]
             self.max_dist=[]
             self.actions=[]
@@ -701,8 +691,8 @@ class ControlTrainer(BaseTrainer):
                                     'env_metrics/return_per_episode':return_mean, 
                                     
                                     'env_metrics/best action':best_mean, 
-                                    'env_metrics/scaled_diff':scaled_diff_mean, 'env_metrics/last_scaled_diff':last_scaled_diff_mean, 'env_metrics/scaled_obs':scaled_obs_mean, 
-                                    'env_metrics/last_scaled_obs':last_scaled_obs_mean, 'env_metrics/mse':mse_mean, 'env_metrics/success':success_mean, #'env_metrics/actions':act_dist, 
+                                    'env_metrics/scaled_diff':scaled_diff_mean, 'env_metrics/last_scaled_diff':last_scaled_diff_mean,
+                                    'env_metrics/mse':mse_mean, 'env_metrics/success':success_mean, #'env_metrics/actions':act_dist, 
                                     'env_metrics/max_dist':max_dist,
                                     'loss/new log prob':n_log_p, 'loss/log prob':log_p, 'loss/ratio':m_ratio, 'loss/return':m_ret, 'loss/value predicition':m_vals, 'loss/advantage':m_advantage, 
                                     'loss/grad l2':m_grad_l2, 'loss/params l2':m_params_l2, "loss/variational_loss":m_var_l, "loss/kl_loss":m_kl_l, "loss/recon_loss":m_recon_l, 

@@ -15,14 +15,13 @@ num_minibatches: 8
 update_epochs: 4
 norm_adv: false
 clip_coef: 0.1
-vae: false
-dist_model: standard
+dist_model: ${experiment.combos.${experiment.choice}.dist_model}
 
-sample_distribution: 4
+sample_distribution: ${experiment.combos.${experiment.choice}.sample_distribution}
 
 ent_coef: 
   initial: 0.3
-  final: 0.1
+  final: 0.0
   max_decay_steps: 1000
   power: 1
 

@@ -14,6 +14,7 @@ from src.tasks.envs.multi_dim_cosine import MultiCosine
 from src.tasks.envs.function_envs.poly_env import PolyEnv
 from src.tasks.envs.function_envs.cosine_env import CosineEnv
 from src.tasks.envs.function_envs.ackley_env import AckleyEnv
+from src.tasks.envs.function_envs.multi_function_env import MultiFunctionEnv
 
 class ViewSizeWrapper(ObservationWrapper):
     """
@@ -157,6 +158,14 @@ def create_poly(**kwargs):
 
 def create_ackley(**kwargs):
     env = AckleyEnv(env_config=kwargs)
+
+    # Apply wrappers
+    env = TransformObservation(env, lambda obs: obs)
+    
+    return env
+
+def create_multi_fun_env(**kwargs):
+    env = MultiFunctionEnv(env_config=kwargs)
 
     # Apply wrappers
     env = TransformObservation(env, lambda obs: obs)

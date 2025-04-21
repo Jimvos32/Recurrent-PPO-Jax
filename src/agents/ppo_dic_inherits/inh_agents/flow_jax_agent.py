@@ -14,6 +14,8 @@ class FlowMVN(SamplingImplBase):
         #logits of shape (N, 1, (dim + dim * (dim + 1) // 2))
         logits = jnp.squeeze(act_logits, axis=1)  # → (N, D)
         keys = jax.random.split(key, logits.shape[0])
+        
+        # print("batvc", self.batch_size, "action", self.action_dim, "wehre does the co", self.cov_dim, logits.shape, keys.shape)
 
         get_params = jax.vmap(self.generate_mvn_params)
         locs, covs = get_params(logits)  # (N, A), (N, A, A)

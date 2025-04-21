@@ -28,6 +28,7 @@ class BaseOptimizationEnv(gym.Env, abc.ABC):
         self.random = env_config["random"]  
         # Adjust max_episode_steps based on total samples and batch size.
         self.max_episode_steps = self.total_samples // self.batch_size
+        self.achieved = False
 
         # Reward scaling parameters (common across environments)
         self.r_best = 0.8
@@ -39,6 +40,8 @@ class BaseOptimizationEnv(gym.Env, abc.ABC):
         self.b_pen = 0.0
         self.r_suc = 3.0
         self.r_scale = 10
+        
+        self.initialize_function()  # Set function parameters (must define optimum_point and min_y)
 
         # Define action and observation spaces.
         self.action_space = spaces.Box(
@@ -102,7 +105,10 @@ class BaseOptimizationEnv(gym.Env, abc.ABC):
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
-        self.initialize_function()  # Set function parameters (must define optimum_point and min_y)
+        
+        if self.achieved:
+            self.initialize_function()  # Set function parameters (must define optimum_point and min_y)
+            self.achieved = False
         self.batch_size = np.random.choice(self.batches)
         # Initial action: a batch of zeros.
         if self.random is None:
@@ -170,6 +176,7 @@ class BaseOptimizationEnv(gym.Env, abc.ABC):
         suc_reward = 0.0
         if self.best_rewards > 0.95 and self.tick >= self.max_episode_steps:
             suc_reward = self.r_suc
+            self.achieved = True
 
         s_new_best = new_best / (self.max_y - self.min_y)
         e_reward = (self.r_best * scaled_max + self.r_impr * avg_imp +
@@ -185,6 +192,8 @@ class BaseOptimizationEnv(gym.Env, abc.ABC):
         self.mse.append(mse)
         done = False
         truncated = self.tick >= self.max_episode_steps
+        
+        
         info = {}
         if truncated:
             info["final_observation"] = obs
