@@ -1,4 +1,4 @@
-from src.tasks.envs.function_envs.function_samplers import FunctionSampler
+from src.tasks.envs.function_envs.sampling_functions.base_sampler import FunctionSampler
 import numpy as np
 import itertools 
 
@@ -19,14 +19,18 @@ class MichalewiczSampler(FunctionSampler):
         # Ensure x_range is a tuple/list of length 2
         if not (isinstance(x_range, (tuple, list)) and len(x_range) == 2):
              raise ValueError("x_range must be a tuple or list of two elements (min, max).")
+         
+        self.x_range = [0,np.pi]
+        x_range = self.x_range
 
         # Default config for m and grid sampling density
         default_m = 10.0
         # Adjust sampling based on dim, similar to EggholderND
-        default_num_samples = 20 if action_dim <= 3 else (10 if action_dim <= 5 else 5)
+        default_num_samples = 1000000 
+        dim_samples = int(round(default_num_samples**(1/action_dim)))
         default_config = {
             "m": default_m,
-            "num_samples_per_dim": default_num_samples
+            "num_samples_per_dim": dim_samples
         }
         if config:
             default_config.update(config) # Overwrite defaults with user config

@@ -15,7 +15,7 @@ run_name: ""
 seed: 77
 steps: ${experiment.combos.${experiment.choice}.steps}
 log_interval: 4096
-eval_episodes: 10
+eval_episodes: 8
 eval_interval: 10000
 use_wandb: true
 

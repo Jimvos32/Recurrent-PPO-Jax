@@ -1,5 +1,5 @@
 import numpy as np
-from src.tasks.envs.function_envs.function_samplers import FunctionSampler
+from src.tasks.envs.function_envs.sampling_functions.base_sampler import FunctionSampler
 import itertools
 
 class RosenbrockSampler(FunctionSampler):
@@ -21,14 +21,20 @@ class RosenbrockSampler(FunctionSampler):
         # Ensure x_range is a single tuple/list of length 2 for Rosenbrock
         if not (isinstance(x_range, (tuple, list)) and len(x_range) == 2 and not isinstance(x_range[0], (tuple, list))):
              raise ValueError("x_range for RosenbrockSampler must be a tuple or list of two elements (min, max).")
+         
+        self.x_range = [-5,10]
+        x_range = self.x_range
 
         # Default config for grid sampling density
-        default_num_samples = 20 if action_dim <= 3 else (10 if action_dim <= 5 else 5)
-        default_config = {"num_samples_per_dim": default_num_samples}
+        default_num_samples = 1000000 
+        dim_samples = int(round(default_num_samples**(1/action_dim)))
+        default_config = {"num_samples_per_dim": dim_samples}
         if config:
             default_config.update(config)
 
         super().__init__(action_dim, x_range, default_config)
+        
+        
 
         if self.action_dim >= 2:
              num_samples_per_dim = self.config.get("num_samples_per_dim")

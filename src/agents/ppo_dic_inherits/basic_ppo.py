@@ -26,7 +26,7 @@ class BasePPO(RootAgent):
     with a task-specific sampling implementation.
     """
     def __init__(self,train_envs,eval_env,repr_model_fn:Callable,seq_model_fn:Tuple[Callable,Callable],
-                        actor_fn:Callable,critic_fn:Callable,optimizer:optax.GradientTransformation, sampling_impl:type,
+                        actor_fn:Callable,critic_fn:Callable,optimizer:optax.GradientTransformation, sampling_impl:type,  mult_eval_envs:dict,
                         num_steps=128, gamma=0.99, lr_schedule=optax.linear_schedule,
                         gae_lambda=0.95, num_minibatches=4, update_epochs=4, norm_adv=True,
                         clip_coef=0.1, ent_schedule=optax.Schedule, stability_schedule=optax.Schedule, vf_coef=0.5, max_grad_norm=0.5, kl_coeff=0.1,
@@ -34,7 +34,8 @@ class BasePPO(RootAgent):
         
         self.sample_distribution=sample_dist
         super(BasePPO,self).__init__(train_envs=train_envs,eval_env=eval_env,rollout_len=num_steps,repr_model_fn=repr_model_fn,seq_model_fn=seq_model_fn,
-                        actor_fn=actor_fn,critic_fn=critic_fn,sampling_impl_class=sampling_impl,sequence_length=None, single_dim=False, task_name=task_name)
+                        actor_fn=actor_fn,critic_fn=critic_fn,sampling_impl_class=sampling_impl,sequence_length=None, single_dim=False, task_name=task_name,
+                        eval_environments=mult_eval_envs)
         
         self.optimizer=optimizer
         self.num_envs = self.env.num_envs
@@ -104,7 +105,7 @@ class BasePPO(RootAgent):
             #Calculate Lamba for timesteps G_{tick} - G_{tick+rollout_len}
             #rewards, gammas, lambdas values at timesteps {tick+1} - {tick+rollout_len+1}
             # print("rewards", rewards.shape, "gammas", gammas.shape, "lambdas", lambdas.shape, "critic_preds", critic_preds.shape, "actor_preds", actor_preds.shape)
-            
+            print("rewards", rewards.shape, "gammas", gammas.shape, "lambdas", lambdas.shape, "critic_preds", critic_preds.shape, "actor_preds", actor_preds.shape)
             Glambdas=Glambda_fn(rewards[:,1:],gammas[:,1:],
                               critic_preds[:,1:],lambdas)
             # print("Glambdas", Glambdas.shape, "critic_preds", rewards[:,1:].shape, "critix_preds", critic_preds[:,1:].shape)
@@ -139,6 +140,11 @@ class BasePPO(RootAgent):
             def ppo_loss(params, random_key, mb_observations, mb_actions, mb_masked, mb_terminations,
                             mb_logp, mb_advantages, mb_returns,mb_h_tickminus1):
                 key, random_key = jax.random.split(random_key, 2)
+                
+                for k in mb_observations:
+                    print(k, mb_observations[k].shape)
+                print("mb_observations", mb_observations["actions"].shape, "mb_terminations", mb_terminations.shape, "mb_h_tickminus1", mb_h_tickminus1[0][0].shape, len(mb_h_tickminus1))
+                
                 logits_new,values_new,_=self.actor_critic_fn(random_key,params,mb_observations,mb_terminations,
                                                              mb_h_tickminus1)
                 
@@ -189,6 +195,10 @@ class BasePPO(RootAgent):
                 # weight_decay = l2_norm(params) * decay_coef
                 # split = average_logits.shape[0] // 2
                 # stds = average_logits[split:]
+#                 mb_obs (128, 1, 2) (128,)
+# rep (128, 64)
+# seq_model (128, 65) (128,) (128, 256)
+# seq_rep (128, 128, 256) (128, 256)++
                 
                 
                 

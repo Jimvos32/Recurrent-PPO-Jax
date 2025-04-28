@@ -64,6 +64,197 @@ combos:
     random: false
     sample_distribution: 5
 
+
+  test_1:
+    batches: [1, 1]
+    dist_model: standard
+    project_name: "test_them_2d"
+    name: "full_params"
+    task: "full_params"
+    env_train: ["poly"]
+    env_test: ["ackley", "eggholder", "michalewicz", branin]
+    steps: 500000
+    
+    bounds: [-5, 5]
+    total_episode_samples: 25
+    action_dim: 2
+    degree: 2
+    rank: 2
+    oscilations: 5
+    random: false
+    sample_distribution: 5
+
+  test_2:
+    batches: [3, 3]
+    dist_model: standard
+    project_name: "test_them_2d"
+    name: "full_params"
+    task: "full_params"
+    env_train: ["poly"]
+    env_test: ["ackley", "eggholder", "michalewicz", branin]
+    steps: 500000
+    
+    bounds: [-5, 5]
+    total_episode_samples: 25
+    action_dim: 2
+    degree: 2
+    rank: 2
+    oscilations: 5
+    random: false
+    sample_distribution: 5
+
+  test_3:
+    batches: [8, 8]
+    dist_model: standard
+    project_name: "test_them_2d"
+    name: "full_params"
+    task: "full_params"
+    env_train: ["poly"]
+    env_test: ["ackley", "eggholder", "michalewicz", branin]
+    steps: 500000
+    
+    bounds: [-5, 5]
+    total_episode_samples: 24
+    action_dim: 2
+    degree: 2
+    rank: 2
+    oscilations: 5
+    random: false
+    sample_distribution: 5
+
+  test_4:
+    batches: [2, 1]
+    dist_model: standard
+    project_name: "test_them_2d"
+    name: "full_params"
+    task: "full_params"
+    env_train: ["poly"]
+    env_test: ["ackley", "eggholder", "michalewicz", branin]
+    steps: 500000
+    
+    bounds: [-5, 5]
+    total_episode_samples: 24
+    action_dim: 2
+    degree: 2
+    rank: 2
+    oscilations: 5
+    random: false
+    sample_distribution: 5
+
+  test_5:
+    batches: [1,3,2,4]
+    dist_model: standard
+    project_name: "test_them_2d"
+    name: "full_params"
+    task: "full_params"
+    env_train: ["poly"]
+    env_test: ["ackley", "eggholder", "michalewicz", branin]
+    steps: 500000
+    
+    bounds: [-5, 5]
+    total_episode_samples: 24
+    action_dim: 2
+    degree: 2
+    rank: 2
+    oscilations: 5
+    random: false
+    sample_distribution: 5
+
+  test_6:
+    batches: [3,4,3,4]
+    dist_model: standard
+    project_name: "test_them_2d"
+    name: "full_params"
+    task: "full_params"
+    env_train: ["poly"]
+    env_test: ["ackley", "eggholder", "michalewicz", branin]
+    steps: 500000
+    
+    bounds: [-5, 5]
+    total_episode_samples: 24
+    action_dim: 2
+    degree: 2
+    rank: 2
+    oscilations: 5
+    random: false
+    sample_distribution: 5
+
+  test_7:
+    batches: [1,6,1,6]
+    dist_model: standard
+    project_name: "test_them_2d"
+    name: "full_params"
+    task: "full_params"
+    env_train: ["poly"]
+    env_test: ["ackley", "eggholder", "michalewicz", branin]
+    steps: 500000
+    
+    bounds: [-5, 5]
+    total_episode_samples: 24
+    action_dim: 2
+    degree: 2
+    rank: 2
+    oscilations: 5
+    random: false
+    sample_distribution: 5
+
+  test_8:
+    batches: [1,6,3,4]
+    dist_model: standard
+    project_name: "test_them_2d"
+    name: "full_params"
+    task: "full_params"
+    env_train: ["poly"]
+    env_test: ["ackley", "eggholder", "michalewicz", branin]
+    steps: 500000
+    
+    bounds: [-5, 5]
+    total_episode_samples: 24
+    action_dim: 2
+    degree: 2
+    rank: 2
+    oscilations: 5
+    random: false
+    sample_distribution: 5
+
+  simple:
+    batches: [1, 1]
+    dist_model: standard
+    project_name: "test_the_simple"
+    name: "full_params"
+    task: "full_params"
+    env_train: ["poly"]
+    env_test: ["cosine"]
+    steps: 500000
+
+    bounds: [-5, 5]
+    total_episode_samples: 6
+    action_dim: 1
+    degree: 2
+    rank: 2
+    oscilations: 0
+    random: false
+    sample_distribution: 5
+
+  simple_s:
+    batches: [1, 1]
+    dist_model: standard
+    project_name: "test_the_simple"
+    name: "full_params"
+    task: "full_params"
+    env_train: ["cosine"]
+    env_test: ["poly"]
+    steps: 500000
+
+    bounds: [-5, 5]
+    total_episode_samples: 6
+    action_dim: 1
+    degree: 2
+    rank: 2
+    oscilations: 0
+    random: false
+    sample_distribution: 5
+
   # flow_test_old:
   #   batches: [1, 1]
   #   dist_model: standard
@@ -84,7 +275,24 @@ combos:
   #   sample_distribution: 5
 
 
-
+  jax_env:
+    batches: [1,3, 2,4]
+    dist_model: standard
+    project_name: "flow_test"
+    name: "full_params"
+    task: "jax"
+    env_train: ["poly"]
+    env_test: ["ackley"]
+    steps: 500000
+    
+    bounds: [-5, 5]
+    total_episode_samples: 25
+    action_dim: 2
+    degree: 2
+    rank: 2
+    oscilations: 5
+    random: false
+    sample_distribution: 5
   
 
  

@@ -15,6 +15,7 @@ from src.tasks.envs.function_envs.poly_env import PolyEnv
 from src.tasks.envs.function_envs.cosine_env import CosineEnv
 from src.tasks.envs.function_envs.ackley_env import AckleyEnv
 from src.tasks.envs.function_envs.multi_function_env import MultiFunctionEnv
+from src.tasks.envs.jax_env_f.jax_env import MultiFunctionGymnax
 
 class ViewSizeWrapper(ObservationWrapper):
     """
@@ -169,5 +170,11 @@ def create_multi_fun_env(**kwargs):
 
     # Apply wrappers
     env = TransformObservation(env, lambda obs: obs)
+    
+    return env
+
+def create_jax_env(**kwargs):
+    env = MultiFunctionGymnax()
+    env = TransformObservation(env, lambda obs: obs.astype(np.float32))
     
     return env

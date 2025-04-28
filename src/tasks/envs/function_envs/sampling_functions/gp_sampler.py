@@ -2,7 +2,7 @@ import numpy as np
 import abc
 from scipy.spatial.distance import cdist
 from scipy.linalg import cholesky, solve_triangular
-from src.tasks.envs.function_envs.function_samplers import FunctionSampler
+from src.tasks.envs.function_envs.sampling_functions.base_sampler import FunctionSampler
 
 class GPSampler(FunctionSampler):
     """ Samples a function instance from a GP prior (Matérn 5/2 kernel). """

@@ -551,8 +551,12 @@ def standard_action_head(output_size, seq_hidden_sizes=(64,64), policy_layers=(6
         def __call__(self, x):
             # Helper function to create an MLP with given hidden sizes
             # print(seq_hidden_sizes, "we are used")
+            # print("seq_hidden_sizes", seq_hidden_sizes, policy_layers, "policy_layers")
+            
             sequentializer = MLP(hidden_sizes=seq_hidden_sizes[:-1], output_size=seq_hidden_sizes[-1])
             seq = sequentializer(x)
+            
+            # print("output", output_size, "output_size")
         
             mean_hidden = MLP(hidden_sizes=policy_layers, output_size=output_size, activation=nn.tanh)
             mean = mean_hidden(seq)

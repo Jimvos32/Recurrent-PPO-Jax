@@ -3,8 +3,18 @@ import gymnasium as gym
 from gymnasium import spaces
 import numpy as np
 import jax.numpy as jnp
-# Assuming function_samplers.py is in the same directory or accessible via path
-from src.tasks.envs.function_envs.function_samplers import get_sampler_class
+import jax
+
+
+from src.tasks.envs.function_envs.sampling_functions.branin_sampler import BraninSampler
+from src.tasks.envs.function_envs.sampling_functions.eggholder_sampler import EggholderSamplerND
+from src.tasks.envs.function_envs.sampling_functions.ackley_sampler import AckleySampler
+from src.tasks.envs.function_envs.sampling_functions.cosine_sampler import CosineSampler
+from src.tasks.envs.function_envs.sampling_functions.poly_sampler import PolySampler
+from src.tasks.envs.function_envs.sampling_functions.rosenbrock_sampler import RosenbrockSampler
+from src.tasks.envs.function_envs.sampling_functions.michalewicz_sampler import MichalewiczSampler
+from src.tasks.envs.function_envs.sampling_functions.hartmann_sampler import Hartmann6Sampler
+
 
 class MultiFunctionEnv(gym.Env):
     """
@@ -34,13 +44,14 @@ class MultiFunctionEnv(gym.Env):
 
         # Optional configurations specific to each function type
         self.function_configs = env_config.get("function_configs", {})
-
+       
         # Instantiate the samplers
         self.samplers = {}
         for func_name in self.function_types:
             sampler_class = get_sampler_class(func_name)
             # Pass specific config if available, else None
             sampler_config = self.function_configs.get(func_name, None)
+            print(f"Initializing {func_name} with config: {sampler_config}") # Debug print
             self.samplers[func_name] = sampler_class(self.action_dim, self.x_range, sampler_config)
 
         # --- State Variables (initialized in reset) ---
@@ -53,6 +64,7 @@ class MultiFunctionEnv(gym.Env):
         self.tick = 0               # Step counter within the episode
         self.achieved_success_threshold = False # If high reward was achieved last episode
         self.best_scaled_y_so_far = -np.inf # Track best scaled y across steps
+        self.best_obs_x = None # Store best observation x (if needed)
 
         # --- Calculated Episode Length ---
         # Ensure max_batches is used for calculation if batch size varies
@@ -73,6 +85,8 @@ class MultiFunctionEnv(gym.Env):
         self.b_pen = env_config.get("b_pen", 0.0)          # Penalty for actions near bounds (optional, not implemented here)
         self.r_suc = env_config.get("r_suc", 3.0)          # Bonus for achieving success threshold at the end
         self.success_threshold = env_config.get("success_threshold", 0.95) # Scaled y value considered success
+        
+        
 
         # Define action and observation spaces using max_batches
         self.action_space = spaces.Box(
@@ -121,6 +135,8 @@ class MultiFunctionEnv(gym.Env):
         self._episode_eval_obs = [] # Store raw observations for analysis
         self._episode_regret = []
         self._episode_actions = []
+        
+        self._select_and_initialize_function() # Initialize the function sampler for the first episode
 
 
     def _select_and_initialize_function(self):
@@ -150,13 +166,17 @@ class MultiFunctionEnv(gym.Env):
         """Scales observation y to be roughly in [0, 1]."""
         # Avoid division by zero if max_y == min_y (should be handled in init)
         denominator = self.max_y - self.min_y
-        if denominator < 1e-9: # Use a small tolerance
-             # If max == min, all scaled values should be conceptually the same.
-             # Return 0.5 or 1.0 depending on interpretation. Let's use 1.0 if obs == max_y.
-             return np.where(np.isclose(obs, self.max_y), 1.0, 0.0).astype(np.float32)
+        # # if denominator < 1e-9: # Use a small tolerance
+        # #      # If max == min, all scaled values should be conceptually the same.
+        # #      # Return 0.5 or 1.0 depending on interpretation. Let's use 1.0 if obs == max_y.
+        #      return         np.where(np.isclose(obs, self.max_y), 1.0, 0.0).astype(np.float32)
+        
+        
 
         scaled = (obs - self.min_y) / denominator
+        
         return jnp.clip(scaled, 0.0, 1.0) # Use jnp for consistency if using JAX downstream
+    
 
     def map_to_bounds(self, actions):
         """Maps actions from [-1, 1] to the environment's x_range."""
@@ -174,6 +194,7 @@ class MultiFunctionEnv(gym.Env):
         self.tick = 0
         self._last_avg_scaled_obs = 0.0
         self.best_scaled_y_so_far = -np.inf
+        self.best_obs_x = None # Store best observation x (if needed)  
         self._episode_raw_rewards = []
         self._episode_mses = []
         self._episode_actions = []
@@ -187,7 +208,9 @@ class MultiFunctionEnv(gym.Env):
         # You might want to always re-initialize, depending on the training paradigm.
         # if self.achieved_success_threshold or self.current_sampler is None:
         # Always re-initialize function on reset as per original request
-        self._select_and_initialize_function()
+        
+        # print("we are no longer resetting the function") # Debug print
+        # self._select_and_initialize_function()
         self.achieved_success_threshold = False # Reset success flag
 
         # --- Initial Action and Observation ---
@@ -198,6 +221,7 @@ class MultiFunctionEnv(gym.Env):
 
 
         # Generate initial action (either zeros or random in [-1, 1])
+        
         if self.use_random_action_on_reset:
              # Random actions in the [-1, 1] space
             initial_actions_normalized = self.np_random.uniform(-1.0, 1.0, size=(self.max_batches, self.action_dim)).astype(np.float32)
@@ -210,17 +234,24 @@ class MultiFunctionEnv(gym.Env):
 
         # Compute initial observations (y values)
         # Use only the first `batch_size` actions for computation
+        just_for_test = self.current_compute_y(initial_actions_mapped)
+        
         obs_raw = self.current_compute_y(initial_actions_mapped[:self.batch_size, :])
         obs_raw = np.atleast_1d(obs_raw) # Ensure it's at least 1D
 
         # Pad observations to max_batches size (e.g., with NaNs or zeros)
         # Padding with a value indicating invalidity (like NaN or -inf) is often better.
         # Using min_y might be reasonable here.
-        padded_obs_raw = np.full((self.max_batches, 1), self.min_y, dtype=np.float32)
+        # padded_obs_raw = np.full((self.max_batches, 1), self.min_y, dtype=np.float32)
+        padded_obs_raw = np.full((self.max_batches, 1), 0, dtype=np.float32)
         padded_obs_raw[:self.batch_size, 0] = obs_raw
 
         # Scale the valid observations
         scaled_observation = self._scale_observation(obs_raw) # Only scale the valid ones
+        
+        max_index = np.argmax(scaled_observation)
+        self.best_obs_x = initial_actions_mapped[max_index] # Store the best observation x (if needed)
+        
 
         # Calculate metrics based on valid observations
         current_best_scaled_y = jnp.clip(jnp.max(scaled_observation), a_min=0.0, a_max=1.0) 
@@ -239,12 +270,15 @@ class MultiFunctionEnv(gym.Env):
         # Store actions and observations for info dict
         self._episode_actions.append(np.array(initial_actions_mapped)) # Store mapped actions
         self._episode_eval_obs.append(np.array(padded_obs_raw)) # Store raw obs
-
+        # print("dsfg", np.array(np.expand_dims(just_for_test, axis=-1), dtype=np.float32).shape)
+        # print("dsfg", np.reshape(np.array(just_for_test, dtype=np.float32), (self.max_batches, 1)).shape)
 
         # Construct initial observation dictionary
         observation = {
-            "actions": np.array(initial_actions_mapped, dtype=np.float32), # Action that LED to obs
-            "observations": np.array(padded_obs_raw, dtype=np.float32),    # Resulting raw Y values
+            # "actions": np.array(initial_actions_mapped, dtype=np.float32), # Action that LED to obs
+            # "observations": np.array(padded_obs_raw, dtype=np.float32),    # Resulting raw Y values
+            "actions": np.array(initial_actions_normalized, dtype=np.float32), # Action that LED to obs
+            "observations": np.reshape(np.array(just_for_test, dtype=np.float32), (self.max_batches, 1)), # Raw Y values resulting from action
             "reward": np.array(reward, dtype=np.float32),                 # Reward for this state transition (0 for first step)
             "mask": np.array([self.batch_size], dtype=np.int32),          # Valid samples in "observations"
             "step": np.array([self.tick], dtype=np.int32)                 # Starts at 0
@@ -279,22 +313,31 @@ class MultiFunctionEnv(gym.Env):
         # For now, let's keep it fixed per episode, decided in reset. Re-randomizing here is also possible.
         # self.batch_size = np.random.choice(self.batches) if len(self.batches) > 1 else self.batches[0]
         # self.batch_size = min(self.batch_size, self.max_batches)
-
+        just_for_test = self.current_compute_y(action_mapped)
         # Compute function values (y) for the first `batch_size` actions
         obs_raw = self.current_compute_y(action_mapped[:self.batch_size, :])
+        # ss = self.current_compute_y(self.optimum_point)
+        # jax.debug.print("action {} obs {} \noptimu {} ops {}\noptimu {} oss{}\nmin {} obs {} max {}\n", 
+        #                 action_mapped, obs_raw, self.optimum_point, self.max_y, self.optimum_point, ss, self.min_y, obs_raw, self.max_y)
+        
         obs_raw = np.atleast_1d(obs_raw)
 
         # Pad observations to max_batches size
         padded_obs_raw = np.full((self.max_batches, 1), self.min_y, dtype=np.float32)
         padded_obs_raw[:self.batch_size, 0] = obs_raw
+        
+        # print(obs_raw, padded_obs_raw, self.min_y, self.max_y)
 
         # --- Reward Calculation ---
         # Scale the valid observations
         scaled_observation = self._scale_observation(obs_raw) # Shape: (batch_size,)
 
         # Calculate metrics from valid observations
-        current_best_scaled_y = jnp.max(scaled_observation) if scaled_observation.size > 0 else 0.0
-        avg_scaled_obs = jnp.mean(scaled_observation) if scaled_observation.size > 0 else 0.0
+        current_best_scaled_y = jnp.max(scaled_observation) 
+        avg_scaled_obs = jnp.mean(scaled_observation)
+        
+        max_index = np.argmax(scaled_observation)
+        self.best_obs_x = action_mapped[max_index] # Store the best observation x (if needed)
 
         # Improvement metrics
         avg_improvement = avg_scaled_obs - self._last_avg_scaled_obs
@@ -303,9 +346,15 @@ class MultiFunctionEnv(gym.Env):
         # MSE from maximum (optional penalty)
         # Ensure difference calculation uses raw values before scaling
         difference_from_max = self.max_y - obs_raw
-        mse = jnp.mean(jnp.square(difference_from_max)) if difference_from_max.size > 0 else 0.0
         
-        scaled_difference = self._scale_observation(difference_from_max)
+        
+        
+        mse = jnp.mean(jnp.square(difference_from_max)) 
+        
+        scaled_difference = jnp.clip(difference_from_max / (self.max_y - self.min_y), 0.0, 1.0) # Scale to [0, 1]
+        
+        # jax.debug.print("min {} < obs {} < max {}\nscaled {}",self.min_y, obs_raw, self.max_y, scaled_difference)
+        
         
 
         # Check for success threshold achievement *using the best in this step*
@@ -320,6 +369,10 @@ class MultiFunctionEnv(gym.Env):
         if truncated and success_achieved_this_step:
              success_bonus = self.r_suc
              self.achieved_success_threshold = True # Mark for potential function reset
+             
+             
+        # jax.debug.print("max_act {} action {}\nmax_y {}  obs {}\nmax_y {} min_y {}\nscaled_diff: \n{}\n", 
+        #                 self.optimum_point, action_mapped, self.max_y, obs_raw, self.max_y, self.min_y, scaled_difference)
 
         # Combine reward components
         reward = (
@@ -337,7 +390,8 @@ class MultiFunctionEnv(gym.Env):
         self._last_avg_scaled_obs = float(avg_scaled_obs)
         if float(current_best_scaled_y) > self.best_scaled_y_so_far:
             self.best_scaled_y_so_far = float(current_best_scaled_y)
-
+            
+        # print("sadg", action_mapped.shape, action.shape, padded_obs_raw.shape, scaled_observation.shape)
         # Store step data
         self._episode_raw_rewards.append(float(reward[0])) # Store scalar reward
         self._episode_mses.append(float(mse))
@@ -347,9 +401,13 @@ class MultiFunctionEnv(gym.Env):
         self._episode_actions.append(np.array(action_mapped)) # Store mapped actions taken
 
         # --- Construct Observation for Next State ---
+        # print(np.array(padded_obs_raw, dtype=np.float32).shape, np.array(np.expand_dims(scaled_observation, axis=-1)).shape, just_for_test.shape)
+        
         observation = {
-            "actions": np.array(action_mapped, dtype=np.float32),   # Action that led to this state
-            "observations": np.array(padded_obs_raw, dtype=np.float32), # Raw Y values resulting from action
+            # "actions": np.array(action_mapped, dtype=np.float32),   # Action that led to this state
+            # "observations": np.array(padded_obs_raw, dtype=np.float32), # Raw Y values resulting from action
+            "actions": np.array(action, dtype=np.float32),   # Action that led to this state
+            "observations": np.reshape(np.array(just_for_test, dtype=np.float32), (self.max_batches, 1)), # Raw Y values resulting from action
             "reward": np.array(reward, dtype=np.float32),          # Reward obtained for reaching this state
             "mask": np.array([self.batch_size], dtype=np.int32),   # Valid samples in "observations"
             "step": np.array([self.tick], dtype=np.int32)          # Current step number
@@ -373,6 +431,7 @@ class MultiFunctionEnv(gym.Env):
             # info["observations_episode"] = np.stack(self._episode_eval_obs) # Optional: full observation history
             info["success"] = np.array(self.achieved_success_threshold)
             info["max_x"] = self.optimum_point # Optimum of the function used
+            info["distance_from_max"] = np.linalg.norm(self.best_obs_x - self.optimum_point) # Distance from optimum
 
             # Optionally reset internal lists here if memory is a concern,
             # but they are reset in reset() anyway.
@@ -393,3 +452,27 @@ class MultiFunctionEnv(gym.Env):
     def close(self):
         # Add any necessary cleanup here
         pass
+    
+    
+    
+def get_sampler_class(name):
+    if name == 'ackley':
+        return AckleySampler
+    elif name == 'cosine':
+        return CosineSampler
+    elif name == 'poly':
+        return PolySampler
+    elif name == 'eggholder':
+        return EggholderSamplerND
+    elif name == 'rosenbrock':
+        return RosenbrockSampler
+    elif name == 'michalewicz':
+        return MichalewiczSampler
+    elif name == 'hartmann6':
+        return Hartmann6Sampler
+    elif name == 'branin':
+        return BraninSampler
+        
+   
+    else:
+        raise ValueError(f"Unknown function sampler name: {name}")

@@ -100,6 +100,10 @@ def dict_unpack_model(hidden_sizes=(256, 128)):
             # reward.shape = (1,)
             # mask is a integer which says until which batch the data is valid, so if batch_size = 10 and mask = 5, then the first 5 batches are valid and the rest are invalid
            
+            for k in x.keys():
+                print(k, x[k].shape)
+                pass
+           
             #This is to create a vmap for each field in the input
             def create_vmap_mlp():
                 return nn.vmap(
@@ -206,6 +210,10 @@ def dict_unpack_mask(
         @nn.compact
         def __call__(self, x):
             
+            
+           
+           
+            
             # Function to create a sequential MLP with parameterized hidden sizes
             def create_mlp_layers(hidden_sizes):
                 layers = []
@@ -233,9 +241,13 @@ def dict_unpack_mask(
 
             # Split the fields into batch related and step related
             
-            
             # for k in x.keys():
-            #     print(k, x[k])
+            #     jax.debug.print("x {} dims {} shape {}", k, len(x[k].shape), x[k].shape)
+                
+            print("x_act", x["actions"].shape)
+            print("x", x["observations"].shape)
+            print("x", x["reward"].shape)
+            print("x", x["mask"].shape)
             
             
             
@@ -244,6 +256,9 @@ def dict_unpack_mask(
                 x[k][:, :, None, :]
                 for k in batch_related
             ]
+            
+            
+            print("expanded_inputs", expanded_inputs[0].shape)
             
            
             

@@ -1,4 +1,4 @@
-from src.tasks.envs.function_envs.function_samplers import FunctionSampler
+from src.tasks.envs.function_envs.sampling_functions.base_sampler import FunctionSampler
 import numpy as np
 import itertools 
 
@@ -14,12 +14,12 @@ class EggholderSamplerND(FunctionSampler):
         if action_dim < 2:
             raise ValueError("EggholderSamplerND requires action_dim >= 2.")
         # Ensure x_range is a tuple/list of length 2
-        if not (isinstance(x_range, (tuple, list)) and len(x_range) == 2):
-             raise ValueError("x_range must be a tuple or list of two elements (min, max).")
+        self.x_range = [-512,512]
+        x_range = self.x_range 
 
         # Default config for grid sampling density
         # Lower default due to exponential scaling
-        default_num_samples = 20 if action_dim <= 3 else (10 if action_dim <= 5 else 5)
+        default_num_samples = 1000#20 if action_dim <= 3 else (10 if action_dim <= 5 else 5)
         default_config = {"num_samples_per_dim": default_num_samples}
         if config:
             default_config.update(config)
@@ -39,44 +39,49 @@ class EggholderSamplerND(FunctionSampler):
         specified x_range using grid sampling, plus corners.
         Sets the optimum_point to the location of the maximum y value found.
         """
-        lower, upper = self.x_range
-        num_samples = self.config.get("num_samples_per_dim")
+        # lower, upper = self.x_range
+        # num_samples = self.config.get("num_samples_per_dim")
 
-        # 1. Generate grid points
-        try:
-            linspaces = [np.linspace(lower, upper, num_samples) for _ in range(self.action_dim)]
-            grid_points = np.array(list(itertools.product(*linspaces))) # Creates all combinations
-        except MemoryError:
-             raise MemoryError(f"Failed to create grid ({num_samples}^{self.action_dim} points). "
-                               f"Reduce 'num_samples_per_dim' or action_dim for EggholderSamplerND.")
+        # # 1. Generate grid points
+        # try:
+        #     linspaces = [np.linspace(lower, upper, num_samples) for _ in range(self.action_dim)]
+        #     grid_points = np.array(list(itertools.product(*linspaces))) # Creates all combinations
+        # except MemoryError:
+        #      raise MemoryError(f"Failed to create grid ({num_samples}^{self.action_dim} points). "
+        #                        f"Reduce 'num_samples_per_dim' or action_dim for EggholderSamplerND.")
 
 
-        # 2. Generate corner points
-        corners = np.array(list(itertools.product(*[[lower, upper] for _ in range(self.action_dim)])))
+        # # 2. Generate corner points
+        # corners = np.array(list(itertools.product(*[[lower, upper] for _ in range(self.action_dim)])))
 
-        # 3. Combine points: grid and corners
-        all_points = np.vstack([grid_points, corners])
+        # # 3. Combine points: grid and corners
+        # all_points = np.vstack([grid_points, corners])
 
-        # 4. Remove duplicates
-        unique_points = np.unique(all_points, axis=0)
+        # # 4. Remove duplicates
+        # unique_points = np.unique(all_points, axis=0)
 
-        # 5. Evaluate the function at these unique points
-        y_values = self.compute_y(unique_points)
-        y_values = np.atleast_1d(y_values) # Ensure it's an array
+        # # 5. Evaluate the function at these unique points
+        # y_values = self.compute_y(unique_points)
+        # y_values = np.atleast_1d(y_values) # Ensure it's an array
 
-        # 6. Find min, max y, and the point corresponding to max y
-        self.min_y = np.min(y_values)
-        self.max_y = np.max(y_values)
-        max_idx = np.argmax(y_values)
-        self.optimum_point = unique_points[max_idx]
+        # # 6. Find min, max y, and the point corresponding to max y
+        # self.min_y = np.min(y_values)
+        # self.max_y = np.max(y_values)
+        # max_idx = np.argmax(y_values)
+        # self.optimum_point = unique_points[max_idx]
 
-        # 7. Ensure max_y is strictly greater than min_y for scaling
-        if np.isclose(self.max_y, self.min_y):
-             # If min/max are too close (e.g., flat surface or single point evaluated), add epsilon
-             self.min_y -= 1e-6
-             # Re-check if max_y needs adjustment if it was also the min_y originally
-             if np.isclose(self.max_y, self.min_y + 1e-6):
-                 self.max_y += 1e-6
+        # # 7. Ensure max_y is strictly greater than min_y for scaling
+        # if np.isclose(self.max_y, self.min_y):
+        #      # If min/max are too close (e.g., flat surface or single point evaluated), add epsilon
+        #      self.min_y -= 1e-6
+        #      # Re-check if max_y needs adjustment if it was also the min_y originally
+        #      if np.isclose(self.max_y, self.min_y + 1e-6):
+        #          self.max_y += 1e-6
+        self.max_y = 959.6407
+        self.min_y = -1049.0
+        self.optimum_point = np.array([512.0, 404.2319]) # This is the theoretical optimum for the 2D Eggholder function
+                 
+        print(f"EggholderSamplerND initialized with min_y: {self.min_y}, max_y: {self.max_y}, {self.optimum_point}")
 
         return self.optimum_point, self.min_y, self.max_y
 

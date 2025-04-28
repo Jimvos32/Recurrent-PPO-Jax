@@ -7,11 +7,11 @@ decoder_params_hidden: [64, 32]
 latent_dim: 6
 d_critic: 128
 num_envs: 8
-rollout_len: 256
+rollout_len: 128
 sequence_length: null
 gamma: 0.99
 gae_lambda: 0.95
-num_minibatches: 8
+num_minibatches: 4
 update_epochs: 4
 norm_adv: false
 clip_coef: 0.1
@@ -20,24 +20,24 @@ dist_model: ${experiment.combos.${experiment.choice}.dist_model}
 sample_distribution: ${experiment.combos.${experiment.choice}.sample_distribution}
 
 ent_coef: 
-  initial: 0.3
-  final: 0.0
-  max_decay_steps: 1000
+  init_value: 0.3
+  end_value: 0.1
+  transition_steps: 1000
   power: 1
 
 stability_coef: 
-  initial: 0.06
-  final: 0
-  max_decay_steps: 1000
+  init_value: 0.06
+  end_value: 0
+  transition_steps: 1000
   power: 2
 
 vf_coef: 0.4
 max_grad_norm: 0.5
 optimizer: 
   learning_rate: 
-    initial: 2.5e-4
-    final: null
-    max_decay_steps: 1000
+    init_value: 2.5e-4
+    end_value: 2.5e-4
+    transition_steps: 1000
     power: 1
 defaults:
   - _self_

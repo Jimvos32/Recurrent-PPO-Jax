@@ -1,16 +1,19 @@
 import jax, jax.numpy as jnp
-from src.agents.ppo_dic_inherits.inh_agents.standard_sampling import SamplingImplBase
+from src.agents.ppo_dic_inherits.inh_agents.standard_sampling_jax import SamplingImplBaseJax
 
-class FullParamsSampling(SamplingImplBase):
+class FullParamsSamplingJax(SamplingImplBaseJax):
     
     def sampling_differ(self, act_logits, key, masks):
-        # print("sampling_differ", act_logits.shape, key.shape, masks.shape)
+        
+        
+        print("sampling_differ", act_logits.shape, key.shape, masks.shape)
+        print(self.batch_size, self.action_dim)
         
         means, scale = jnp.split(act_logits,2,-1)
-        N = means.shape[0] 
+        
       
-        means = means.reshape((N,self.batch_size,self.action_dim))
-        scale = scale.reshape((N,self.batch_size,self.action_dim))
+        means = means.reshape((self.batch_size,self.action_dim))
+        scale = scale.reshape((self.batch_size,self.action_dim))
         
         # self.ent_schedule(update_tick) 
         noise = jax.random.normal(key, means.shape)
@@ -32,33 +35,41 @@ class FullParamsSampling(SamplingImplBase):
     def gaussian_log_prob(self, actions, act_logits):
         epsilon = 1e-6
         
-        act_logits = jnp.reshape(act_logits, (act_logits.shape[0],
-                                                act_logits.shape[1],
-                                                1,
-                                                act_logits.shape[-1]))
+        # print("gaussian_log_prob", actions.shape, act_logits.shape)
+        
+        # act_logits = jnp.reshape(act_logits, (act_logits.shape[0],
+        #                                         act_logits.shape[1],
+        #                                         1,
+        #                                         act_logits.shape[-1]))
         
                 
         # Split into means and log_stds; each will be shape (N, T, 1, action_dim)
+        N = act_logits.shape[0]
         means, std_out = jnp.split(act_logits, 2, axis=-1)
         
-      
-        N = means.shape[0]
-        S = means.shape[1]
+        print("means shape", means.shape, "std_out shape", std_out.shape, "actions shape", actions.shape, "act_logits shape", act_logits.shape)
         
+      
+     
         # Broadcast means, stds, log_stds from sample dimension (1) to batch_size.
-        means = jnp.reshape(means, (N, S, self.batch_size, self.action_dim))
-        stds = jnp.reshape(std_out, (N, S, self.batch_size, self.action_dim))
+        means = jnp.reshape(means, (N, self.batch_size, self.action_dim))
+        stds = jnp.reshape(std_out, (N, self.batch_size, self.action_dim))
         
                                             
         # Unsquash the actions: a = tanh(u)  => u = atanh(a)
         # Ensure actions are in (-1+epsilon, 1-epsilon)
         u = jnp.arctanh(jnp.clip(actions, -1 + epsilon, 1 - epsilon))
         
+        print("u shape", u.shape, "means shape", means.shape, "stds shape", stds.shape)
+        
         
         log_prob_per_dim = jax.scipy.stats.norm.logpdf(u, means, stds)
     
         # Sum log probabilities across action dimensions
+        
+        # print("log_prob_per_dim shape", log_prob_per_dim.shape, "means shape", means.shape, "stds shape", stds.shape)
         base_log_prob = jnp.sum(log_prob_per_dim, axis=-1)  # Shape: (N, T, batch_size)
+        # print("base_log_prob shape", base_log_prob.shape)
         
         # Calculate the log determinant of Jacobian for the tanh transformation
         # log|det(d/du tanh(u))| = log(1 - tanh^2(u)) = log(1 - actions^2)
@@ -68,8 +79,12 @@ class FullParamsSampling(SamplingImplBase):
         # Subtract the log determinant to get corrected log probability
         log_prob = base_log_prob - log_det_jacobian  # Shape: (N, T, batch_size)
         
+        
+        
         # Optionally, mask invalid actions (if the first element of action is -2, mark log_prob 0)
         valid_mask = (actions[..., 0] != -2)
+        
+        # print("valid_mask shape", valid_mask.shape, "actions shape", actions.shape)
         log_prob = jnp.where(valid_mask, log_prob, 0.0)
         log_prob = jnp.sum(log_prob, axis=-1)  # shape (N, T)
         
@@ -83,16 +98,16 @@ class FullParamsSampling(SamplingImplBase):
 
     def entropy(self, logits, mask, key=None):#tanh in entropy calculation
         
-        N, S = logits.shape[0], logits.shape[1]
-        logits = jnp.reshape(logits, (N, S, 1, logits.shape[-1]))
+        N = logits.shape[0]
+        # logits = jnp.reshape(logits, (N, logits.shape[-1]))
         
       
         means, stds = jnp.split(logits, 2, axis=-1)
         
        
         # New shape: (N, T, batch_size, action_dim)
-        means = jnp.reshape(means, (N, S, self.batch_size, self.action_dim))
-        stds = jnp.reshape(stds, (N, S, self.batch_size, self.action_dim))
+        means = jnp.reshape(means, (N, self.batch_size, self.action_dim))
+        stds = jnp.reshape(stds, (N, self.batch_size, self.action_dim))
         
      
         # means = jnp.full_like(means, 0.0)

@@ -1,5 +1,5 @@
 import numpy as np
-from src.tasks.envs.function_envs.function_samplers import FunctionSampler
+from src.tasks.envs.function_envs.sampling_functions.base_sampler import FunctionSampler
 import itertools
 
 class BraninSampler(FunctionSampler):
@@ -19,8 +19,20 @@ class BraninSampler(FunctionSampler):
     _R = 6.0
     _S = 10.0
     _T = 1.0 / (8.0 * np.pi)
+    _scaling = 1.0 # Scaling factor for the function value
     # Standard domain (can be list of tuples for per-dimension bounds)
     _STANDARD_X_RANGE = [(-5.0, 10.0), (0.0, 15.0)]
+    
+    # # Scaling factor for the function value (default is 1.0)
+    # _A = 1.0
+    # _B = 5.1 / (4.0 * np.pi**2)
+    # _C = 5.0 / np.pi
+    # _R = 6.0
+    # _S = 44.81
+    # _T = 1(10.0 / (8.0 * np.pi))
+    # _scaling = 1.0 / 51.95 # Scaling factor for the function value
+    # # Standard domain (can be list of tuples for per-dimension bounds)
+    # _STANDARD_X_RANGE = [(0, 1), (0,1)]
     # Known global minima locations (for original function)
     _OPTIMA_LOCATIONS = np.array([
         [-np.pi, 12.275],
@@ -35,32 +47,19 @@ class BraninSampler(FunctionSampler):
             print(f"Warning: Branin function is 2-dimensional. Overriding action_dim from {action_dim} to 2.")
             action_dim = 2
 
-        # # Handle x_range: Use standard if None, validate if provided
-        # if x_range is None:
-        #     x_range = self._STANDARD_X_RANGE
-        # elif isinstance(x_range, (tuple, list)) and len(x_range) == 2 and not isinstance(x_range[0], (tuple, list)):
-        #      # Single range provided, apply to both dimensions
-        #      print(f"Warning: Applying single x_range {x_range} to both dimensions of Branin. Standard ranges are different.")
-        #      x_range = [tuple(x_range), tuple(x_range)]
-        # elif isinstance(x_range, (list, tuple)) and len(x_range) == 2 and isinstance(x_range[0], (list, tuple)) and isinstance(x_range[1], (list, tuple)):
-        #      # List/tuple of two ranges provided
-        #      x_range = [tuple(x_range[0]), tuple(x_range[1])]
-        # else:
-        #      raise ValueError("x_range must be None (for standard), a single tuple (min, max), "
-        #                       "or a list/tuple of two tuples [(min1, max1), (min2, max2)].")
-        
-        
-        x_range = [(-15.0, 15.0), (-15.0, 15.0)]
+        x_range = [(-5.0, 10.0), (0.0, 15.0)]
 
-        # Default config for grid sampling density and parameters
+        default_num_samples = 1000000 
+        dim_samples = int(round(default_num_samples**(1/action_dim)))
         default_config = {
-            "num_samples_per_dim": 50, # Branin is only 2D, can afford more samples
+            "num_samples_per_dim": dim_samples, # Branin is only 2D, can afford more samples
             "a": self._A,
             "b": self._B,
             "c": self._C,
             "r": self._R,
             "s": self._S,
             "t": self._T,
+            "scaling": self._scaling
         }
         if config:
             default_config.update(config)
@@ -74,6 +73,7 @@ class BraninSampler(FunctionSampler):
         self.r = self.config.get("r")
         self.s = self.config.get("s")
         self.t = self.config.get("t")
+        self._scaling = self.config.get("scaling")
 
     def _get_bounds(self):
         """Helper to get lower and upper bounds per dimension."""
@@ -158,6 +158,8 @@ class BraninSampler(FunctionSampler):
 
         # Original Branin function value
         f_val = term1 + term2 + term3
+        
+        f_val = self._scaling * f_val
 
         # Flip for maximization
         y = -f_val

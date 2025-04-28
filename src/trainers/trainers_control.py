@@ -10,7 +10,7 @@ import logging
 from argparse import Namespace
 from src.trainers.base_trainer import BaseTrainer
 from collections import OrderedDict
-from src.tasks.envs.minigrid_env import create_minigrid_env_onehot,create_minigrid_env_pixel, create_sampling_env, create_multi_dim_env, create_multi_batch_env, create_mbatch, create_multi_dim, create_multi_fun_env, create_multi_batch_env, create_multi_dim
+from src.tasks.envs.minigrid_env import create_minigrid_env_onehot,create_minigrid_env_pixel, create_sampling_env, create_multi_dim_env, create_multi_batch_env, create_mbatch, create_multi_dim, create_multi_fun_env, create_multi_batch_env, create_multi_dim, create_jax_env
 from src.agents.a2c import A2CAgent
 from src.agents.ppo import PPOAgent
 from src.agents.ppo_vae import PPOAgentVAE
@@ -26,7 +26,7 @@ from src.agents.ppo_dic_inherits.vae_ppo import VAEPPO
 from src.agents.ppo_dic_inherits.inh_agents.full_params_agent import FullParamsSampling
 from src.agents.ppo_dic_inherits.inh_agents.cor_gmm_agent import CorrelatedGaussianMixture 
 from src.agents.ppo_dic_inherits.inh_agents.low_mvn_agent import LowRankMVN 
-from src.agents.ppo_dic_inherits.inh_agents.flow_jax_agent import FlowMVN
+# from src.agents.ppo_dic_inherits.inh_agents.flow_jax_agent import FlowMVN
 
 
 
@@ -35,6 +35,7 @@ logger = logging.getLogger(__name__)
 
 
 def create_train_eval_envs(env_config):
+    # print("env_config", env_config)
     max_value = max(env_config['batches'])
     env_config['max_batches'] = max_value
     env_config['function_types'] = env_config['env_train']
@@ -45,7 +46,19 @@ def create_train_eval_envs(env_config):
     eval_config['batches'] = eval_b
     eval_config['function_types'] = env_config['env_test']
     
-    print("train batches", env_config)
+    # print("env_config", env_config, "eval_config", eval_config)
+    
+    multi_eval_envs = {}
+    
+    for f_type in eval_config['function_types']:
+        f_eval_c = eval_config.copy()
+        print("f_eval_c", f_eval_c)
+        f_eval_c['function_types'] = [f_type]
+        print("f_eval_c", f_type)
+        multi_eval_envs[f_type] = lambda: create_multi_fun_env(**f_eval_c)
+        
+
+    # print("multi_eval_envs", eval_config)
     
     train_fn = lambda: create_multi_fun_env(**env_config)
     eval_fn = lambda: create_multi_fun_env(**eval_config)
@@ -70,14 +83,11 @@ def create_train_eval_envs(env_config):
     
     print("train_fn", type(train_fn))#, "eval_fn", eval_fn, "repr_fn", repr_fn)   
     
-    return train_fn,eval_fn, repr_fn
+    return train_fn,eval_fn, repr_fn, multi_eval_envs
 
 
 def get_env_initializers(env_config):
-    task = env_config['task']
-    print("env_config", env_config['task'], env_config['task'] == "flow_jax")
-    # env_config=OmegaConf.to_container(env_config)
-    print("env_config", env_config['task'], env_config['task'] == "flow_jax")
+    env_config=OmegaConf.to_container(env_config, resolve=True)
     if env_config['task']=='minigrid_pixel':
         env_fn=lambda: create_minigrid_env_pixel(**env_config)
         repr_fn=atari_conv_repr_model()
@@ -114,9 +124,14 @@ def get_env_initializers(env_config):
         env_fn=lambda: create_multi_dim(**env_config)
         repr_fn=dict_unpack_model()
         return env_fn,env_fn,repr_fn
+    elif env_config['task']=='jax':
+        env_fn=lambda: create_jax_env(**env_config)
+        repr_fn=dict_unpack_model()
+        return env_fn,env_fn,repr_fn, {"test", env_fn}
+        
     else:
-        train_fn,eval_fn,repr_fn=create_train_eval_envs(env_config)
-        return train_fn,eval_fn,repr_fn
+        train_fn,eval_fn,repr_fn, multi_eval_fns=create_train_eval_envs(env_config)
+        return train_fn,eval_fn,repr_fn, multi_eval_fns
     
  
     
@@ -160,7 +175,7 @@ class ControlTrainer(BaseTrainer):
             - key: Random key for Jax.
             - seed: Seed for random number generation.
         """
-        env_fn,eval_env_fn,repr_fn=get_env_initializers(kwargs['env_config'])
+        env_fn,eval_env_fn,repr_fn,mult_eval_fns=get_env_initializers(kwargs['env_config'])
         flow_fn = get_flow_func(kwargs['trainer_config']['dist_model'], kwargs['env_config']['action_dim'])
         self.wandb_run=kwargs['wandb_run']
         self.trainer_config=kwargs['trainer_config']
@@ -184,7 +199,10 @@ class ControlTrainer(BaseTrainer):
             env_type=gym.vector.SyncVectorEnv
         train_envs=env_type([lambda: EpisodeStatisticsWrapper(AutoResetWrapper((env_fn())))for seed in train_seeds])#,shared_memory=False)
        
-
+        for i in mult_eval_fns:
+            print("mult_eval_fns")
+            mult_eval_fns[i] = RecordRollout(AutoResetWrapper(mult_eval_fns[i]()))
+        
         eval_env=RecordRollout(AutoResetWrapper(eval_env_fn()))
         train_envs.reset(seed=train_seeds)
         eval_env.reset(seed=eval_seeds)
@@ -298,16 +316,16 @@ class ControlTrainer(BaseTrainer):
             actor_fn = variational(self.trainer_config['d_actor'], list(self.trainer_config['actor_params_hidden']) + 
                                         [self.trainer_config['latent_dim']], self.trainer_config['decoder_params_hidden'] + [eval_env.unwrapped.action_dim])
             
-        elif name == "flow_jax":
-            sampling_imp = FlowMVN
+        # elif name == "flow_jax":
+        #     sampling_imp = FlowMVN
             
-            policy_out = eval_env.unwrapped.action_dim
-            # policy_out = eval_env.unwrapped.action_dim * eval_env.unwrapped.max_batches
-            # policy_out = covariance + covariance * (covariance + 1) // 2
+        #     policy_out = eval_env.unwrapped.action_dim
+        #     # policy_out = eval_env.unwrapped.action_dim * eval_env.unwrapped.max_batches
+        #     # policy_out = covariance + covariance * (covariance + 1) // 2
             
             
-            actor_fn = mvn_flow_head(policy_out, shared_seq_sizes=self.trainer_config['d_actor'], 
-                                     policy_hidden_sizes=self.trainer_config['actor_params_hidden'])
+        #     actor_fn = mvn_flow_head(policy_out, shared_seq_sizes=self.trainer_config['d_actor'], 
+        #                              policy_hidden_sizes=self.trainer_config['actor_params_hidden'])
             
 
         critic_fn=critic_model(self.trainer_config['d_critic'])
@@ -329,22 +347,22 @@ class ControlTrainer(BaseTrainer):
             num_updates = self.global_config.steps // batch_size
             optimizer_config = dict(self.trainer_config.optimizer)
             learning_rate=optimizer_config.pop("learning_rate")
-            if learning_rate['final'] is None:
-                learning_rate['final']=learning_rate['initial'] #Set to none if you don't want decay
-            if self.trainer_config['ent_coef']['final'] is None:
-                self.trainer_config['ent_coef']['final']=self.trainer_config['ent_coef']['initial']
+            if learning_rate['end_value'] is None:
+                learning_rate['end_value']=learning_rate['init_value'] #Set to none if you don't want decay
+            if self.trainer_config['ent_coef']['end_value'] is None:
+                self.trainer_config['ent_coef']['end_value']=self.trainer_config['ent_coef']['init_value']
             
             
-            lr_schedule=optax.polynomial_schedule(learning_rate['initial'],learning_rate['final'],learning_rate['power'],learning_rate['max_decay_steps'])
-            ent_schedule=optax.polynomial_schedule(self.trainer_config['ent_coef']['initial'],self.trainer_config['ent_coef']['final'],
-                                                   self.trainer_config['ent_coef']['power'],self.trainer_config['ent_coef']['max_decay_steps'])
-            stability_schedule=optax.polynomial_schedule(self.trainer_config['stability_coef']['initial'],self.trainer_config['stability_coef']['final'],
-                                                   self.trainer_config['stability_coef']['power'],self.trainer_config['stability_coef']['max_decay_steps'])
+            lr_schedule=optax.polynomial_schedule(learning_rate['init_value'],learning_rate['end_value'],learning_rate['power'],learning_rate['transition_steps'])
+            ent_schedule=optax.polynomial_schedule(self.trainer_config['ent_coef']['init_value'],self.trainer_config['ent_coef']['init_value'],
+                                                   self.trainer_config['ent_coef']['power'],self.trainer_config['ent_coef']['transition_steps'])
+            stability_schedule=optax.polynomial_schedule(self.trainer_config['stability_coef']['init_value'],self.trainer_config['stability_coef']['init_value'],
+                                                   self.trainer_config['stability_coef']['power'],self.trainer_config['stability_coef']['transition_steps'])
 
             self.optimizer=optax.chain(
                                 optax.clip_by_global_norm(self.trainer_config['max_grad_norm']),
                                 optax.inject_hyperparams(optax.adamw)(
-                                    learning_rate=self.trainer_config['ent_coef']['initial'], **optimizer_config
+                                    learning_rate=self.trainer_config['ent_coef']['init_value'], **optimizer_config
                                 ),
                             )
             
@@ -362,6 +380,7 @@ class ControlTrainer(BaseTrainer):
                 "lr_schedule": lr_schedule,
                 "ent_schedule": ent_schedule,
                 "stability_schedule": stability_schedule,
+                "mult_eval_envs": mult_eval_fns,
                 
 
                 "num_steps": self.rollout_len,
@@ -720,12 +739,13 @@ class ControlTrainer(BaseTrainer):
             metrics['step']=self.step_count
             metrics['eval/eval_avg_episode_len']=float(avg_episode_len)
             metrics['eval/eval_avg_episode_return']=float(avg_episode_return)
-            metrics['eval/avg_reward']=float(eval_stats['avg_rew'])
-            metrics['eval/regret']=float(eval_stats['regret'])
-            metrics['eval/best_action']=float(eval_stats['best'])
-            metrics['eval/succes rate']=float(eval_stats['success'])
+            # metrics['eval/avg_reward']=float(eval_stats['avg_rew'])
+            # metrics['eval/regret']=float(eval_stats['regret'])
+            # metrics['eval/best_action']=float(eval_stats['best'])
+            # metrics['eval/succes rate']=float(eval_stats['success'])
             # metrics['rollouts']=wandb.Video(rollouts, fps=self.global_config.get('record_fps',5), format="gif")
             # metrics['rollouts']=wandb.Table(dataframe=df)
+            metrics = metrics | eval_stats
         return loss,metrics,self.step_count
     
 

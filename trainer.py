@@ -16,6 +16,7 @@ import hydra
 import jax.numpy as jnp
 import itertools
 from src.trainers.trainers_control import ControlTrainer
+from src.trainers.trainers_control_jax import ControlTrainerJaxRefactored
 from omegaconf import DictConfig, OmegaConf
 import pandas as pd
 from tqdm import tqdm
@@ -49,6 +50,7 @@ task_to_trainer={
     'full_params': ControlTrainer,
     'vae': ControlTrainer,
     'flow_jax': ControlTrainer,
+    'jax': ControlTrainerJaxRefactored,
 }
 
 @hydra.main(version_base=None, config_path="config", config_name="sweep_test")
@@ -72,7 +74,6 @@ def main(config: DictConfig):
     # print("degree", config.task.env, config.task.action_dim, config.task.bounds, "prject", config.project_name)
     
     env = "train" + str(config.task.env_train) + "-test" + str(config.task.env_test)
-    print("asdg", env)
     project_name = "env " + env + "-dim " + str(config.task.action_dim) + "-bounds " + str(config.task.bounds) + "-" + config.project_name
     tags=config.tags.split(',') if config.tags is not None else []
     # project_name = "debugging"
@@ -106,6 +107,9 @@ def main(config: DictConfig):
     pbar = tqdm(total=config.steps)
     step_count=0
     last_step_count=0
+    
+    
+    
     with logging_redirect_tqdm():
         while True:
             loss,metrics,step_count=trainer.step()

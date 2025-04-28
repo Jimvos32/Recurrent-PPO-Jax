@@ -1,14 +1,7 @@
 # function_samplers.py
 import numpy as np
 import abc
-# from src.tasks.envs.function_envs.sampling_functions.branin_sampler import BraninSampler
-# from src.tasks.envs.function_envs.sampling_functions.eggholder_sampler import EggholderSamplerND
-# # from src.tasks.envs.function_envs.sampling_functions.ackley_sampler import AckleySampler
-# # from src.tasks.envs.function_envs.sampling_functions.cosine_sampler import CosineSampler
-# # from src.tasks.envs.function_envs.sampling_functions.poly_sampler import PolySampler
-# from src.tasks.envs.function_envs.sampling_functions.rosenbrock_sampler import RosenbrockSampler
-# from src.tasks.envs.function_envs.sampling_functions.michalewicz_sampler import MichalewiczSampler
-# from src.tasks.envs.function_envs.sampling_functions.hartmann_sampler import Hartmann6Sampler
+
 
 class FunctionSampler(abc.ABC):
     """Abstract base class for function samplers."""
@@ -225,16 +218,16 @@ def get_sampler_class(name):
         return CosineSampler
     elif name == 'poly':
         return PolySampler
-    # elif name == 'eggholder':
-    #     return EggholderSamplerND
-    # elif name == 'rosenbrock':
-    #     return RosenbrockSampler
-    # elif name == 'michalewicz':
-    #     return MichalewiczSampler
-    # elif name == 'hartmann6':
-    #     return Hartmann6Sampler
-    # elif name == 'branin':
-    #     return BraninSampler
+    elif name == 'eggholder':
+        return EggholderSamplerND
+    elif name == 'rosenbrock':
+        return RosenbrockSampler
+    elif name == 'michalewicz':
+        return MichalewiczSampler
+    elif name == 'hartmann6':
+        return Hartmann6Sampler
+    elif name == 'branin':
+        return BraninSampler
         
    
     else:

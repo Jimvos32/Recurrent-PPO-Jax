@@ -1,4 +1,4 @@
-from src.tasks.envs.function_envs.function_samplers import FunctionSampler
+from src.tasks.envs.function_envs.sampling_functions.base_sampler import FunctionSampler
 import numpy as np
 import itertools 
 
@@ -42,12 +42,15 @@ class Hartmann6Sampler(FunctionSampler):
         if not (isinstance(x_range, (tuple, list)) and len(x_range) == 2 and not isinstance(x_range[0], (tuple, list))):
              raise ValueError("x_range for Hartmann6Sampler must be a tuple or list of two elements (min, max).")
 
+        total_samples = 1000000
+        samples_dim = int(round(total_samples**(1/action_dim)))
+
         # Default config - VERY LOW sample density due to 6D
         default_config = {
             "alpha": None, # Use standard if None
             "A": None,
             "P": None,
-            "num_samples_per_dim": 5 # Results in 5^6 = 15625 samples
+            "num_samples_per_dim": samples_dim # Results in 5^6 = 15625 samples
         }
         if config:
             default_config.update(config)
