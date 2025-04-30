@@ -8,24 +8,20 @@ class SamplingImplBaseJax:
     
     """Shared utilities (only apply_padding_mask). All actual sampling logic is abstract."""
     def apply_padding_mask(self, actions, mask, pad_value=-2.0):
-        m_threshold = mask[0] # Extract the scalar index value from M
+        m_threshold = mask[0]
+
         num_rows, num_cols = actions.shape
 
-        # Create an array representing column indices [0, 1, 2, ..., z-1]
-        col_indices = jnp.arange(num_cols)
+        row_indices = jnp.arange(num_rows)
 
-  
-        condition_to_keep = col_indices < m_threshold
+       
+        condition_to_keep = row_indices < m_threshold # Shape: (num_rows,)
 
-        # Where condition_to_keep is True, take the value from X.
-        # Where condition_to_keep is False (i.e., col_index >= m), use replacement_value.
-        # JAX broadcasts the (z,) condition and the scalar replacement_value across X.
-        masked_actions = jnp.where(condition_to_keep, actions, pad_value)
-
-        # Optional: Ensure replacement_value has the same dtype as X if needed
-        # replacement_val_casted = jnp.array(replacement_value, dtype=X.dtype)
-        # replaced_X = jnp.where(condition_to_keep, X, replacement_val_casted)
-
+    
+        condition_reshaped = condition_to_keep[:, None] # Shape: (num_rows, 1)
+      
+        masked_actions = jnp.where(condition_reshaped, actions, pad_value)
+       
         return masked_actions
     
     def sampling_differ(self, act_logits, key, masks):

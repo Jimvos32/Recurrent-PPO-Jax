@@ -30,7 +30,13 @@ class FullParamsSamplingJax(SamplingImplBaseJax):
         # jax.debug.print("mean {}, std {} noise {} out {}\n", jnp.mean(means, axis=0), jnp.mean(scale[0,0], axis=0), jnp.mean(noise[0,0], axis=0), jnp.mean(out, axis=0))
         # jax.debug.print("lean {}, ltd {} loise {} lut {}\n",  means[0,0], scale[0,0], noise[0,0], out[0,0])
         
-        return self.apply_padding_mask(out, masks)
+        
+        x = self.apply_padding_mask(out, masks)
+        
+        # print("padding mask shape", x.shape, "out shape", out.shape, "masks shape", masks.shape)
+        
+        # jax.debug.print("out {}\n masked {}\nmasks {}", out, x, masks)
+        return x
     
     def gaussian_log_prob(self, actions, act_logits):
         epsilon = 1e-6
@@ -84,8 +90,11 @@ class FullParamsSamplingJax(SamplingImplBaseJax):
         # Optionally, mask invalid actions (if the first element of action is -2, mark log_prob 0)
         valid_mask = (actions[..., 0] != -2)
         
+        
+        
         # print("valid_mask shape", valid_mask.shape, "actions shape", actions.shape)
         log_prob = jnp.where(valid_mask, log_prob, 0.0)
+        # jax.debug.print("valid_mask shape: \n{} actions shape: \n{} logprob\n{}", valid_mask, actions, log_prob)
         log_prob = jnp.sum(log_prob, axis=-1)  # shape (N, T)
         
         # jax.debug.print("Log probability shape: {}, std {} mean {}", log_prob[0,0], stds[0,0], means[0,0])
@@ -101,7 +110,7 @@ class FullParamsSamplingJax(SamplingImplBaseJax):
         N = logits.shape[0]
         # logits = jnp.reshape(logits, (N, logits.shape[-1]))
         
-      
+        print()
         means, stds = jnp.split(logits, 2, axis=-1)
         
        
@@ -127,7 +136,7 @@ class FullParamsSamplingJax(SamplingImplBaseJax):
    
         means_expanded = jnp.expand_dims(means, axis=-1)    # Shape: (N, T, batch_size, action_dim, 1)
         stds_expanded = jnp.expand_dims(stds, axis=-1)      # Shape: (N, T, batch_size, action_dim, 1)
-        quantiles_expanded = jnp.reshape(std_normal_quantiles, (1, 1, 1, 1, n_quantiles))
+        quantiles_expanded = jnp.reshape(std_normal_quantiles, (1, 1, 1, n_quantiles))
         
         
         
@@ -150,7 +159,7 @@ class FullParamsSamplingJax(SamplingImplBaseJax):
         corrected_entropy = base_entropy + correction
         # corrected_entropy = - correction
         
-        print("corrected_entropy shape", corrected_entropy.shape, "base_entropy shape", base_entropy.shape, "correction shape", correction.shape)
+       
         
        
         summed_entropy = jnp.sum(corrected_entropy, axis=-1) # Shape: (N, T, batch_size)

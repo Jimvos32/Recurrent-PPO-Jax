@@ -1,8 +1,8 @@
 agent: ppo
 d_actor: 256
 d_critic: 256
-num_envs: 8
-rollout_len: 256
+num_envs: 16
+rollout_len: 512
 sequence_length: null
 gamma: 0.99
 gae_lambda: 0.95

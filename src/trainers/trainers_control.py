@@ -640,6 +640,8 @@ class ControlTrainer(BaseTrainer):
             self.actions = jnp.array(self.actions)
             actions_dim = self.actions.reshape(-1, self.actions.shape[-1])
             actions_dims = {}
+            
+            print("actions_dim", actions_dim[:, 0].shape)
             for i in range(actions_dim.shape[-1]):
                 actions_dims[f"action/actions_{i}"] = wandb.Histogram(actions_dim[:, i])
             

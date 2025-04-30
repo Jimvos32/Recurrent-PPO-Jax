@@ -77,13 +77,15 @@ def main(config: DictConfig):
     project_name = "env " + env + "-dim " + str(config.task.action_dim) + "-bounds " + str(config.task.bounds) + "-" + config.project_name
     tags=config.tags.split(',') if config.tags is not None else []
     # project_name = "debugging"
+    print("Project name", config.task.env_train, config.task.env_test, config.task.action_dim, config.task.bounds, "prject", project_name)
     
     tags = [("m" + config.task.task + "b" + str(config.task.batches) + "s" + str(config.task.total_episode_samples))]
+    print("Tags", tags)
     
     if config.use_wandb and sys.platform=='win32':
-        run = wandb.init(project=project_name,name=run_name,tags=tags,settings=wandb.Settings(start_method="spawn"),config=OmegaConf.to_container(config))
+        run = wandb.init(project=project_name,name=run_name,tags=tags,settings=wandb.Settings(start_method="spawn"),config=OmegaConf.to_container(config, resolve=True))
     elif config.use_wandb and sys.platform!='win32':
-        run = wandb.init(project=project_name,name=run_name,tags=tags,settings=wandb.Settings(start_method="fork"),config=OmegaConf.to_container(config))
+        run = wandb.init(project=project_name,name=run_name,tags=tags,settings=wandb.Settings(start_method="fork"),config=OmegaConf.to_container(config, resolve=True))
     else:
         run=None
     key=jax.random.key(config.seed)

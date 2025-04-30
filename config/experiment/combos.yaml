@@ -68,11 +68,11 @@ combos:
   test_1:
     batches: [1, 1]
     dist_model: standard
-    project_name: "test_them_2d"
+    project_name: "t_2d"
     name: "full_params"
     task: "full_params"
     env_train: ["poly"]
-    env_test: ["ackley", "eggholder", "michalewicz", branin]
+    env_test: ["ackley", "eggholder", "michalewicz", "branin", "cosine"]
     steps: 500000
     
     bounds: [-5, 5]
@@ -87,11 +87,11 @@ combos:
   test_2:
     batches: [3, 3]
     dist_model: standard
-    project_name: "test_them_2d"
+    project_name: "t_2d"
     name: "full_params"
     task: "full_params"
     env_train: ["poly"]
-    env_test: ["ackley", "eggholder", "michalewicz", branin]
+    env_test: ["ackley", "eggholder", "michalewicz", "branin", "cosine"]
     steps: 500000
     
     bounds: [-5, 5]
@@ -106,11 +106,11 @@ combos:
   test_3:
     batches: [8, 8]
     dist_model: standard
-    project_name: "test_them_2d"
+    project_name: "t_2d"
     name: "full_params"
     task: "full_params"
     env_train: ["poly"]
-    env_test: ["ackley", "eggholder", "michalewicz", branin]
+    env_test: ["ackley", "eggholder", "michalewicz", "branin", "cosine"]
     steps: 500000
     
     bounds: [-5, 5]
@@ -125,11 +125,11 @@ combos:
   test_4:
     batches: [2, 1]
     dist_model: standard
-    project_name: "test_them_2d"
+    project_name: "t_2d"
     name: "full_params"
     task: "full_params"
     env_train: ["poly"]
-    env_test: ["ackley", "eggholder", "michalewicz", branin]
+    env_test: ["ackley", "eggholder", "michalewicz", "branin", "cosine"]
     steps: 500000
     
     bounds: [-5, 5]
@@ -144,11 +144,11 @@ combos:
   test_5:
     batches: [1,3,2,4]
     dist_model: standard
-    project_name: "test_them_2d"
+    project_name: "t_2d"
     name: "full_params"
     task: "full_params"
     env_train: ["poly"]
-    env_test: ["ackley", "eggholder", "michalewicz", branin]
+    env_test: ["ackley", "eggholder", "michalewicz", "branin", "cosine"]
     steps: 500000
     
     bounds: [-5, 5]
@@ -163,11 +163,11 @@ combos:
   test_6:
     batches: [3,4,3,4]
     dist_model: standard
-    project_name: "test_them_2d"
+    project_name: "t_2d"
     name: "full_params"
     task: "full_params"
     env_train: ["poly"]
-    env_test: ["ackley", "eggholder", "michalewicz", branin]
+    env_test: ["ackley", "eggholder", "michalewicz", "branin", "cosine"]
     steps: 500000
     
     bounds: [-5, 5]
@@ -182,11 +182,11 @@ combos:
   test_7:
     batches: [1,6,1,6]
     dist_model: standard
-    project_name: "test_them_2d"
+    project_name: "t_2d"
     name: "full_params"
     task: "full_params"
     env_train: ["poly"]
-    env_test: ["ackley", "eggholder", "michalewicz", branin]
+    env_test: ["ackley", "eggholder", "michalewicz", "branin", "cosine"]
     steps: 500000
     
     bounds: [-5, 5]
@@ -201,11 +201,11 @@ combos:
   test_8:
     batches: [1,6,3,4]
     dist_model: standard
-    project_name: "test_them_2d"
+    project_name: "t_2d"
     name: "full_params"
     task: "full_params"
     env_train: ["poly"]
-    env_test: ["ackley", "eggholder", "michalewicz", branin]
+    env_test: ["ackley", "eggholder", "michalewicz", "branin", "cosine"]
     steps: 500000
     
     bounds: [-5, 5]
@@ -220,7 +220,7 @@ combos:
   simple:
     batches: [1, 1]
     dist_model: standard
-    project_name: "test_the_simple"
+    project_name: "t_2d"
     name: "full_params"
     task: "full_params"
     env_train: ["poly"]
@@ -239,7 +239,7 @@ combos:
   simple_s:
     batches: [1, 1]
     dist_model: standard
-    project_name: "test_the_simple"
+    project_name: "t_2d"
     name: "full_params"
     task: "full_params"
     env_train: ["cosine"]
@@ -288,6 +288,177 @@ combos:
     bounds: [-5, 5]
     total_episode_samples: 25
     action_dim: 2
+    degree: 2
+    rank: 2
+    oscilations: 5
+    random: false
+    sample_distribution: 5
+
+  test_jax:
+    batches: [1,1]
+    dist_model: standard
+    project_name: "seperate_loss_test"
+    name: "full_params"
+    task: "jax"
+    env_train: ["neg_abs"]
+    env_test: ["poly", "ackley"]
+    steps: 1000000
+    
+    bounds: [-5, 5]
+    total_episode_samples: 25
+    action_dim: 1
+    degree: 2
+    rank: 2
+    oscilations: 5
+    random: false
+    sample_distribution: 5
+
+  daic_jax:
+    batches: [1,1]
+    dist_model: standard
+    project_name: "seperate_loss_test"
+    name: "full_params"
+    task: "jax"
+    env_train: ["gaussian"]
+    env_test: ["poly", "ackley"]
+    steps: 100
+    
+    bounds: [-5, 5]
+    total_episode_samples: 25
+    action_dim: 1
+    degree: 2
+    rank: 2
+    oscilations: 5
+    random: false
+    sample_distribution: 5
+
+  daic_jax_2:
+    batches: [1,1]
+    dist_model: standard
+    project_name: "seperate_loss_test"
+    name: "full_params"
+    task: "jax"
+    env_train: ["poly"]
+    env_test: ["gaussian", "ackley"]
+    steps: 1000000
+    
+    bounds: [-5, 5]
+    total_episode_samples: 25
+    action_dim: 1
+    degree: 2
+    rank: 2
+    oscilations: 5
+    random: false
+    sample_distribution: 5
+
+  daic_jax_3:
+    batches: [1,1]
+    dist_model: standard
+    project_name: "seperate_loss_test"
+    name: "full_params"
+    task: "jax"
+    env_train: ["ackley"]
+    env_test: ["poly", "gaussian"]
+    steps: 1000000
+    
+    bounds: [-5, 5]
+    total_episode_samples: 25
+    action_dim: 1
+    degree: 2
+    rank: 2
+    oscilations: 5
+    random: false
+    sample_distribution: 5
+
+  daic_jax_4:
+    batches: [1,2]
+    dist_model: standard
+    project_name: "seperate_loss_test"
+    name: "full_params"
+    task: "jax"
+    env_train: ["gaussian"]
+    env_test: ["poly", "ackley"]
+    steps: 1000000
+    
+    bounds: [-5, 5]
+    total_episode_samples: 25
+    action_dim: 1
+    degree: 2
+    rank: 2
+    oscilations: 5
+    random: false
+    sample_distribution: 5
+
+  daic_jax_5:
+    batches: [2,1]
+    dist_model: standard
+    project_name: "seperate_loss_test"
+    name: "full_params"
+    task: "jax"
+    env_train: ["gaussian"]
+    env_test: ["poly", "ackley"]
+    steps: 1000000
+    
+    bounds: [-5, 5]
+    total_episode_samples: 25
+    action_dim: 1
+    degree: 2
+    rank: 2
+    oscilations: 5
+    random: false
+    sample_distribution: 5
+
+  daic_jax_6:
+    batches: [1,3,2,4]
+    dist_model: standard
+    project_name: "seperate_loss_test"
+    name: "full_params"
+    task: "jax"
+    env_train: ["gaussian"]
+    env_test: ["poly", "ackley"]
+    steps: 1000000
+    
+    bounds: [-5, 5]
+    total_episode_samples: 25
+    action_dim: 1
+    degree: 2
+    rank: 2
+    oscilations: 5
+    random: false
+    sample_distribution: 5
+
+  daic_jax_7:
+    batches: [2,4,1,3]
+    dist_model: standard
+    project_name: "seperate_loss_test"
+    name: "full_params"
+    task: "jax"
+    env_train: ["gaussian"]
+    env_test: ["poly", "ackley"]
+    steps: 1000000
+    
+    bounds: [-5, 5]
+    total_episode_samples: 25
+    action_dim: 1
+    degree: 2
+    rank: 2
+    oscilations: 5
+    random: false
+    sample_distribution: 5
+
+  daic_jax_8:
+    batches: [5,5]
+    dist_model: standard
+    project_name: "seperate_loss_test"
+    name: "full_params"
+    task: "jax"
+    env_train: ["gaussian"]
+    env_test: ["poly", "ackley"]
+    steps: 1000000
+    
+    bounds: [-5, 5]
+    total_episode_samples: 25
+    action_dim: 1
     degree: 2
     rank: 2
     oscilations: 5

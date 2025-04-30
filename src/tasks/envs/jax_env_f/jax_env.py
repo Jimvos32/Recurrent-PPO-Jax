@@ -5,6 +5,9 @@ import flax.struct as struct # Or use standard dataclasses
 from gymnax.environments import environment, spaces
 from typing import Tuple, Optional, Dict, Any
 
+from jax.experimental import checkify
+
+
 from src.tasks.envs.jax_env_f.jax_function_samplers import initialize_sampler, compute_y_sampler, EnvParams
 # from src.tasks.envs.jax_env.env_params import EnvParams
 
@@ -32,6 +35,7 @@ class EnvState:
     # --- Last Step Info (for constructing next obs) ---
     last_action_mapped: chex.Array # Shape (max_batches, action_dim)
     last_padded_obs_raw: chex.Array # Shape (max_batches, 1)
+    last_action: chex.Array # Shape (max_batches, action_dim)
     last_reward: float
     done: bool # True if episode is done (for info dict)
     max_steps_in_episode: int # Set during reset, used for truncation
@@ -51,12 +55,18 @@ class MultiFunctionGymnax(environment.Environment):
     def __init__(self):
         """Use default_params for instantiation."""
         super().__init__()
+        
 
     @property
     def default_params(self) -> EnvParams:
         # Define the default parameters here
         return EnvParams()
-
+    
+    def initialize(
+        self, key: chex.PRNGKey, params: EnvParams, action_dim: int, max_batches: int
+    ) -> Tuple[chex.ArrayTree, EnvState]:
+        """Initializes the environment."""
+        return initialize_sampler(key, params, action_dim, max_batches)
     @staticmethod
     def step_env(
         key: chex.PRNGKey, state: EnvState, action: chex.Array, params: EnvParams, max_batches: int, action_dim: int
@@ -92,8 +102,12 @@ class MultiFunctionGymnax(environment.Environment):
         # }
         
         # bb = 1
-        print("here is something that is not corret!!!!!!!")
+        # print("here is something that is not corret!!!!!!!")
         obs_raw = compute_y_sampler(action_mapped, state.params_for_compute, params)
+        
+        
+        
+        # jax.debug.print("action {} test_obs {}\n obs_raw {} \ntick {}", action_mapped, test_obs, obs_raw, state.tick)
         obs_raw = jnp.atleast_1d(obs_raw)
         
         mask = jnp.arange(max_batches) < state.batch_size
@@ -111,6 +125,8 @@ class MultiFunctionGymnax(environment.Environment):
         # Scale the valid observations
         scaled_observation = scale_observation_jax(obs_raw, state.min_y, state.max_y) # Shape: (batch_size,)
 
+        # jax.debug.print("scaled_observation {} mask {} obs_raw {}\nmin {}\nmax {}\naction {}\n", scaled_observation, mask, obs_raw, state.min_y, state.max_y, action)
+        
         # Calculate metrics
         current_best_scaled_y = jnp.max(jnp.where(mask, scaled_observation, -jnp.inf)) # Handle empty case
         sum_scaled_obs = jnp.sum(jnp.where(mask, scaled_observation, 0.0))
@@ -130,7 +146,7 @@ class MultiFunctionGymnax(environment.Environment):
         mse = sum_sq_diff / jnp.maximum(state.batch_size, 1)
 
         # Scaled difference for regret calculation
-        scaled_difference = scale_observation_jax(difference_from_max, state.min_y, state.max_y)
+        scaled_difference = scale_observation_jax(difference_from_max + state.min_y, state.min_y, state.max_y)
 
         # --- Termination and Truncation ---
         tick = state.tick + 1
@@ -161,11 +177,7 @@ class MultiFunctionGymnax(environment.Environment):
         ) * params.r_scale
         
         
-        padded_obs_for_state = jnp.where(
-            mask[:, None], # Expand mask to (max_batches, 1)
-            obs_raw[:, None], # Expand obs to (max_batches, 1)
-            0.0 # Padding value
-        ).astype(jnp.float32) # Ensure correct dtype
+        
 
 
         # --- Update State ---
@@ -204,6 +216,9 @@ class MultiFunctionGymnax(environment.Environment):
         # print("asgd", obs_raw.shape, action_mapped.shape, scaled_observation.shape, jnp.squeeze(scaled_observation).shape)
         last_obs = jnp.reshape(scaled_observation, (max_batches, 1))
         
+        
+        print("last_obs", last_obs.shape, action_mapped.shape, scaled_observation.shape, jnp.squeeze(scaled_observation).shape)
+        
         state = state.replace( # Use replace for immutability with dataclasses/Pytrees
             tick=tick,
             # sampler_type_index, optimum_point, min_y, max_y, batch_size, params_for_compute remain same
@@ -213,6 +228,7 @@ class MultiFunctionGymnax(environment.Environment):
             achieved_success=achieved_success_updated,
             last_action_mapped=action_mapped, # Store full mapped actions
             last_padded_obs_raw=last_obs, # Store padded obs)
+            last_action=action_normalized, # Store action taken
             last_reward=reward,
             done=done, # Store done flag reflecting current step's outcome
             # max_steps_in_episode remains same
@@ -230,6 +246,11 @@ class MultiFunctionGymnax(environment.Environment):
         info = get_info(state, params, done, jnp.mean(scaled_difference)) # Pass done flag
         
         obs = get_obs(state, params)
+        
+        # jax.debug.print("obs {} action {} reward {} mask {} step {} min{} max {} raw {}", obs, action_mapped, reward, mask, tick, state.min_y, state.max_y, obs_raw)
+        
+        # jax.debug.print("last_rew {} pas_rew {}\nsucces {} action {} c_best {}\n obs{} differnce {} mask {} \nraw obs {} min {} max {}\n", 
+        #                 reward, obs["reward"], success_achieved_this_step, action, current_best_scaled_y, scaled_observation, scaled_difference, mask, obs_raw, state.min_y, state.max_y)
         
         # jax.debug.print("ssdf {}", obs)
 
@@ -250,6 +271,8 @@ class MultiFunctionGymnax(environment.Environment):
         min_y = sam_con['common']['min_y']
         max_y = sam_con['common']['max_y']
         optimum_point = sam_con['common']['optimum_point']
+        
+        
 
         # Check for invalid bounds (JAX style - maybe return valid flag?)
         # Simple check: if max_y <= min_y: print warning or adjust
@@ -348,7 +371,7 @@ class MultiFunctionGymnax(environment.Environment):
         
         # print("initial_reward", padded_obs_raw.shape, initial_actions_normalized.shape, avg_scaled_obs.shape, )
 
-        print("rsa", obs_raw.shape, initial_actions_normalized.shape, jnp.squeeze(scaled_observation).shape)
+        # print("rsa", obs_raw.shape, initial_actions_normalized.shape, jnp.squeeze(scaled_observation).shape)
         # Initialize state
         last_obs = jnp.reshape(scaled_observation, (max_batches, 1))
         
@@ -365,6 +388,7 @@ class MultiFunctionGymnax(environment.Environment):
             achieved_success=False,
             last_action_mapped=initial_actions_mapped,
             last_padded_obs_raw=last_obs,
+            last_action=initial_actions_normalized, # Store action taken
             last_reward=initial_reward,
             done=False, # Reset is not done
             max_steps_in_episode=max_steps, # Set max steps for this episode
@@ -377,7 +401,7 @@ class MultiFunctionGymnax(environment.Environment):
         obs = get_obs(state, params)
         
         # jax.debug.print("initial_actions_mapped {}", obs)
-        print("osb", obs["actions"].shape, obs["observations"].shape, obs["reward"].shape, obs["mask"].shape, obs["step"].shape)
+        # print("osb", obs["actions"].shape, obs["observations"].shape, obs["reward"].shape, obs["mask"].shape, obs["step"].shape)
         return obs, state
 
     def observation_space(self, params: EnvParams) -> spaces.Dict:
@@ -428,6 +452,15 @@ class MultiFunctionGymnax(environment.Environment):
 
 def map_to_bounds_jax(actions: chex.Array, x_range: Tuple[float, float]) -> chex.Array:
     """Maps actions from [-1, 1] to the environment's x_range using JAX."""
+    print("shapes", actions.shape, x_range)
+    
+    out_of_bounds_mask = (actions < -1) | (actions > 1)
+
+    # Check if any element in the mask is True
+    any_out_of_bounds = out_of_bounds_mask.any()
+    # print("wret ", any_out_of_bounds)
+    # jax.debug.print("out of bounds mask {} {}", any_out_of_bounds, actions)
+    
     lower, upper = x_range
     scale = (upper - lower) / 2.0
     shift = (upper + lower) / 2.0

@@ -285,6 +285,9 @@ class PPOAgentJax:
             def reset_fn():
                 # Reset environment state
                 new_obs, new_env_state = MultiFunctionGymnax.reset_env(key_env_reset, env_params, action_dim, max_batches)
+                
+                
+                
                 # Hidden state for the *next* step will be reset at the start of the next iteration
                 # based on the 'done' flag we return now.
                 return new_obs, new_env_state
@@ -483,40 +486,11 @@ class PPOAgentJax:
         hidden_states_T = rollout_data.hidden_states # h_0 to h_{T-1}
         start_dones_T = rollout_data.start_dones # d_0 to d_{T-1}
 
-        # # --- Calculate GAE ---
-        # # rewards shape (B, T), dones shape (B, T), values shape (B, T+1)
-        # advantages, targets = calculate_gae_jax(
-        #     rewards_T, dones_T, values_T, self.gamma, self.gae_lambda
-        # )
+       
         
         print("ac", rewards_T.shape, dones_T.shape, values_T.shape, actor_preds_T.shape, log_probs_T.shape)
         
-            # --- Calculate GAE ---
-        # # rewards shape (B, T), dones shape (B, T), values shape (B, T+1)
-        # advantages, targets = calculate_gae_jax(
-        #     rewards_T, dones_T, values_T, self.gamma, self.gae_lambda
-        # )
-        
-        
-        # Glambda_fn=jax.vmap(rlax.lambda_returns)
-                                        
-        # # print("further ", actor_preds)
-                                        
-        # gammas=self.gamma*(1-dones_T)
-        # lambdas=self.gae_lambda*jnp.ones(rewards_T.shape[0])
-        # # #Calculate Lamba for timesteps G_{tick} - G_{tick+rollout_len}
-        # # #rewards, gammas, lambdas values at timesteps {tick+1} - {tick+rollout_len+1}
-        # # Glambdas=Glambda_fn(rewards_T[:,1:],gammas[:,1:],
-        # #                     values_T[:,1:],lambdas)
-        # # #Calculate the advantages using timesteps {tick} - {tick+rollout_len}
-        # # advantages=Glambdas-values_T[:,:-1]
-        # print("this is fuckubg suss!!!!!!!")
-        # Glambdas=Glambda_fn(rewards_T,gammas,
-        #                     values_T[:,1:],lambdas)
-        # #Calculate the advantages using timesteps {tick} - {tick+rollout_len}
-        # advantages=Glambdas-values_T[:,1:]
-        
-        # targets = Glambdas
+       
         
         discounts_T = self.gamma * (1.0 - dones_T)
 
@@ -620,6 +594,9 @@ class PPOAgentJax:
                 {'params': params}, obs_seq, start_dones_seq, h_init
             )
             # Output shapes (T, *)
+            # print("ways givem shapes", actions_seq.shape, obs_seq['observations'].shape, start_dones_seq.shape, h_init[0][0].shape, act_logits_seq.shape, values_seq.shape)
+            # jax.debug.print("act_logits_seq {} \n{} \n{}\n", actions_seq[:5], obs_seq['observations'][:5], start_dones_seq[:5])
+
 
             # values_seq = values_seq.squeeze(-1) # Shape (T,)
 
@@ -648,18 +625,19 @@ class PPOAgentJax:
             # --- 5. Total Loss for the sequence ---
             # Need update_step if schedule is used. Pass it into this function.
             # ent_coef = self.ent_coef_schedule(update_step)
-            ent_coef = 0.01 # Placeholder - pass update_step if schedule is needed
+            ent_coef = -0.01 # Placeholder - pass update_step if schedule is needed
             total_loss = pg_loss + self.vf_coef * v_loss - ent_coef * mean_entropy
+            # total_loss = ent_coef * mean_entropy
 
             # --- 6. Metrics for the sequence ---
             approx_kl = jnp.mean((ratio - 1) - logratio) # Mean over T
             
-            print("sag", logp_new_seq.shape, logp_old_seq.shape, adv_seq.shape, targets_seq.shape, masks_seq.shape, start_dones_seq.shape)
+            # print("sag", logp_new_seq.shape, logp_old_seq.shape, adv_seq.shape, targets_seq.shape, masks_seq.shape, start_dones_seq.shape)
             metrics = {
-                "loss": total_loss, "loss_policy": pg_loss, "loss_value": v_loss,
-                "loss_entropy": mean_entropy, "kl_approx": approx_kl,
-                "entropy_coefficient": ent_coef, "ratio": jnp.mean(ratio), "log_old": jnp.mean(logp_old_seq), "log_new": jnp.mean(logp_new_seq),
-                "values_pred": jnp.mean(values_seq), "target": jnp.mean(targets_seq)# Use actual coef if passed
+                "loss/loss": total_loss, "loss/loss_policy": pg_loss, "loss/loss_value": v_loss,
+                "loss/loss_entropy": mean_entropy * ent_coef, "loss/kl_approx": approx_kl,
+                "loss/ratio": jnp.mean(ratio), "loss/log_old": jnp.mean(logp_old_seq), "loss/log_new": jnp.mean(logp_new_seq),
+                "loss/values_pred": jnp.mean(values_seq), "loss/target": jnp.mean(targets_seq)# Use actual coef if passed
             }
             # Return scalar loss and metrics dict for this single sequence
             return total_loss, metrics
@@ -887,13 +865,60 @@ class PPOAgentJax:
         # Add other final metrics
 
         return final_agent_state, update_metrics
+    
+    
+    # Define the main evaluation function that iterates
+    def evaluate(self,
+                key: chex.PRNGKey,
+                params: chex.ArrayTree,
+                env_params_dict: dict, # Now accepts a dictionary
+                num_eval_episodes: int,
+                action_dim: int, # Still needed if not derivable from env_params_dict values
+                max_batches: int, # Still needed if not derivable
+                max_steps_in_episode: int, # Still needed if not derivable
+                ) -> dict:
+        """Runs evaluation for multiple environment configurations."""
+
+        all_eval_metrics = {}
+        env_names = list(env_params_dict.keys())
+
+        for i, env_name in enumerate(env_names):
+            key, subkey = jax.random.split(key) # Use a new key for each env type
+            current_env_params = env_params_dict[env_name]
+
+            print(f"--- Evaluating on {env_name} ---")
+            # Call the JIT-compiled function for this specific env_params
+            # Ensure action_dim, max_batches, max_steps are consistent or derived from current_env_params
+            # If they vary per env_params, get them from current_env_params inside the loop
+            # Example: action_dim = current_env_params.action_dim (if defined)
+            eval_metrics_single_type = self.evaluate_func_type(
+                subkey,
+                params,
+                current_env_params, # Pass the single EnvParams object
+                num_eval_episodes,
+                action_dim, # Pass consistent values or derive from current_env_params
+                max_batches,
+                max_steps_in_episode
+            )
+
+            # Prefix metrics with env_name and add to the overall results
+            for metric_name, value in eval_metrics_single_type.items():
+                all_eval_metrics[f"eval_{env_name}/{metric_name}"] = value
+
+        # Optionally add an overall average across types if meaningful
+        # Example: Calculate mean return across all evaluated types
+        # all_returns = [v for k, v in all_eval_metrics.items() if k.endswith('/episode_return')]
+        # if all_returns:
+        #     all_eval_metrics["eval/mean_return_across_types"] = jnp.mean(jnp.array(all_returns))
+
+        return all_eval_metrics
 
     # --- Evaluation ---
     @partial(jax.jit, static_argnames=('self', 'num_eval_episodes', 'action_dim', 'max_batches', 'max_steps_in_episode')) # Jit the evaluation function
-    def evaluate(self,
+    def evaluate_func_type(self,
                  key: chex.PRNGKey, # Single key to split
                  params: chex.ArrayTree,
-                 env_params: EnvParams,
+                 env_params: dict,
                  num_eval_episodes: int,
                  action_dim: int, # Action dimension for the environment
                  max_batches: int, # Number of batches for the environment step
@@ -976,6 +1001,17 @@ class PPOAgentJax:
             true_done_idx = jnp.argmax(step_outputs["done"])
             # If done never happens, length is max_steps. Add 1 because index is 0-based.
             episode_length = jnp.where(jnp.any(step_outputs["done"]), true_done_idx + 1, max_steps_in_episode)
+            
+            success = step_outputs["info"]["success"][-1]
+
+            # Calculate mean for 'regret'
+            regret = step_outputs["info"]["scaled_diff"][-1]
+            # Calculate mean for 'rewards'
+            best_action =step_outputs["info"]["best_rewards"][-1]
+            
+            jax.debug.print("best action {} {} {}", best_action, regret, success)
+
+            
 
             # Extract final info (assuming info dict is structured correctly by env)
             # This requires careful handling based on how info is populated in MultiFunctionGymnax.step_env
@@ -985,8 +1021,11 @@ class PPOAgentJax:
 
             # Return aggregated results per episode
             return {
-                "eval/episode_return": total_reward,
-                "eval/episode_length": episode_length,
+                "episode_return": total_reward,
+                "episode_length": episode_length,
+                "best_action": best_action,
+                "regret": regret,
+                "success": success,
                 # "eval/success_rate": success_rate, # Add other metrics from info
             }
 

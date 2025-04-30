@@ -6,8 +6,8 @@ actor_params_hidden: [64, 32]
 decoder_params_hidden: [64, 32]
 latent_dim: 6
 d_critic: 128
-num_envs: 8
-rollout_len: 128
+num_envs: 64
+rollout_len: 512
 sequence_length: null
 gamma: 0.99
 gae_lambda: 0.95

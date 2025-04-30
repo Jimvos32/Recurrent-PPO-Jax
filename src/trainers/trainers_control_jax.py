@@ -44,10 +44,10 @@ import wandb # Keep wandb for logging outside JAX
 from functools import partial
 
 # Assume PPOAgentJax, EnvParams, create_env_params are imported
-from src.tasks.envs.jax_env_f.jax_env import MultiFunctionGymnax
+from src.tasks.envs.jax_env_f.jax_env import MultiFunctionGymnax, EnvState
 from src.agents.ppo_dic_inherits.inh_agents.jax_full_params import FullParamsSamplingJax
 from src.agents.jax_agent import PPOAgentJax
-from src.tasks.envs.jax_env_f.jax_function_samplers import create_env_params, EnvParams
+from src.tasks.envs.jax_env_f.jax_function_samplers import create_env_params, EnvParams, initialize_sampler
 # from .jax_env import EnvParams # Example
 # from .env_utils import create_env_params # Example
 
@@ -81,13 +81,28 @@ class ControlTrainerJaxRefactored: # Renamed class
         bathes = jnp.array(conf.get("batches", [1,1]))
         m_batch = jnp.max(bathes)
         b_train, b_test = jnp.split(bathes, 2)
+        
         conf["max_batches"] = m_batch
         conf["batches"] = b_train
         conf["function_types"] = conf.get("env_train", ["pol"])
         self.env_params_train = create_env_params(conf)
+        
         conf["batches"] = b_test
-        conf["function_types"] = conf.get("env_test", ["pol"])
-        self.env_params_test = create_env_params(conf)
+        self.test_environments = {}
+        test_functions = conf.get("env_test", ["pol"])
+        
+        for func in test_functions:
+            f_conf = conf.copy()
+            f_conf["function_types"] = [func]
+            self.test_environments[func] = create_env_params(f_conf)
+            
+        # self.env_params_train = create_env_params(conf)
+        # conf["batches"] = b_test
+        # conf["function_types"] = conf.get("env_test", ["pol"])
+        
+        
+        
+        # self.env_params_test = create_env_params(conf)
 
         # --- Agent Setup ---
         # Get model functions (adapt this part based on your config structure)
@@ -135,7 +150,7 @@ class ControlTrainerJaxRefactored: # Renamed class
         # Instantiate the JAX Agent
         self.agent = PPOAgentJax(
             env_params=self.env_params_train,
-            env_params_test=self.env_params_test,
+            env_params_test=self.test_environments,
             repr_model_fn=repr_fn,
             seq_model_fn=seq_model_fn,
             actor_fn=actor_fn,
@@ -189,6 +204,11 @@ class ControlTrainerJaxRefactored: # Renamed class
     def train(self):
         """Main training loop."""
         logger.info(f"Starting training for {self.num_updates} updates.")
+        
+      
+        
+        
+        
         for update_idx in range(self.num_updates):
             start_time = time.time()
             print("Update index:", update_idx) # Debugging line
@@ -202,11 +222,19 @@ class ControlTrainerJaxRefactored: # Renamed class
                 self.batch_obs,
                 self.batch_env_states
             )
+            
+            actions = np.reshape(step_metrics['actions'], ((self.num_envs * self.rollout_len), step_metrics['actions'].shape[2], step_metrics['actions'].shape[3]))
+            histo_dic = {}
+            for k in range(actions.shape[1]):
+                histo_dic['env/action dimension ' + str(k)] = wandb.Histogram(actions[:, k]) # Log each action dimension separately
+                
+            step_metrics.pop('actions') # Remove actions from metrics to avoid confusion
+            
 
             # --- Logging ---
             self.step_count += self.num_envs * self.rollout_len
             end_time = time.time()
-            print("Step metrics:", start_time, end_time) # Debugging line
+            # print("Step metrics:", start_time, end_time) # Debugging line
             
             
             sps = self.num_envs * self.rollout_len / ((end_time - start_time) + 1e-6) # Steps per second)
@@ -221,9 +249,12 @@ class ControlTrainerJaxRefactored: # Renamed class
                 }
                 # Log to wandb (convert JAX arrays to NumPy/Python scalars)
                 log_metrics_np = jax.tree_map(lambda x: np.array(x).item() if np.isscalar(x) else np.array(x), log_metrics)
+                log_metrics_np = log_metrics_np | histo_dic # Add histogram data to log metrics
+                
+                
                 if self.wandb_run:
                     self.wandb_run.log(log_metrics_np)
-                logger.info(f"Update: {update_idx}, Step: {self.step_count}, SPS: {sps:.2f}, Loss: {log_metrics_np['loss']:.4f}")
+                logger.info(f"Update: {update_idx}, Step: {self.step_count}, SPS: {sps:.2f}, Loss: {log_metrics_np['loss/loss']:.4f}")
                 self.results_data.append(log_metrics_np) # Store for final summary
 
             # --- Evaluation ---
@@ -231,10 +262,11 @@ class ControlTrainerJaxRefactored: # Renamed class
                 self.next_eval_step += self.eval_interval
                 logger.info(f"Evaluating at step {self.step_count}...")
                 self.key, eval_key = jax.random.split(self.key)
+                
                 eval_metrics = self.agent.evaluate(
                     eval_key,
                     self.agent_state.params,
-                    self.env_params_test,
+                    self.test_environments,
                     self.global_config['eval_episodes'],
                     self.env_params_train.action_dim,
                     self.env_params_train.max_batches,
@@ -289,7 +321,7 @@ class ControlTrainerJaxRefactored: # Renamed class
             
         # print("Update metrics:", trajectory_data.success.keys()) # Debugging line
         
-        print("Trajectory data keys:", trajectory_data.success)
+        # print("Trajectory data keys:", trajectory_data.success)
         
       
         # best_action = trajectory_data.best_action
@@ -321,12 +353,28 @@ class ControlTrainerJaxRefactored: # Renamed class
 
 
         # Add metrics (consider adding the count of valid steps too)
-        update_metrics['success_rate'] = mean_valid_success
-        update_metrics['regret'] = mean_valid_regret
-        update_metrics['mean_reward'] = mean_valid_reward
-        update_metrics['best_action_mean'] = mean_valid_best_action # Renamed slightly for clarity
         
-        jax.debug.print("Mean valid success: {} {}", valid_mask, trajectory_data.last_step) # Debugging line
+        
+        # any_sic = trajectory_data.success.any()
+        # a = trajectory_data.rewards > 0.0
+        # any_reward = trajectory_data.rewards.any()
+        
+        # jax.debug.print("Success: {} Regret: {} Reward: {} Best Action: {}", mean_valid_success, mean_valid_regret, any_reward, any_sic) # Debugging line
+
+        # Check if any element in the mask is True
+        # any_out_of_bounds = out_of_bounds_mask.any()
+        
+        
+        update_metrics['env/success_rate'] = mean_valid_success
+        update_metrics['env/regret'] = mean_valid_regret
+        update_metrics['env/mean_reward'] = mean_valid_reward
+        update_metrics['env/best_action_mean'] = mean_valid_best_action # Renamed slightly for clarity
+        update_metrics['env/mean_valid_success'] = mean_valid_success # Optional: Store mean valid success separately
+        
+        update_metrics['actions'] = trajectory_data.actions # Optional: Store mean valid regret separately
+        # print("Actions shape:", trajectory_data.actions.shape) # Debugging line
+        
+        # jax.debug.print("Mean valid success: {} {}", valid_mask, trajectory_data.last_step) # Debugging line
 
         # Optional: Add the count of valid steps for context
         num_valid_steps = jnp.sum(valid_mask)
