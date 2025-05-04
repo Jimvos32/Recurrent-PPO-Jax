@@ -6,8 +6,7 @@ class FullParamsSamplingJax(SamplingImplBaseJax):
     def sampling_differ(self, act_logits, key, masks):
         
         
-        print("sampling_differ", act_logits.shape, key.shape, masks.shape)
-        print(self.batch_size, self.action_dim)
+      
         
         means, scale = jnp.split(act_logits,2,-1)
         
@@ -53,9 +52,7 @@ class FullParamsSamplingJax(SamplingImplBaseJax):
         N = act_logits.shape[0]
         means, std_out = jnp.split(act_logits, 2, axis=-1)
         
-        print("means shape", means.shape, "std_out shape", std_out.shape, "actions shape", actions.shape, "act_logits shape", act_logits.shape)
         
-      
      
         # Broadcast means, stds, log_stds from sample dimension (1) to batch_size.
         means = jnp.reshape(means, (N, self.batch_size, self.action_dim))
@@ -66,7 +63,6 @@ class FullParamsSamplingJax(SamplingImplBaseJax):
         # Ensure actions are in (-1+epsilon, 1-epsilon)
         u = jnp.arctanh(jnp.clip(actions, -1 + epsilon, 1 - epsilon))
         
-        print("u shape", u.shape, "means shape", means.shape, "stds shape", stds.shape)
         
         
         log_prob_per_dim = jax.scipy.stats.norm.logpdf(u, means, stds)
@@ -100,7 +96,7 @@ class FullParamsSamplingJax(SamplingImplBaseJax):
         # jax.debug.print("Log probability shape: {}, std {} mean {}", log_prob[0,0], stds[0,0], means[0,0])
         # print("Log probability shape", log_prob.shape, stds.shape, means.shape)
         
-        
+        print("log_prob out  shape", log_prob.shape, actions.shape, act_logits.shape)
         
         
         return log_prob
@@ -110,7 +106,6 @@ class FullParamsSamplingJax(SamplingImplBaseJax):
         N = logits.shape[0]
         # logits = jnp.reshape(logits, (N, logits.shape[-1]))
         
-        print()
         means, stds = jnp.split(logits, 2, axis=-1)
         
        

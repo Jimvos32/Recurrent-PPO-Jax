@@ -100,9 +100,9 @@ def dict_unpack_model(hidden_sizes=(256, 128)):
             # reward.shape = (1,)
             # mask is a integer which says until which batch the data is valid, so if batch_size = 10 and mask = 5, then the first 5 batches are valid and the rest are invalid
            
-            for k in x.keys():
-                print(k, x[k].shape)
-                pass
+            # for k in x.keys():
+            #     print(k, x[k].shape)
+            #     pass
            
             #This is to create a vmap for each field in the input
             def create_vmap_mlp():
@@ -244,11 +244,7 @@ def dict_unpack_mask(
             # for k in x.keys():
             #     jax.debug.print("x {} dims {} shape {}", k, len(x[k].shape), x[k].shape)
                 
-            print("x_act", x["actions"].shape)
-            print("x", x["observations"].shape)
-            print("x", x["reward"].shape)
-            print("x", x["mask"].shape)
-            
+       
             
             
             # Expand the data for correct parsing through vmap
@@ -258,7 +254,6 @@ def dict_unpack_mask(
             ]
             
             
-            print("expanded_inputs", expanded_inputs[0].shape)
             
            
             

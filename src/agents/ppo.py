@@ -399,7 +399,6 @@ class PPOAgent(BaseAgentDic):
                     # Reshape act_logits to align with actions
                     act_logits = jnp.reshape(act_logits, (act_logits.shape[0], act_logits.shape[1], 1, act_logits.shape[-1]))
                     
-                    print(act_logits.shape, actions.shape)
 
                     # Split into means and log_stds. They originally have shape (1, steps, 1, action_dim)
                     means, log_stds = jnp.split(act_logits, 2, axis=-1)
@@ -411,7 +410,6 @@ class PPOAgent(BaseAgentDic):
                     stds  = jnp.reshape(stds,  (act_logits.shape[0], act_logits.shape[1], batch_size, action_dim))
                     log_stds = jnp.reshape(log_stds,  (act_logits.shape[0], act_logits.shape[1], batch_size, action_dim))
                     
-                    print("means", means.shape)
 
                     variance = stds ** 2
 

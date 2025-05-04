@@ -26,7 +26,7 @@ from src.agents.ppo_dic_inherits.vae_ppo import VAEPPO
 from src.agents.ppo_dic_inherits.inh_agents.full_params_agent import FullParamsSampling
 from src.agents.ppo_dic_inherits.inh_agents.cor_gmm_agent import CorrelatedGaussianMixture 
 from src.agents.ppo_dic_inherits.inh_agents.low_mvn_agent import LowRankMVN 
-# from src.agents.ppo_dic_inherits.inh_agents.flow_jax_agent import FlowMVN
+from src.agents.ppo_dic_inherits.inh_agents.flow_jax_agent import FlowMVN
 
 
 
@@ -52,9 +52,7 @@ def create_train_eval_envs(env_config):
     
     for f_type in eval_config['function_types']:
         f_eval_c = eval_config.copy()
-        print("f_eval_c", f_eval_c)
         f_eval_c['function_types'] = [f_type]
-        print("f_eval_c", f_type)
         multi_eval_envs[f_type] = lambda: create_multi_fun_env(**f_eval_c)
         
 
@@ -81,7 +79,6 @@ def create_train_eval_envs(env_config):
                                  input_combine_hidden=env_config["input_combine_hidden"])
     
     
-    print("train_fn", type(train_fn))#, "eval_fn", eval_fn, "repr_fn", repr_fn)   
     
     return train_fn,eval_fn, repr_fn, multi_eval_envs
 
@@ -190,7 +187,6 @@ class ControlTrainer(BaseTrainer):
         train_seeds=np.random.randint(0,9999,size=self.num_envs,dtype=int).tolist()
         eval_seeds=int(np.random.randint(0,9999,size=1,dtype=int))
         env_type=kwargs['trainer_config'].get('env_pool','async')
-        print("env type", env_type)
         env_type = 'sync'
         if env_type=='async':
             
@@ -200,7 +196,6 @@ class ControlTrainer(BaseTrainer):
         train_envs=env_type([lambda: EpisodeStatisticsWrapper(AutoResetWrapper((env_fn())))for seed in train_seeds])#,shared_memory=False)
        
         for i in mult_eval_fns:
-            print("mult_eval_fns")
             mult_eval_fns[i] = RecordRollout(AutoResetWrapper(mult_eval_fns[i]()))
         
         eval_env=RecordRollout(AutoResetWrapper(eval_env_fn()))
@@ -266,13 +261,11 @@ class ControlTrainer(BaseTrainer):
         elif name == "low_mvn":
             sampling_imp = LowRankMVN
             flat_act = eval_env.unwrapped.action_dim * eval_env.unwrapped.max_batches
-            print("flat_act", flat_act, "rank", self.trainer_config['sample_distribution'], "env", eval_env.unwrapped.action_dim, "max_batches", eval_env.unwrapped.max_batches)
             if vae:
                 actor_fn = gmm_vae_action_head(flat_act, self.trainer_config['sampling_distribution'],
                                     shared_seq_sizes=self.trainer_config['d_actor'], policy_hidden_sizes=self.trainer_config['actor_params_hidden'],
                                     latent_dim=self.trainer_config['latent_dim'])
             else:
-                print("ciiof", self.env_config)
                 actor_fn = mvn_action_head(flat_act, self.trainer_config['sample_distribution'],
                                     shared_seq_sizes=self.trainer_config['d_actor'], policy_hidden_sizes=self.trainer_config['actor_params_hidden'])
                 
@@ -316,16 +309,16 @@ class ControlTrainer(BaseTrainer):
             actor_fn = variational(self.trainer_config['d_actor'], list(self.trainer_config['actor_params_hidden']) + 
                                         [self.trainer_config['latent_dim']], self.trainer_config['decoder_params_hidden'] + [eval_env.unwrapped.action_dim])
             
-        # elif name == "flow_jax":
-        #     sampling_imp = FlowMVN
+        elif name == "flow_jax":
+            sampling_imp = FlowMVN
             
-        #     policy_out = eval_env.unwrapped.action_dim
-        #     # policy_out = eval_env.unwrapped.action_dim * eval_env.unwrapped.max_batches
-        #     # policy_out = covariance + covariance * (covariance + 1) // 2
+            policy_out = eval_env.unwrapped.action_dim
+            # policy_out = eval_env.unwrapped.action_dim * eval_env.unwrapped.max_batches
+            # policy_out = covariance + covariance * (covariance + 1) // 2
             
             
-        #     actor_fn = mvn_flow_head(policy_out, shared_seq_sizes=self.trainer_config['d_actor'], 
-        #                              policy_hidden_sizes=self.trainer_config['actor_params_hidden'])
+            actor_fn = mvn_flow_head(policy_out, shared_seq_sizes=self.trainer_config['d_actor'], 
+                                     policy_hidden_sizes=self.trainer_config['actor_params_hidden'])
             
 
         critic_fn=critic_model(self.trainer_config['d_critic'])
@@ -367,7 +360,6 @@ class ControlTrainer(BaseTrainer):
                             )
             
             sequence_steps = eval_env.unwrapped.max_episode_steps
-            print("se", sequence_steps)
             
             agent_config = {
                 "train_envs": train_envs,
@@ -430,7 +422,6 @@ class ControlTrainer(BaseTrainer):
                                     sample_dist=self.trainer_config.get('sample_distribution', 1),
                                     task_name=self.env_config.get('task', None))
             else:
-                print("we should b eher ")
                 self.agent = BasePPO(**agent_config)
 
         
@@ -641,7 +632,6 @@ class ControlTrainer(BaseTrainer):
             actions_dim = self.actions.reshape(-1, self.actions.shape[-1])
             actions_dims = {}
             
-            print("actions_dim", actions_dim[:, 0].shape)
             for i in range(actions_dim.shape[-1]):
                 actions_dims[f"action/actions_{i}"] = wandb.Histogram(actions_dim[:, i])
             

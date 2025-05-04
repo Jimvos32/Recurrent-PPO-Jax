@@ -157,7 +157,6 @@ class VAEPPO(RootAgent):
             
             
             
-            print("recon loss", recon_loss.shape, "obs", obs.shape, "target", obs_target.shape, masked.shape, "masked", masked.shape)
             
             # jax.debug.print("recon loss {} obs {} tar {} masked {}", recon_loss[0,:3], obs[0,:3], target[0,:3], masked_recon[0,:3])
             
@@ -614,7 +613,7 @@ class VAEPPO(RootAgent):
             
             rollouts = None
             episode_lens.append(len(rewards))
-            rewards=jnp.array(rewards,dtype=jnp.float32)
+            rewards=jnp.array(rewards,dtype=jnp.float64)
             avg_return=rlax.discounted_returns(rewards,self.gamma*jnp.ones_like(rewards),jnp.zeros_like(rewards)).mean()
             episode_avgreturns.append(avg_return)
             

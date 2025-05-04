@@ -441,12 +441,10 @@ if __name__=='__main__':
     params=gtrxl.init(rng,inputs,terminations,last_memory)
     apply_fun=jax.jit(gtrxl.apply)
     out,new_memory=apply_fun(params,jnp.ones((1,32)),terminations,last_memory)
-    print(out.shape,new_memory[0].shape)
     for i in range(1000):
         out,last_memory=apply_fun(params,jnp.ones((2,32)),terminations,last_memory)
 
     out,new_memory=apply_fun(params,jnp.ones((3,32)),terminations,last_memory)
-    print(out.shape,new_memory[0].shape)
 
 
     

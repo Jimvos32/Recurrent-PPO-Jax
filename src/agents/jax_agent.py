@@ -9,6 +9,8 @@ from functools import partial
 import chex # Use chex.dataclass if available, otherwise flax.struct
 import flax.struct as struct
 from typing import Callable,Tuple, Optional, Any
+import jax.experimental.checkify as checkify # Make sure checkify is imported
+
 
 # Assume ActorCriticModel, model_fns, sampling_impl are imported correctly
 # Assume MultiFunctionGymnax Env definition (EnvParams, EnvState) is available
@@ -165,14 +167,6 @@ class PPOAgentJax:
         dummy_h = self.seq_init() # Get initial hidden state structure
         dummy_h_b = jax.tree_map(lambda x: x, dummy_h) # Add Batch=1
         
-        
-        print("we dumming", dummy_obs_b["actions"].shape, dummy_done.shape, dummy_h_b[0][0].shape)
-
-        # print("Dummy Obs:", jax.tree_map(lambda x: (x.shape, x.dtype), dummy_obs_b))
-        # print("Dummy Done:", dummy_done.shape, dummy_done.dtype)
-        # print("Dummy H:", jax.tree_map(lambda x: (x.shape, x.dtype), dummy_h_b))
-        
-
         params = self.ac_model.init(
             {'params': params_key}, # Add rngs if needed
             dummy_obs_b, dummy_done, dummy_h_b
@@ -278,31 +272,57 @@ class PPOAgentJax:
             current_obs, current_env_state, reward, done, info = MultiFunctionGymnax.step_env(
                 key_env_step, env_state, action, env_params, max_batches, action_dim
             )
-            # done flag indicates if the episode *ended* with this step
+            
+            
+            
+            def reset_same_fn(_):
+                # jax.debug.print("resetting same")
+                return MultiFunctionGymnax.reset_env_keep(
+                    key_env_reset, env_params, action_dim, max_batches, current_env_state
+                )
 
-            # 3. Conditionally Reset for the *next* step's carry state
-            # If 'done' is true, call reset, otherwise use the results from step_env
-            def reset_fn():
-                # Reset environment state
-                new_obs, new_env_state = MultiFunctionGymnax.reset_env(key_env_reset, env_params, action_dim, max_batches)
-                
-                
-                
-                # Hidden state for the *next* step will be reset at the start of the next iteration
-                # based on the 'done' flag we return now.
-                return new_obs, new_env_state
+            def reset_new_fn(_):
+                # jax.debug.print("resetting new")
+                return MultiFunctionGymnax.reset_env(
+                    key_env_reset, env_params, action_dim, max_batches
+                )
 
-            def no_reset_fn():
-                # Use the observation and state resulting from the step
+            def no_reset_fn(_):
+                # jax.debug.print("no reset")
                 return current_obs, current_env_state
 
-            # Conditionally select the observation and env_state for the *next* iteration's carry
-            next_obs_carry, next_env_state_carry = jax.lax.cond(
-                done,
-                reset_fn,
-                no_reset_fn
-            )
+        
+            reset_mode = jnp.array(1)  # Default: keep current
 
+            # Criterion A: Success
+            # was_successful = info.get("success", jnp.array(False))
+            # reset_mode = jnp.where(was_successful, 2, reset_mode)
+
+            # Criterion B: Every N episodes
+            reset_frequency = 5
+            reset_mode = jnp.where(env_state.episode_counter >= reset_frequency - 1, 2, reset_mode)
+
+            # # Criterion C: Random
+            # key_reset_decision, _ = jax.random.split(key_env_reset)
+            # reset_probability = 0.2
+            # random_reset = jax.random.uniform(key_reset_decision) < reset_probability
+            # reset_mode = jnp.where(random_reset, 2, reset_mode)
+
+            # Optional: If you want to allow for reset to the *same* function rather than random new,
+            # you could assign mode 1 for that and distinguish how `reset_env` behaves.
+
+            # Final mode decision: only reset if `done` is True
+            final_mode = jax.lax.select(done, reset_mode, 0)  # 0 = no reset
+         
+
+            next_obs_carry, next_env_state_carry = jax.lax.switch(
+                final_mode,
+                [no_reset_fn, reset_same_fn, reset_new_fn],
+                operand=None
+            )
+            
+            
+        
             # 4. Prepare output data for *this* step (before potential reset)
             step_data = {
                 "obs": obs, # s_t
@@ -487,8 +507,7 @@ class PPOAgentJax:
         start_dones_T = rollout_data.start_dones # d_0 to d_{T-1}
 
        
-        
-        print("ac", rewards_T.shape, dones_T.shape, values_T.shape, actor_preds_T.shape, log_probs_T.shape)
+        print("why is this not used??!!!!!!", log_probs_T.shape)
         
        
         
@@ -560,7 +579,6 @@ class PPOAgentJax:
         # Initial hidden state h_0 for each sequence
         hidden_states_init = jax.tree_map(lambda x: x[:, 0], hidden_states_T) # Shape (B, *h)
         
-        print("obs", observations_loss["actions"].shape, hidden_states_init[0][0].shape, hidden_states_init[0][0].dtype, obs_T["actions"].shape, obs_T["actions"].dtype)
         # --- Additions ---
         # hidden_states_flat = flatten_rollout_data(hidden_states_T) # h_0 to h_{T-1}
         # start_dones_flat = flatten_rollout_data(start_dones_T)     # d_0 to d_{T-1}
@@ -603,6 +621,8 @@ class PPOAgentJax:
             # --- 2. Calculate probs, entropy for the single sequence ---
             # These sampling_impl methods must work on (T, *) inputs
             logp_new_seq = self.sampling_impl.gaussian_log_prob(actions_seq, act_logits_seq) # Shape (T, *)
+            
+            print("logp_new_seq", logp_new_seq.shape, actions_seq.shape, act_logits_seq.shape)
             # Entropy might return (T,) or scalar mean. Assume (T,) for now.
             entropy_seq = self.sampling_impl.entropy(act_logits_seq, masks_seq, key=key_entropy) # Shape (T,)
             # We need the mean entropy for the loss term
@@ -613,6 +633,9 @@ class PPOAgentJax:
             
             logratio = jnp.clip(logratio, -20, 20) # Clip logratio to avoid numerical issues
             ratio = jnp.exp(logratio)
+            
+            print("logratio", logratio.shape, logp_new_seq.shape, logp_old_seq.shape, ratio.shape, adv_seq.shape)
+            
             pg_loss1 = -adv_seq * ratio
             pg_loss2 = -adv_seq * jnp.clip(ratio, 1 - self.clip_coef, 1 + self.clip_coef)
             # Mean over T for the policy loss of this sequence
@@ -646,10 +669,6 @@ class PPOAgentJax:
         def ppo_loss_fn(params, random_key, mb_obs, mb_actions, mb_logp_old, mb_adv, mb_targets, mb_masks, mb_start_dones, mb_hiddens):
            
             key_model, key_entropy = jax.random.split(random_key)
-          
-            print("mb_obs", mb_obs["actions"].shape, mb_targets.shape)
-            
-            print(mb_start_dones.shape, mb_hiddens[0][0].shape, mb_hiddens[0][0].shape, len(mb_hiddens), mb_hiddens[0][0].shape)
             
             def single_sequence_apply(obs_seq, start_dones_seq, h_init):
                 # apply_fn expects: params_dict, obs, terminations, last_memory
@@ -679,7 +698,6 @@ class PPOAgentJax:
             # Assumes apply works directly on batch
 
             # values_new = values_new.squeeze(-1) # Shape (minibatch_size,)
-            print("values_new", values_new.shape, values_new.dtype)
             logp_new = self.sampling_impl.gaussian_log_prob(mb_actions, act_logits_new) # this also needs to be mapped over the mini_batch dimension
             entropy = self.sampling_impl.entropy(act_logits_new, mb_masks, key=key_entropy).mean()  #this also needs to be mapped over the mini_batch dimension
 
@@ -734,13 +752,11 @@ class PPOAgentJax:
             start_dones_shuffled = shuffle_env_dim(start_dones_T)       # Shape (B, T)
             hidden_init_shuffled = shuffle_env_dim(hidden_states_init)  # Shape (B, *h)
             
-            print("shuffled", actions_shuffled.shape, log_probs_shuffled.shape, advantages_shuffled.shape, targets_shuffled.shape, masks_shuffled.shape, start_dones_shuffled.shape, hidden_init_shuffled[0][0].shape)
 
 
             # Minibatch update loop (Scan over minibatches)
             minibatch_size = num_envs // self.num_minibatches
             
-            print("minibatch size", minibatch_size, num_envs, self.num_minibatches)
             def _update_minibatch(carry_mb, i):
                 agent_state_mb, key_mb = carry_mb
                 key_mb, key_loss = jax.random.split(key_mb)
@@ -876,17 +892,19 @@ class PPOAgentJax:
                 action_dim: int, # Still needed if not derivable from env_params_dict values
                 max_batches: int, # Still needed if not derivable
                 max_steps_in_episode: int, # Still needed if not derivable
+                eval_mode: str = 'ppo', # Default to mean evaluation
                 ) -> dict:
         """Runs evaluation for multiple environment configurations."""
 
         all_eval_metrics = {}
         env_names = list(env_params_dict.keys())
-
+        
+        
         for i, env_name in enumerate(env_names):
             key, subkey = jax.random.split(key) # Use a new key for each env type
             current_env_params = env_params_dict[env_name]
 
-            print(f"--- Evaluating on {env_name} ---")
+            # print(f"--- Evaluating on {env_name} ---")
             # Call the JIT-compiled function for this specific env_params
             # Ensure action_dim, max_batches, max_steps are consistent or derived from current_env_params
             # If they vary per env_params, get them from current_env_params inside the loop
@@ -898,7 +916,8 @@ class PPOAgentJax:
                 num_eval_episodes,
                 action_dim, # Pass consistent values or derive from current_env_params
                 max_batches,
-                max_steps_in_episode
+                max_steps_in_episode,
+                eval_mode 
             )
 
             # Prefix metrics with env_name and add to the overall results
@@ -914,7 +933,7 @@ class PPOAgentJax:
         return all_eval_metrics
 
     # --- Evaluation ---
-    @partial(jax.jit, static_argnames=('self', 'num_eval_episodes', 'action_dim', 'max_batches', 'max_steps_in_episode')) # Jit the evaluation function
+    @partial(jax.jit, static_argnames=('self', 'num_eval_episodes', 'action_dim', 'max_batches', 'max_steps_in_episode', 'eval_mode')) # Jit the evaluation function
     def evaluate_func_type(self,
                  key: chex.PRNGKey, # Single key to split
                  params: chex.ArrayTree,
@@ -923,6 +942,7 @@ class PPOAgentJax:
                  action_dim: int, # Action dimension for the environment
                  max_batches: int, # Number of batches for the environment step
                  max_steps_in_episode: int,
+                 eval_mode: str,
                  ) -> dict:
         """Runs evaluation episodes in parallel."""
 
@@ -940,14 +960,44 @@ class PPOAgentJax:
         # --- Define scan function for episode steps ---
         def _eval_step_scan(carry, _): # Scan over steps, input not used
             h_prev, obs, env_state, done, key_carry = carry
-            key_carry, key_model, key_sample, key_env = jax.random.split(key_carry, 4)
+            key_carry, key_model, key_sample, key_env, key_rand_act = jax.random.split(key_carry, 5)
+            
+            
+            def ppo_action_fn():
+                # Standard PPO evaluation action selection
+                act_logits, _, h_next = self._actor_critic_step(params, key_model, obs, done, h_prev)
+                mask = obs.get("mask", None)
+                # Use deterministic action (mode/mean) or sampling
+                action = self.sampling_impl.sampling_differ(act_logits, key_sample, mask) # Keep sampling or use mode
+                return action, h_next
 
-            # Get deterministic action (e.g., mean of distribution) or sample
-            # Note: _actor_critic_step expects single env data
-            act_logits, _, h_next = self._actor_critic_step(params, key_model, obs, done, h_prev)
-            mask = obs.get("mask", None)
-            # Use deterministic sampling for evaluation
-            action = self.sampling_impl.sampling_differ(act_logits, key_sample, mask) # Assuming sampling_impl has a mode method
+            def random_action_fn():
+                # Sample random actions in [-1, 1] range (or env action space if different)
+                # Assumes action space is [-1, 1]^action_dim
+                # Need shape (max_batches, action_dim) expected by step_env
+                random_action_normalized = jax.random.uniform(
+                    key_rand_act,
+                    shape=(max_batches, action_dim), # Ensure correct shape
+                    minval=-1.0, maxval=1.0
+                )
+                # No model step, hidden state just passes through or resets if done
+                h_reset = self.seq_init()
+                h_next = jax.tree_map(lambda reset_h, prev_h: jax.lax.select(done, reset_h, prev_h), h_reset, h_prev)
+                return random_action_normalized, h_next
+            
+            action, h_next = jax.lax.cond(
+                eval_mode == "random",
+                random_action_fn,
+                ppo_action_fn
+            )
+
+
+            # # Get deterministic action (e.g., mean of distribution) or sample
+            # # Note: _actor_critic_step expects single env data
+            # act_logits, _, h_next = self._actor_critic_step(params, key_model, obs, done, h_prev)
+            # mask = obs.get("mask", None)
+            # # Use deterministic sampling for evaluation
+            # action = self.sampling_impl.sampling_differ(act_logits, key_sample, mask) # Assuming sampling_impl has a mode method
 
             # Step environment - only if not already done
             def step_fn():
@@ -1009,7 +1059,7 @@ class PPOAgentJax:
             # Calculate mean for 'rewards'
             best_action =step_outputs["info"]["best_rewards"][-1]
             
-            jax.debug.print("best action {} {} {}", best_action, regret, success)
+            
 
             
 
@@ -1041,6 +1091,7 @@ class PPOAgentJax:
         # and the _eval_step_scan and aggregation logic needs to handle them.
 
         return eval_metrics_mean
+    
 
 
 # --- Helper Functions ---

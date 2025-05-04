@@ -1,5 +1,6 @@
-name: ${experiment.combos.${experiment.choice}.name}
+# name: ${experiment.combos.${experiment.choice}.name}
 task: ${experiment.combos.${experiment.choice}.task}
+pol_dist: ${experiment.combos.${experiment.choice}.pol_dist}
 env_train: ${experiment.combos.${experiment.choice}.env_train}
 env_test: ${experiment.combos.${experiment.choice}.env_test}
 function_types: []

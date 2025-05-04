@@ -25,18 +25,15 @@ class LSTM(nn.Module):
                 
                 inputs,terminate=inputs
                 
-                print("LSTMout",inputs.shape,terminate.shape)
      
                 if reset_on_terminate:
                     #Reset hidden state on termination
-                    print("you added this features hyperparameter!!!!")
                     carry=jax.lax.cond(terminate,lambda:jax.tree_map(lambda x:jnp.zeros_like(x),carry),lambda:carry)
                 (new_c, new_h), new_h=nn.OptimizedLSTMCell(features=5, kernel_init=orthogonal(jnp.sqrt(2)),
                             recurrent_kernel_init=orthogonal(jnp.sqrt(2)),bias_init=constant(0.0))(carry,inputs)
                 return (new_c, new_h), ((new_c, new_h),new_h)
             
         
-        print("LSTMout",inputs.shape,terminations.shape,last_state[0].shape)
         model=nn.scan(LSTMout,variable_broadcast="params",
                    split_rngs={"params": False},)
         carry,(new_states,y_t)=model()(last_state,(inputs,terminations))

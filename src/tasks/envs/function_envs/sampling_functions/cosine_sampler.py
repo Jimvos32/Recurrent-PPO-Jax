@@ -41,7 +41,7 @@ class CosineSampler(FunctionSampler):
         self.max_y = self.c + self.A0 * self.action_dim + np.sum(self.small_A)
         self.min_y = self.c - self.A0 * self.action_dim - np.sum(self.small_A)
         
-        print("sdfh", self.num_oscillations)
+        # print("sdfh", self.num_oscillations)
 
         # Ensure max_y is strictly greater than min_y for scaling
         if np.isclose(self.max_y, self.min_y):

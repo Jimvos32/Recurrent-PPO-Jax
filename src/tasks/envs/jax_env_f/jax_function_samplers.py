@@ -1,14 +1,29 @@
 import jax
 import jax.numpy as jnp
 import chex
+from functools import partial
+from jax.experimental import checkify
+
 # Import EnvParams from the jax_env module (adjust path if necessary)
 # Assuming jax_env.py is in the same directory or accessible via python path
 # from src.tasks.envs.jax_env import EnvParams
-from typing import Tuple, Dict, NamedTuple, List, Optional
+from typing import Tuple, Dict, NamedTuple, List, Optional, Callable
 import functools # Ensure imported
 import flax.struct as struct # Or use standard dataclasses
 import numpy as np # For NaN checks
 # from src.tasks.envs.jax_env.env_params import EnvParams # Adjust import as needed
+import gpjax as gpx
+
+from jax import config
+from jaxtyping import (
+    Float,
+    install_import_hook,
+)
+config.update("jax_enable_x64", True)
+
+
+with install_import_hook("gpjax", "beartype.beartype"):
+    import gpjax as gpx
 
 
 # Note: The EnvParams class definition is REMOVED from this file.
@@ -27,7 +42,9 @@ import enum
 # --- Option 1: Using enum.Enum with automatic integer values ---
 # Enum members get assigned unique integer values starting from 1 by default.
 
-        
+GPJAX_GRID_SIZE = 200
+  
+
 
 @struct.dataclass
 class EnvParams:
@@ -92,7 +109,7 @@ def create_env_params(config) -> EnvParams:
     
     
     
-    for function in ["ackley", "poly", "neg_abs", "gaussian"]:
+    for function in ["ackley", "poly", "neg_abs", "gaussian", "matern52"]:
         sampler_params['specific'][function] = function_params_to_dict(function, config["action_dim"])
             
             
@@ -114,13 +131,344 @@ def create_env_params(config) -> EnvParams:
         # ... Add any other default values needed ...
     )
     
+def initialize_gaussian(key: chex.PRNGKey, params: EnvParams, action_dim: int) -> Dict:
+    """
+    Initializes Gaussian function parameters using config from EnvParams.
+
+    Returns a nested dictionary including sampled parameters and calculated min/max y.
+    """
+    # Get Gaussian specific config from the main EnvParams
+    gaussian_config = params.sampler_configs['specific']['gaussian']
+    
+    
+    
+
+    key_center, key_width, key_amp, key_base = jax.random.split(key, 4)
+    dim = action_dim # Use concrete integer passed in
+    lower, upper = params.x_range # General bounds from params
+    opt_factor = gaussian_config.get('center_opt_factor', 1.0) # Factor for center range
+
+    # Sample Gaussian parameters
+    # Center (peak location) - sampled within a factor of the bounds
+    center = jax.random.uniform(key_center, shape=(dim,),
+                                minval=lower * opt_factor,
+                                maxval=upper * opt_factor)
+
+    # Width (controls steepness/std dev) - must be positive
+    width = jax.random.uniform(key_width, shape=(dim,),
+                               minval=gaussian_config['width_bounds'][0],
+                               maxval=gaussian_config['width_bounds'][1])
+
+    # Amplitude (height of peak above baseline) - must be positive
+    amplitude = jax.random.uniform(key_amp, shape=(),
+                                  minval=gaussian_config['amplitude_bounds'][0],
+                                  maxval=gaussian_config['amplitude_bounds'][1])
+
+    # Baseline (value far from center)
+    baseline = jax.random.uniform(key_base, shape=(),
+                                  minval=gaussian_config['baseline_bounds'][0],
+                                  maxval=gaussian_config['baseline_bounds'][1])
+
+    # --- Calculate max/min y for Gaussian ---
+    optimum_point = center
+    # Max y occurs exactly at the center (exponent = 0 -> exp(0) = 1)
+    max_y = baseline + amplitude * 1.0
+
+    # Min y occurs at the boundary point furthest from the center
+    # Find coordinates of the furthest boundary point
+    x_min_coords = jnp.where(jnp.abs(center - lower) > jnp.abs(upper - center), lower, upper)
+
+    # Calculate the exponent term at this minimum point
+    diff_min_sq = ((x_min_coords - center) / width) ** 2
+    exponent_at_min = -0.5 * jnp.sum(diff_min_sq)
+
+    # Calculate the minimum y value
+    min_y_candidate = baseline + amplitude * jnp.exp(exponent_at_min)
+
+    # Ensure min_y is distinct from max_y (optional safety)
+    min_y = jnp.minimum(min_y_candidate, max_y - 1e-6)
+
+    # --- Structure the output dictionary ---
+    # Get the base structure, potentially with other sampler types
+    sam_con = params.sampler_configs
+
+    # Populate common parameters
+    sam_con['common'] = {
+        'type_index': 4, # Assign a unique index for Gaussian (e.g., 1)
+        'optimum_point': optimum_point,
+        'max_y': max_y,
+        'min_y': min_y,
+        'action_dim': dim,
+    }
+
+    # Populate Gaussian specific parameters
+    # Ensure the 'gaussian' key exists if creating from scratch
+    if 'gaussian' not in sam_con['specific']:
+         sam_con['specific']['gaussian'] = {}
+
+    sam_con['specific']['gaussian']['center'] = center
+    sam_con['specific']['gaussian']['width'] = width
+    sam_con['specific']['gaussian']['amplitude'] = amplitude
+    sam_con['specific']['gaussian']['baseline'] = baseline
+    
+    
+    # jax.debug.print("init_gauss {} min {}", params.sampler_configs['common']['type_index'], sam_con['common']['min_y'])
+
+    # Add dummy/padding arrays for other sampler types if necessary
+    # (similar to how you might pad the poly arrays)
+    
+    # print("gaussian", center.shape,"gsdfg")
+    
+    # jax.debug.print("gaussian x {} ",sam_con)
+    
+    
+
+    return sam_con
+
+# In jax_function_samplers.py
+# @partial(jax.jit, static_argnames='action_dim')
+def initialize_inner_matern52(key: chex.PRNGKey, params: EnvParams, action_dim: int) -> Dict:
+    """
+    Initializes a function sample from a GPJax Matern 5/2 prior.
+    For action_dim > 1, samples independent 1D functions per dimension.
+    Stores the evaluation grid (x_grid) and sampled values (y_grids).
+    """
+    gp_config = params.sampler_configs['specific']['matern52']
+    grid_size = gp_config['grid_size'] # Use grid size from config
+    lower, upper = params.x_range
+
+    # 1. Define GP components (common for all dimensions)
+    kernel = gpx.kernels.Matern52()
+    meanf = gpx.mean_functions.Zero()
+    prior = gpx.gps.Prior(mean_function=meanf, kernel=kernel)
+
+    # 2. Define the grid for sampling and interpolation
+    # Ensure x_grid has shape (grid_size, 1) for GPJax prior call
+    
+    x_grid_1d = jnp.linspace(lower, upper, num=200)
+    # x_grid_1d = jnp.linspace(-4, 4, num=200) # Shape (grid_size,)  
+    x_grid_gp = x_grid_1d.reshape(-1, 1) # Shape (grid_size, 1)
+    # # 3. Sample independent functions for each dimension
+    keys  = jax.random.split(key, action_dim)
+    # # Use jax.vmap for cleaner sampling across dimensions
+    def sample_single_dim(k):
+      
+        rv = prior(x_grid_gp)
+        ret = rv.sample(key=k, sample_shape=(1,)).squeeze() # Squeeze to (grid_size,)
+        # print("ret", ret, type(ret))
+        return ret
+    
+    y_grids = jax.vmap(sample_single_dim)(keys) # Shape (action_dim, grid_size)
+    
+    
+  
+
+    # 4. Estimate common parameters (max_y, min_y, optimum_point)
+    # Simple estimation: Max/Min of the sum, optimum is where sum is max
+    # This assumes the goal is to maximize the sum of functions. Adjust if different.
+    
+    # Find max/min per dimension
+    y_max_per_dim = jnp.max(y_grids, axis=1)
+    y_min_per_dim = jnp.min(y_grids, axis=1)
+    
+    # Estimate overall max/min by summing per-dim extremes
+    # Note: This is an approximation. The true max/min of the sum might occur elsewhere.
+    max_y_est = jnp.sum(y_max_per_dim)
+    min_y_est = jnp.sum(y_min_per_dim)
+
+    # Find the location (on the grid) of the max for each dimension
+    opt_indices = jnp.argmax(y_grids, axis=1)
+    optimum_point_est = x_grid_1d[opt_indices] # Shape (action_dim,)
+
+    # 5. Structure the output dictionary, updating the template from params
+    # Create a deep copy to avoid modifying the original params
+    sam_con = jax.tree.map(lambda x: x, params.sampler_configs)
+
+    sam_con['common'] = {
+        'type_index': 5, # Set correct index (adjust enum start if needed)
+        'optimum_point': optimum_point_est,
+        'max_y': max_y_est,
+        'min_y': min_y_est,
+        'action_dim': action_dim,
+    }
+    
+    # Store the grids in the specific section
+    # Ensure the 'gpjax_matern52' key exists
+    if 'matern52' not in sam_con['specific']:
+        sam_con['specific']['matern52'] = {} # Should be created by function_params_to_dict
+
+    sam_con['specific']['matern52']['x_grid'] = x_grid_1d # Store 1D grid (grid_size,)
+    sam_con['specific']['matern52']['y_grids'] = y_grids # Store (action_dim, grid_size)
     
 
 
+    return sam_con
 
+
+# _checked_jitted_matern52 = jax.jit(
+#     checkify.checkify(initialize_inner_matern52, errors=checkify.float_checks), # Or potentially a smaller error set if sufficient for GPJax
+#     static_argnames='action_dim'
+# )
+
+# def initialize_matern52(key: chex.PRNGKey, params: EnvParams,  action_dim: int) -> Dict:
+#     """Calls the checked/JITted matern52 init and returns only the params dict."""
+#     # We ignore the 'err' output as per the goal of bypassing checks for JIT compatibility.
+#     _err, out = _checked_jitted_matern52(key, params, action_dim)
+#     return out # Return structure is now Dict
+
+
+def checked_inner(key, params, action_dim):
+    return checkify.checkify(initialize_inner_matern52, errors=checkify.float_checks)(key, params, action_dim)
+
+_checked_jitted_matern52 = jax.jit(checked_inner, static_argnames='action_dim')
+
+def initialize_matern52(key: chex.PRNGKey, params: EnvParams, action_dim: int) -> Dict:
+    _err, out = _checked_jitted_matern52(key, params, action_dim)
+    return out
+    
+    
 
     
-    # ... Add any other init=True fields needed ...
+# In jax_function_samplers.py
+
+# def compute_y_matern52(x: chex.Array, sampler_params: Dict, env_params: EnvParams) -> chex.Array:
+#     """
+#     Computes the y value for a given x by interpolating the stored GP sample.
+#     Sums the results from independent 1D interpolations for each dimension.
+#     """
+    c
+#     print("we should be comupting this", sampler_params['specific']['matern52']['y_grids'])
+#     gp_params = sampler_params['specific']['matern52']
+#     x_grid = gp_params['x_grid']     # Shape (grid_size,)
+#     y_grids = gp_params['y_grids']   # Shape (action_dim, grid_size)
+#     action_dim = sampler_params['common']['action_dim']
+
+#     # Ensure x has batch dimension if needed. Assume input x shape (batch, action_dim) or (action_dim,)
+#     single_input = False
+#     if x.ndim == 1:
+#         x = x[jnp.newaxis, :] # Add batch dim: shape (1, action_dim)
+#         single_input = True
+
+#     # Interpolate each dimension independently using jnp.interp
+#     # We need to apply interp for each dimension of x using the corresponding y_grid row.
+
+#     # vmap over the action_dim dimension of x and y_grids
+#     # interp_one_dim expects x scalar, xp array, fp array
+#     # x has shape (batch, action_dim)
+#     # x_grid has shape (grid_size,)
+#     # y_grids has shape (action_dim, grid_size)
+
+#     # Option 1: vmap over action dimension (applied per batch element)
+#     def interpolate_batch_element(x_element):
+#         # x_element has shape (action_dim,)
+#         # vmap interp over the dimensions
+#         print("x_element", x_element.shape, x_element.dtype, x_grid.shape, x_grid.dtype, y_grids.shape, y_grids.dtype)
+#         return jax.vmap(jnp.interp)(x_element, x_grid, y_grids) # Pass x_grid repeatedly
+    
+#     print("x", x.shape, x.dtype, x_grid.shape, x_grid.dtype, y_grids.shape, y_grids.dtype)
+
+#     # vmap interpolate_batch_element over the batch dimension of x
+#     interpolated_values_per_dim = jax.vmap(interpolate_batch_element)(x)
+#     # Result shape: (batch, action_dim) - value for each input dim
+
+#     # Sum results across dimensions
+#     result = jnp.sum(interpolated_values_per_dim, axis=-1) # Shape (batch,)
+
+#     # Remove batch dim if input was single vector
+#     if single_input:
+#         result = result.squeeze(axis=0)
+
+#     # Optional: Clip result to stored min/max bounds?
+#     # common_params = sampler_params['common']
+#     # result = jnp.clip(result, common_params['min_y'], common_params['max_y'])
+#     print("result", result.shape, result.dtype, x.shape, x.dtype)
+#     jax.debug.print("compute_y_matern52 {} {}",x,result)
+#     return result
+#     # ... Add any other init=True fields needed ...
+
+# In jax_function_samplers.py
+
+# def compute_y_matern52(x: chex.Array, sampler_params: Dict, env_params: EnvParams) -> chex.Array:
+#     """
+#     Computes the y value for a given x by interpolating the stored GP sample.
+#     Sums the results from independent 1D interpolations for each dimension.
+#     Assumes input x is a single data point (row) with shape (action_dim,).
+#     """
+#     gp_params = sampler_params['specific']['matern52'] # Or 'matern52'
+#     x_grid = gp_params['x_grid']     # Shape (grid_size,)
+#     y_grids = gp_params['y_grids']   # Shape (action_dim, grid_size)
+#     action_dim = sampler_params['common']['action_dim']
+
+#     # Input x has shape (action_dim,) e.g., (1,) when called from outer vmap
+
+#     # Define interpolation for a single dimension
+#     def interp_1d(x_scalar, y_grid_1d):
+#         return jnp.interp(x_scalar, x_grid, y_grid_1d)
+
+#     # Define a function that processes the input row x
+#     # (This function essentially *is* process_row now)
+#     # We want to vmap interp_1d over x (axis 0) and y_grids (axis 0)
+#     # Both have leading dimension size == action_dim
+    
+#     print("x", x.shape, x.dtype, x_grid.shape, x_grid.dtype, y_grids.shape, y_grids.dtype)
+    
+#     interpolated_values_for_each_dim = jax.vmap(
+#         interp_1d, in_axes=(0, 0) # Map over axis 0 of x and axis 0 of y_grids
+#     )(x, y_grids)
+#     # interpolated_values_for_each_dim will have shape (action_dim,)
+
+#     # Sum the results across the action dimensions
+#     result = jnp.sum(interpolated_values_for_each_dim)
+#     # result is now a scalar, which is correct for compute_single_y_jit
+
+#     return result
+
+# In jax_function_samplers.py
+
+def compute_y_matern52(x: chex.Array, sampler_params: Dict, env_params: EnvParams) -> chex.Array:
+    """
+    Computes the y value for a given BATCH of x by interpolating the stored GP sample.
+    Sums the results from independent 1D interpolations for each dimension.
+    Handles batch dimension in x. Assumes x shape is (batch, action_dim).
+    """
+    gp_params = sampler_params['specific']['matern52'] # Or 'matern52'
+    x_grid = gp_params['x_grid']     # Shape (grid_size,)
+    y_grids = gp_params['y_grids']   # Shape (action_dim, grid_size)
+    action_dim = sampler_params['common']['action_dim']
+    
+    x = x[jnp.newaxis, :] if x.ndim == 1 else x
+
+    # Input x has shape (batch, action_dim), e.g., (4, 2)
+
+    # Define interpolation for a single dimension (same as before)
+    # Takes a scalar x value and the corresponding 1D y_grid -> returns scalar
+    def interp_1d(x_scalar, y_grid_1d):
+        # x_grid is implicitly captured from the outer scope
+        return jnp.interp(x_scalar, x_grid, y_grid_1d)
+
+    # --- Nested Vmap Structure ---
+
+    # 1. Define a function that processes ONE ROW from the batch
+    def process_row(x_row):
+        # x_row has shape (action_dim,) e.g., (2,)
+        # We want to vmap interp_1d over x_row (axis 0) and y_grids (axis 0)
+        # Both have leading dimension size == action_dim
+        interpolated_values_for_each_dim = jax.vmap(
+            interp_1d, in_axes=(0, 0) # Map over axis 0 of x_row and axis 0 of y_grids
+        )(x_row, y_grids)
+        # interpolated_values_for_each_dim will have shape (action_dim,)
+
+        # Sum the results across the action dimensions for this single row
+        return jnp.sum(interpolated_values_for_each_dim) # Returns scalar
+
+    # 2. Vmap process_row over the BATCH dimension (axis 0) of the input x
+    # x has shape (batch, action_dim)
+    result = jax.vmap(process_row, in_axes=0)(x)
+    
+    result = jnp.squeeze(result) # Remove any extra dimensions if needed
+    # result will have shape (batch,) - one output value per input row
+
+    return result
 
 # --- Updated Ackley Initialization with Dummy Arrays ---
 def initialize_ackley(key: chex.PRNGKey, params: EnvParams, action_dim: int) -> Dict:
@@ -147,7 +495,7 @@ def initialize_ackley(key: chex.PRNGKey, params: EnvParams, action_dim: int) -> 
 
     # Calculate max/min for Ackley
     max_y = 0.0
-    corner = jnp.full((dim,), upper, dtype=jnp.float32)
+    corner = jnp.full((dim,), upper)
     z = corner - optimum_point
     sum_sq = jnp.sum(z**2) / dim
     cos_sum = jnp.sum(jnp.cos(c * z)) / dim
@@ -254,7 +602,7 @@ def initialize_neg_abs(key: chex.PRNGKey, params: EnvParams, action_dim: int) ->
     lower, upper = params.x_range
 
     # Optimum point is always at the origin for this function.
-    optimum_point = jnp.zeros((dim,), dtype=jnp.float32)
+    optimum_point = jnp.zeros((dim,))
 
     # Maximum value is always 0 at the optimum point.
     max_y = 0.0
@@ -276,10 +624,10 @@ def initialize_neg_abs(key: chex.PRNGKey, params: EnvParams, action_dim: int) ->
     # It's safer to create a new dict or carefully update a copy
     # Let's assume we need to populate the structure like the others.
     # Get the default structure for padding/consistency if needed from params.sampler_configs
-    sam_con = jax.tree_map(lambda x: x, params.sampler_configs) # Create a copy
+    sam_con = jax.tree.map(lambda x: x, params.sampler_configs) # Create a copy
 
     sam_con['common'] = {
-        'type_index': 3, # Placeholder, will be set by initialize_sampler
+        'type_index': 3, # Placeholder, will be set by 
         'optimum_point': optimum_point,
         'max_y': max_y,
         'min_y': min_y,
@@ -314,20 +662,27 @@ def compute_y_neg_abs(x: chex.Array, sampler_params: Dict, env_params: EnvParams
 
     # Calculate -sum(|x_i|) along the last axis (dimension axis)
     result = -jnp.sum(jnp.abs(x), axis=-1)
-
     # Optional debug print
     # common_params = sampler_params['common']
     # jax.debug.print("COMPUTE_NEG_ABS: Input x[0]={x_val}, Result={res_val}, Min={min_v}, Max={max_v}",
     #                 x_val=x[0,0], res_val=result.squeeze(), min_v=common_params['min_y'], max_v=common_params['max_y'])
-    
+    result = jnp.astype(result, jnp.float64) # Ensure result is float64 for consistency
     
     # jax.debug.print("x {} result {} min {} max {}\n",x, result, sampler_params['common']['min_y'], sampler_params['common']['max_y'])
 
     return result.squeeze() # Remove batch dim if input was single vector
 
 
-# --- initialize_sampler remains the same ---
+# ---  remains the same ---
 # It dispatches based on type_index and uses functools.partial
+
+
+jitted_ackley = jax.jit(initialize_ackley, static_argnames='action_dim')
+jitted_poly = jax.jit(initialize_poly, static_argnames='action_dim')
+jitted_neg_abs = jax.jit(initialize_neg_abs, static_argnames='action_dim')
+jitted_gaussian = jax.jit(initialize_gaussian, static_argnames='action_dim')
+
+# @partial(jax.jit, static_argnames=('action_dim'))
 def initialize_sampler(key: chex.PRNGKey, type_index: int, action_dim:int, params: EnvParams) -> Dict:
     """
     Dispatches to the correct sampler initialization based on index.
@@ -335,24 +690,25 @@ def initialize_sampler(key: chex.PRNGKey, type_index: int, action_dim:int, param
     Returns a nested dictionary with a unified, padded structure.
     """
     # action_dim = params.action_dim # Concrete Python int
+    # type_index = 4
+    # action_dim = 1
 
-    # Ensure the order here matches the type_index assumption (0: Ackley, 1: Poly)
-    base_branches: List[callable] = [
-        initialize_ackley,  # Index 0
-        initialize_poly,    # Index 1
-        initialize_neg_abs,
-        initialize_gaussian,
-        # Add other initializers here...
+    final_branches: List[Callable] = [
+        jitted_ackley,             # Returns Dict
+        jitted_poly,               # Returns Dict
+        jitted_neg_abs,            # Returns Dict
+        jitted_gaussian,           # Returns Dict
+        initialize_matern52,     # Returns Dict (wrapper ignores Error) - Index 4 assuming 0-based
+        # Add other jitted simple branches...
     ]
-    # print("pasdg", params)
-    # # base_branches = params
-    # base_branches = params.sample_switch
-    
-    
 
+    # Partial application - action_dim must be static if initialize_sampler is JITted
     partial_branches = [
-        functools.partial(func, action_dim=action_dim) for func in base_branches
+        functools.partial(func, action_dim=action_dim)
+        for func in final_branches
     ]
+
+    
     type_index = type_index - 1
     num_samplers = len(partial_branches)
     # Ensure type_index is treated as a JAX type for tracing if necessary
@@ -362,11 +718,128 @@ def initialize_sampler(key: chex.PRNGKey, type_index: int, action_dim:int, param
  
     sampler_params = jax.lax.switch(type_index_clipped, partial_branches, key, params)
     sampler_params['common']['type_index'] = type_index 
+    print("sampler_params", type_index, type_index_clipped, sampler_params['common']['type_index'])
     
     # jax.debug.print("init_general {}  {} {} {}", params.sampler_configs['common']['type_index'], type_index, type_index_clipped, sampler_params['common']['min_y'])
     
     # jax.debug.print("sampler_params {} afeter init", sampler_params)
     return sampler_params
+
+# # @partial(jax.jit, static_argnames=('action_dim'))
+# def initialize_sampler(key: chex.PRNGKey, type_index: int, action_dim:int, params: EnvParams) -> Dict:
+#     """
+#     Dispatches to the correct sampler initialization based on index.
+#     Handles static action_dim for lax.switch compatibility.
+#     Returns a nested dictionary with a unified, padded structure.
+#     """
+#     # action_dim = params.action_dim # Concrete Python int
+
+#     # # Ensure the order here matches the type_index assumption (0: Ackley, 1: Poly)
+#     # base_branches: List[callable] = [
+#     #     initialize_ackley,  # Index 0
+#     #     initialize_poly,    # Index 1
+#     #     initialize_neg_abs,
+#     #     initialize_gaussian,
+#     #     initialize_matern52,
+#     #     # Add other initializers here...
+#     # ]
+#     # # print("pasdg", params)
+#     # # # base_branches = params
+#     # # base_branches = params.sample_switch
+    
+#     # partial_branches = [
+#     #     functools.partial(func, action_dim=action_dim) for func in base_branches
+#     # ]
+    
+    
+#     checked_jitted_branches = [
+#         # Apply checkify FIRST to handle internal checks (like GPJax's)
+#         # Apply JIT SECOND, making action_dim static
+#         jax.jit(
+#             checkify.checkify(func, errors=checkify.float_checks), # Handles GPJax checks
+#             static_argnames='action_dim'                             # Handles shape requirements
+#         )
+#         for func in [
+#                 initialize_ackley,  # Index 0
+#                 initialize_poly,    # Index 1
+#                 initialize_neg_abs,
+#                 initialize_gaussian,
+#                 initialize_matern52,
+#         ]
+#     ]
+    
+#     partial_branches = [
+#         functools.partial(func, action_dim=action_dim) for func in checked_jitted_branches
+#     ]
+
+    
+    
+#     type_index = type_index - 1
+#     num_samplers = len(partial_branches)
+#     # Ensure type_index is treated as a JAX type for tracing if necessary
+#     type_index_jax = jnp.asarray(type_index)
+#     type_index_clipped = jnp.clip(type_index_jax, 0, num_samplers - 1)
+
+ 
+#     sampler_params = jax.lax.switch(type_index_clipped, partial_branches, key, params)
+#     sampler_params['common']['type_index'] = type_index 
+    
+#     # jax.debug.print("init_general {}  {} {} {}", params.sampler_configs['common']['type_index'], type_index, type_index_clipped, sampler_params['common']['min_y'])
+    
+#     # jax.debug.print("sampler_params {} afeter init", sampler_params)
+#     return sampler_params
+
+
+# --- Helper function to get the correct init function ---
+def _get_initializer(type_index: int) -> Callable:
+    # Map the public type_index (often 1-based from Enum) to 0-based list index
+    # Example: if Enum starts at 1, subtract 1. Adjust if your Enum is different.
+    idx_0_based = type_index # Assuming Enum starts at 1
+    
+
+    initializers: List[Callable] = [
+        initialize_ackley,       # Index 0
+        initialize_poly,         # Index 1
+        initialize_neg_abs,      # Index 2
+        initialize_gaussian,     # Index 3
+        initialize_matern52, # Index 4
+        # Add others...
+    ]
+
+    return initializers[idx_0_based]
+    
+
+
+# def initialize_sampler(key: chex.PRNGKey, type_index: int, action_dim:int, params: EnvParams) -> Dict:
+#     """
+#     Dispatches to the correct sampler initialization based on index
+#     using standard Python if/elif.
+#     NOTE: This version is NOT JIT-compatible due to Python control flow.
+#     """
+#     # Ensure type_index is a concrete Python integer for Python control flow
+#     # type_index = type_index.astype(int)# Ensure it's a concrete int for Python dispatch
+#     type_index = jnp.array(type_index, int)
+#     # if not isinstance(type_index, int):
+#     #      # If it's a JAX tracer array, try to convert if possible (will fail under jit)
+#     #      try:
+#     #          type_index = int(type_index)
+#     #      except TypeError:
+#     #           raise TypeError("type_index must be a concrete integer for Python if/elif dispatch.")
+
+#     # Get the specific initializer function based on the type_index
+#     initializer_func = _get_initializer(type_index)
+
+#     # Call the selected initializer function directly
+#     print(f"[initialize_sampler] Using Python dispatch: Calling {initializer_func.__name__}", type_index)
+#     sampler_params = initializer_func(key=key, params=params, action_dim=action_dim)
+
+#     # Ensure the final type_index reflects the requested type,
+#     # as the initializer might have its own default.
+#     # It's safer to update the common dict *after* the call.
+#     sampler_params['common'] = sampler_params['common'].copy() # Avoid modifying original if it's part of params
+#     sampler_params['common']['type_index'] = type_index
+
+#     return sampler_params
 
 
 # --- compute_y_ackley remains the same (accessing nested params) ---
@@ -422,6 +895,7 @@ def compute_y_gaussian(x: chex.Array, sampler_params: Dict, env_params: EnvParam
     """
     Computes the y value for a given x using the sampled Gaussian parameters.
     """
+    print("compute_y_gaussian", x.shape, x.dtype, sampler_params['common']['type_index'])
     # Extract Gaussian parameters
     gauss_params = sampler_params['specific']['gaussian']
     center = gauss_params['center']
@@ -457,99 +931,7 @@ def compute_y_gaussian(x: chex.Array, sampler_params: Dict, env_params: EnvParam
     return result.squeeze()
 
 
-def initialize_gaussian(key: chex.PRNGKey, params: EnvParams, action_dim: int) -> Dict:
-    """
-    Initializes Gaussian function parameters using config from EnvParams.
 
-    Returns a nested dictionary including sampled parameters and calculated min/max y.
-    """
-    # Get Gaussian specific config from the main EnvParams
-    gaussian_config = params.sampler_configs['specific']['gaussian']
-    
-    
-    
-
-    key_center, key_width, key_amp, key_base = jax.random.split(key, 4)
-    dim = action_dim # Use concrete integer passed in
-    lower, upper = params.x_range # General bounds from params
-    opt_factor = gaussian_config.get('center_opt_factor', 1.0) # Factor for center range
-
-    # Sample Gaussian parameters
-    # Center (peak location) - sampled within a factor of the bounds
-    center = jax.random.uniform(key_center, shape=(dim,),
-                                minval=lower * opt_factor,
-                                maxval=upper * opt_factor)
-
-    # Width (controls steepness/std dev) - must be positive
-    width = jax.random.uniform(key_width, shape=(dim,),
-                               minval=gaussian_config['width_bounds'][0],
-                               maxval=gaussian_config['width_bounds'][1])
-
-    # Amplitude (height of peak above baseline) - must be positive
-    amplitude = jax.random.uniform(key_amp, shape=(),
-                                  minval=gaussian_config['amplitude_bounds'][0],
-                                  maxval=gaussian_config['amplitude_bounds'][1])
-
-    # Baseline (value far from center)
-    baseline = jax.random.uniform(key_base, shape=(),
-                                  minval=gaussian_config['baseline_bounds'][0],
-                                  maxval=gaussian_config['baseline_bounds'][1])
-
-    # --- Calculate max/min y for Gaussian ---
-    optimum_point = center
-    # Max y occurs exactly at the center (exponent = 0 -> exp(0) = 1)
-    max_y = baseline + amplitude * 1.0
-
-    # Min y occurs at the boundary point furthest from the center
-    # Find coordinates of the furthest boundary point
-    x_min_coords = jnp.where(jnp.abs(center - lower) > jnp.abs(upper - center), lower, upper)
-
-    # Calculate the exponent term at this minimum point
-    diff_min_sq = ((x_min_coords - center) / width) ** 2
-    exponent_at_min = -0.5 * jnp.sum(diff_min_sq)
-
-    # Calculate the minimum y value
-    min_y_candidate = baseline + amplitude * jnp.exp(exponent_at_min)
-
-    # Ensure min_y is distinct from max_y (optional safety)
-    min_y = jnp.minimum(min_y_candidate, max_y - 1e-6)
-
-    # --- Structure the output dictionary ---
-    # Get the base structure, potentially with other sampler types
-    sam_con = params.sampler_configs
-
-    # Populate common parameters
-    sam_con['common'] = {
-        'type_index': 4, # Assign a unique index for Gaussian (e.g., 1)
-        'optimum_point': optimum_point,
-        'max_y': max_y,
-        'min_y': min_y,
-        'action_dim': dim,
-    }
-
-    # Populate Gaussian specific parameters
-    # Ensure the 'gaussian' key exists if creating from scratch
-    if 'gaussian' not in sam_con['specific']:
-         sam_con['specific']['gaussian'] = {}
-
-    sam_con['specific']['gaussian']['center'] = center
-    sam_con['specific']['gaussian']['width'] = width
-    sam_con['specific']['gaussian']['amplitude'] = amplitude
-    sam_con['specific']['gaussian']['baseline'] = baseline
-    
-    
-    # jax.debug.print("init_gauss {} min {}", params.sampler_configs['common']['type_index'], sam_con['common']['min_y'])
-
-    # Add dummy/padding arrays for other sampler types if necessary
-    # (similar to how you might pad the poly arrays)
-    
-    # print("gaussian", center.shape,"gsdfg")
-    
-    # jax.debug.print("gaussian x {} ",sam_con)
-    
-    
-
-    return sam_con
 
 def compute_y_sampler(x: chex.Array, sampler_params: Dict, env_params: EnvParams) -> chex.Array:
     """
@@ -566,8 +948,10 @@ def compute_y_sampler(x: chex.Array, sampler_params: Dict, env_params: EnvParams
         compute_y_poly,    # Index 1
         compute_y_neg_abs,  # Index 2
         compute_y_gaussian, # Index 3
+        compute_y_matern52, # Index 4
         # Add other compute functions here...
     ]
+    
     
     
     # branches = env_params.compute_switch
@@ -591,13 +975,14 @@ class FuncIndices(enum.Enum):
     poly = enum.auto()  # Gets assigned 2
     neg_abs = enum.auto() # Gets assigned 3
     gaussian = enum.auto()   # Gets assigned 4
-    branin = enum.auto() # Gets assigned 5
+    matern = enum.auto() # Gets assigned 5
     
 class FunctionToSampler(enum.Enum):
     ackley = initialize_ackley
     poly = initialize_poly
     neg_abs = initialize_neg_abs
     gaussian = initialize_gaussian
+    matern52 = initialize_matern52
     
     
 func_to_sampler = {
@@ -605,6 +990,7 @@ func_to_sampler = {
     "poly": initialize_poly,
     "neg_abs": initialize_neg_abs,
     "gaussian": initialize_gaussian,
+    "matern52": initialize_matern52,
 }
     
 func_to_compute = {
@@ -612,6 +998,7 @@ func_to_compute = {
     "poly": compute_y_poly,
     "neg_abs": compute_y_neg_abs,
     "gaussian": compute_y_gaussian,
+    "matern52": compute_y_matern52,
 }
     
     
@@ -630,8 +1017,8 @@ def function_params_to_dict(function: str, dim: int) -> Dict[str, Any]:
     if function == "poly":
         return {
                 'c': 10.0,
-                'weights': jnp.full((dim,), jnp.nan, dtype=jnp.float32), # Dummy Array
-                'x_max': jnp.full((dim,), jnp.nan, dtype=jnp.float32),   # Dummy Array
+                'weights': jnp.full((dim,), jnp.nan), # Dummy Array
+                'x_max': jnp.full((dim,), jnp.nan),   # Dummy Array
                 'degree': 2,
                 'steepness_factor': 1.0,
                 'optimum_range_factor': 0.9,
@@ -645,10 +1032,9 @@ def function_params_to_dict(function: str, dim: int) -> Dict[str, Any]:
         return {}
     if function == "gaussian":
         
-        print("gaussian", jnp.full((dim,), jnp.nan, dtype=jnp.float32).shape)
         return {
-                'center': jnp.full((dim,), jnp.nan, dtype=jnp.float32), # Dummy Array
-                'width': jnp.full((dim,), jnp.nan, dtype=jnp.float32),  # Dummy Array
+                'center': jnp.full((dim,), jnp.nan), # Dummy Array
+                'width': jnp.full((dim,), jnp.nan),  # Dummy Array
                 'amplitude': jnp.nan,  # Dummy scalar
                 'baseline': jnp.nan,   # Dummy scalar
                 'center_opt_factor': 0.9,
@@ -656,4 +1042,18 @@ def function_params_to_dict(function: str, dim: int) -> Dict[str, Any]:
                 'amplitude_bounds': (0.1, 2.0),
                 'baseline_bounds': (-10.0, 10.0),
             }
+        
+    if function == "matern52": # NEW ENTRY
+        # Define grid size and padding strategy if needed.
+        # Using a fixed grid size simplifies padding.
+        grid_size = 200 # Match GPJax example, adjust if needed
+        # Create dummy arrays matching expected storage shape.
+        # We'll store x_grid (1D) and y_grids (action_dim x grid_size)
+        return {
+            'grid_size': grid_size,
+            # Dummy arrays for structure consistency - filled during init
+            'x_grid': jnp.full((grid_size,), jnp.nan),
+            'y_grids': jnp.full((dim, grid_size), jnp.nan),
+            # Add other potential dummy parameters if structure requires it
+        }
       

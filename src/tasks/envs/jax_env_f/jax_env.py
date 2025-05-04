@@ -41,6 +41,8 @@ class EnvState:
     max_steps_in_episode: int # Set during reset, used for truncation
     params_for_compute: Dict[str, Any] # Parameters for compute_y_sampler
     # --- JAX key ---
+    
+    episode_counter: int # Counter for episode tracking (if needed)
     key: chex.PRNGKey
 
  
@@ -67,6 +69,7 @@ class MultiFunctionGymnax(environment.Environment):
     ) -> Tuple[chex.ArrayTree, EnvState]:
         """Initializes the environment."""
         return initialize_sampler(key, params, action_dim, max_batches)
+    
     @staticmethod
     def step_env(
         key: chex.PRNGKey, state: EnvState, action: chex.Array, params: EnvParams, max_batches: int, action_dim: int
@@ -76,7 +79,6 @@ class MultiFunctionGymnax(environment.Environment):
 
         # --- Action Processing ---
         # Option to override agent's action with random exploration
-        print("action", action.shape, params.max_batches, params.action_dim)
         
         action_normalized = action.reshape(max_batches, action_dim)
         
@@ -124,6 +126,8 @@ class MultiFunctionGymnax(environment.Environment):
         # --- Reward Calculation ---
         # Scale the valid observations
         scaled_observation = scale_observation_jax(obs_raw, state.min_y, state.max_y) # Shape: (batch_size,)
+        
+        # jax.debug.print("state min {} {}\n state max {} {}", state.min_y, state.params_for_compute["common"]["min_y"], state.max_y, state.params_for_compute["common"]["max_y"])
 
         # jax.debug.print("scaled_observation {} mask {} obs_raw {}\nmin {}\nmax {}\naction {}\n", scaled_observation, mask, obs_raw, state.min_y, state.max_y, action)
         
@@ -217,7 +221,6 @@ class MultiFunctionGymnax(environment.Environment):
         last_obs = jnp.reshape(scaled_observation, (max_batches, 1))
         
         
-        print("last_obs", last_obs.shape, action_mapped.shape, scaled_observation.shape, jnp.squeeze(scaled_observation).shape)
         
         state = state.replace( # Use replace for immutability with dataclasses/Pytrees
             tick=tick,
@@ -267,6 +270,7 @@ class MultiFunctionGymnax(environment.Environment):
         sampler_type_index = jax.random.choice(key_sampler, params.function_type_indices)
         # Use JAX dispatch function for sampler initialization
         # jax.debug.print("sampler_type_index {} {} {}", sampler_type_index, params.sampler_configs["specific"].keys(), params.function_type_indices)
+        # print("sampler_type_index", sampler_type_index, type(sampler_type_index))
         sam_con = initialize_sampler(key_sampler, sampler_type_index, action_dim, params)
         min_y = sam_con['common']['min_y']
         max_y = sam_con['common']['max_y']
@@ -293,8 +297,8 @@ class MultiFunctionGymnax(environment.Environment):
         # Generate initial actions
         initial_actions_normalized = jax.lax.cond(
             params.use_random_action_on_reset,
-            lambda k: jax.random.uniform(k, (max_batches, action_dim), minval=-1.0, maxval=1.0, dtype=jnp.float32),
-            lambda k: jnp.zeros((max_batches, action_dim), dtype=jnp.float32),
+            lambda k: jax.random.uniform(k, (max_batches, action_dim), minval=-1.0, maxval=1.0),
+            lambda k: jnp.zeros((max_batches, action_dim)),
             key_action,
         )
         initial_actions_mapped = map_to_bounds_jax(initial_actions_normalized, params.x_range)
@@ -304,7 +308,6 @@ class MultiFunctionGymnax(environment.Environment):
         #     "optimum_point": optimum_point, "min_y": min_y, "max_y": max_y,
         #     "type_index": sampler_type_index
         # }
-        print("should we vmap over batch!!!!!")
         
         
         obs_raw = compute_y_sampler(initial_actions_mapped, sam_con, params)
@@ -393,10 +396,122 @@ class MultiFunctionGymnax(environment.Environment):
             done=False, # Reset is not done
             max_steps_in_episode=max_steps, # Set max steps for this episode
             params_for_compute=sam_con, # Pass params for compute_y_sampler
+            episode_counter=0, # Initialize episode counter
             key=key # Final key state
         )
         
         
+
+        obs = get_obs(state, params)
+        
+        # jax.debug.print("initial_actions_mapped {}", obs)
+        # print("osb", obs["actions"].shape, obs["observations"].shape, obs["reward"].shape, obs["mask"].shape, obs["step"].shape)
+        return obs, state
+    
+    @staticmethod
+    def reset_env_keep(
+        key: chex.PRNGKey, params: EnvParams, action_dim: int, max_batches: int, state: EnvState
+    ) -> Tuple[chex.ArrayTree, EnvState]:
+        """Resets the environment to an initial state."""
+        key, key_sampler, key_batch, key_action = jax.random.split(key, 4)
+
+      
+
+      
+        # Generate initial actions
+        initial_actions_normalized = jax.lax.cond(
+            params.use_random_action_on_reset,
+            lambda k: jax.random.uniform(k, (max_batches, action_dim), minval=-1.0, maxval=1.0, dtype=jnp.float32),
+            lambda k: jnp.zeros((max_batches, action_dim), dtype=jnp.float32),
+            key_action,
+        )
+        initial_actions_mapped = map_to_bounds_jax(initial_actions_normalized, params.x_range)
+  
+        obs_raw = compute_y_sampler(initial_actions_mapped, state.params_for_compute, params)
+        obs_raw = jnp.atleast_1d(obs_raw)
+        
+        mask = jnp.arange(max_batches) < state.batch_size
+        
+        # print("obs_raw", obs_raw.shape, action_mapped.shape, state.params_for_compute, params)
+
+        # # Pad observations
+        # # Use jnp.nan or state.min_y for padding? Using min_y as in original.
+        # padded_obs_raw = jnp.full((max_batches, 1), state.min_y, dtype=jnp.float32)
+        
+        # padded_obs_raw = obs_raw.at[state.batch_size:].set(jnp.zeros_like(obs_raw[batch_size:])) # i thought this was fine since the output will always be the same shape
+        # # padded_obs_raw = padded_obs_raw.at[:batch_size, 0].set(obs_raw) # this was the original code you provided which gave similar issues with tracing
+
+        # --- Reward Calculation ---
+        # Scale the valid observations
+        scaled_observation = scale_observation_jax(obs_raw, state.min_y, state.max_y) # Shape: (batch_size,)
+
+        # Calculate metrics
+        current_best_scaled_y = jnp.max(jnp.where(mask, scaled_observation, -jnp.inf)) # Handle empty case
+        sum_scaled_obs = jnp.sum(jnp.where(mask, scaled_observation, 0.0))
+        avg_scaled_obs = sum_scaled_obs / state.batch_size # Average over valid observations
+
+        # Update best_obs_x for the episode
+        best_idx_in_batch = jnp.argmax(jnp.where(mask, scaled_observation, -jnp.inf))
+        current_best_x = initial_actions_mapped[best_idx_in_batch] # X corresponding to best Y *in this batch*
+
+        # # Improvement metrics
+        # avg_improvement = avg_scaled_obs - state.last_avg_scaled_obs
+        # new_best_bonus = jnp.maximum(0.0, current_best_scaled_y - state.best_scaled_y_so_far)
+
+        # MSE from maximum (optional penalty)
+        difference_from_max = state.max_y - obs_raw
+        sum_sq_diff = jnp.sum(jnp.where(mask, jnp.square(difference_from_max), 0.0))
+        mse = sum_sq_diff / jnp.maximum(state.batch_size, 1)
+
+        # # Scaled difference for regret calculation
+        # scaled_difference = scale_observation_jax(difference_from_max, state.min_y, state.max_y)
+
+        
+        # jax.debug.print("we resetting {}", min_y)
+        # # print("initial_actions_mapped", initial_actions_mapped.shape, sam_con, params)
+        # obs_raw = compute_y_sampler(initial_actions_mapped[:1, :], sam_con, params)
+        # obs_raw = jnp.atleast_1d(obs_raw)
+
+        # # Pad initial observations
+        # padded_obs_raw = jnp.full((max_batches, 1), min_y, dtype=jnp.float32)
+        # padded_obs_raw = padded_obs_raw.at[:1, 0].set(obs_raw)
+
+        # # Scale and calculate initial metrics
+        # scaled_observation = scale_observation_jax(obs_raw, min_y, max_y)
+        # current_best_scaled_y = jnp.max(scaled_observation, initial=0.0)
+        # avg_scaled_obs = jnp.mean(scaled_observation)
+
+        # # Find best initial X
+        # best_idx_in_batch = jnp.argmax(scaled_observation)
+        # best_obs_x = initial_actions_mapped[best_idx_in_batch]
+
+        # Calculate initial reward (adjust based on how you want to reward step 0)
+        # Using the same formula as step, but improvement/new_best will be 0 implicitly
+        initial_reward = (params.r_best * current_best_scaled_y + params.r_obs * avg_scaled_obs) * params.r_scale
+        
+        # print("initial_reward", padded_obs_raw.shape, initial_actions_normalized.shape, avg_scaled_obs.shape, )
+
+        # print("rsa", obs_raw.shape, initial_actions_normalized.shape, jnp.squeeze(scaled_observation).shape)
+        # Initialize state
+        last_obs = jnp.reshape(scaled_observation, (max_batches, 1))
+        
+        
+        state = state.replace( # Use replace for immutability with dataclasses/Pytrees
+            tick=0,
+            # sampler_type_index, optimum_point, min_y, max_y, batch_size, params_for_compute remain same
+            last_avg_scaled_obs=avg_scaled_obs,
+            best_scaled_y_so_far=current_best_scaled_y,
+            best_obs_x_so_far=current_best_x,
+            achieved_success=False,
+            last_action_mapped=initial_actions_mapped, # Store full mapped actions
+            last_padded_obs_raw=last_obs, # Store padded obs)
+            last_action=initial_actions_normalized, # Store action taken
+            last_reward=initial_reward,
+            done=False, # Store done flag reflecting current step's outcome
+            # max_steps_in_episode remains same
+            episode_counter=state.episode_counter + 1, # Initialize episode counter
+            key=key # Pass updated key if state carries it
+        )
 
         obs = get_obs(state, params)
         
@@ -452,14 +567,10 @@ class MultiFunctionGymnax(environment.Environment):
 
 def map_to_bounds_jax(actions: chex.Array, x_range: Tuple[float, float]) -> chex.Array:
     """Maps actions from [-1, 1] to the environment's x_range using JAX."""
-    print("shapes", actions.shape, x_range)
     
     out_of_bounds_mask = (actions < -1) | (actions > 1)
 
-    # Check if any element in the mask is True
-    any_out_of_bounds = out_of_bounds_mask.any()
-    # print("wret ", any_out_of_bounds)
-    # jax.debug.print("out of bounds mask {} {}", any_out_of_bounds, actions)
+
     
     lower, upper = x_range
     scale = (upper - lower) / 2.0
@@ -480,7 +591,7 @@ def get_obs(state: EnvState, params: EnvParams) -> chex.ArrayTree:
     
     
     return {
-        "actions": state.last_action_mapped.astype(jnp.float32),
+        "actions": state.last_action_mapped.astype(jnp.float64),
         "observations": state.last_padded_obs_raw.astype(jnp.float32),
         "reward": jnp.array([state.last_reward], dtype=jnp.float32),
         "mask": jnp.array([state.batch_size], dtype=jnp.int32), # Expose batch size if needed by agent
@@ -513,14 +624,14 @@ def get_info(state: EnvState, params: EnvParams, done: bool, scaled_difference: 
     def false_fn():
         placeholder_dict = {
             # "final_observation": jnp.zeros_like(state.last_padded_obs_raw),
-            "episode_length": jnp.array(-1, dtype=jnp.int32),
-            "last_avg_scaled_obs": jnp.array(0.0, dtype=jnp.float32),
-            "best_rewards": jnp.array(-jnp.inf, dtype=jnp.float32), # Or 0.0 if appropriate
-            "scaled_diff": jnp.array(0.0, dtype=jnp.float32),
+            "episode_length": jnp.array(-1),
+            "last_avg_scaled_obs": jnp.array(0.0),
+            "best_rewards": jnp.array(-jnp.inf), # Or 0.0 if appropriate
+            "scaled_diff": jnp.array(0.0),
             "last_scaled_diff": jnp.zeros_like(scaled_difference),
             "success": jnp.array(False, dtype=bool),
             "max_x": jnp.zeros_like(state.optimum_point),
-            "distance_from_max": jnp.array(0.0, dtype=jnp.float32),
+            "distance_from_max": jnp.array(0.0),
         }
         return placeholder_dict
 

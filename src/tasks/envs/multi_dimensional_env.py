@@ -18,7 +18,6 @@ class MultiDimEnv(gym.Env):
         # Define the allowed range for x values.
         self.x_range = x_range
         self.max_episode_steps = max_episode_steps
-        print("max episode steps", self.max_episode_steps)
         self.batch_size = batch_size
         self.action_dim = action_dim
         self.name = env_config['task']
@@ -168,7 +167,6 @@ class MultiDimEnv(gym.Env):
         done = False  # Episodes do not naturally end; only truncated.
         truncated = self.tick >= self.max_episode_steps
         
-        print("tick", self.tick, "truncated", truncated, "done", done, "reward", self.max_episode_steps,"\n")   
         
         
         info = {}

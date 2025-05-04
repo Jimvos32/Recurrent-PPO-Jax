@@ -443,8 +443,6 @@ class LowRankMVN(SamplingImplBase):
         # Corrected Entropy H(Y) = H(X) - E[ log |det J| ]
         entropies = base_entropies + expected_log_det_jacobians
         # entropies = expected_log_det_jacobians
-        print("ewtbsg", entropies.shape)
-        jax.debug.print("base {} correction {}", base_entropies[0, 0], expected_log_det_jacobians[0,0])
-       
+
 
         return entropies

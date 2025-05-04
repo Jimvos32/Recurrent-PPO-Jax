@@ -39,29 +39,15 @@ class ActorCriticModel(nn.Module):
         
         
         # TXlatent_dim, image or otherwise, they are always flattened
-        print("rep", rep.shape)
         rep=rep.reshape(rep.shape[0],-1)
         rep = jnp.concatenate([rep, inputs["step"]], axis=1)
         # print("seq in", rep.shape, terminations.shape, last_memory[0][0].shape)
         
-        print("seq_model", rep.shape, terminations.shape, last_memory[0][0].shape)
         # seq_model (1, 65) (1,) (256,)
-        print("seq_model", rep.shape, terminations.shape, last_memory[0][0].shape)
         seq_rep,memory=self.seq_model(rep,terminations,last_memory)
         # print("seq out", seq_rep.shape, memory[0][0].shape)
         
-        # seq in (1, 65) (1,) (256,)
-        # lstm things (256,) (1, 65) (1,)
-        # seq out (1, 256) (256,)
-        # seq_rep2 (1, 257)
-        
-        # seq in (1, 65) (1,) (256,)
-        # lstm things (256,) (1, 65) (1,)
-        # seq out (1, 256) (256,)
-        # seq_rep2 (1, 257) (1, 1)
-        
-        
-        print("seq_rep", seq_rep.shape, memory[0][0].shape)
+      
         
         seq_rep=jnp.concatenate([seq_rep, inputs["step"]], axis=1)
         # print("seq_rep2", seq_rep.shape)
@@ -71,7 +57,6 @@ class ActorCriticModel(nn.Module):
         # means = actor_out.shape[-1] // 2
         # actor_out = actor_out.at[:, :means].set(jnp.full_like(actor_out[:, :means], inputs["reward"]))
         critic_out=self.critic(seq_rep)
-        print("critic_out", critic_out.shape, "cur int", seq_rep.shape)
         
         # jax.debug.print("actor  out: \n{}\n", actor_out[0])
         # print(actor_out.shape, critic_out.shape)
@@ -142,6 +127,5 @@ class ActorCriticVAEModel(nn.Module):
         # print("totalinp", inputs.shape, "actor_in", seq_rep.shape, "actor_out", actor_out.shape)
         
         # print(actor_out.shape, critic_out.shape)
-        print("actor_out", target.shape, inputs["step"].shape, inputs["observations"].shape)
         return actor_out,critic_out,memory, latent_vars, target
 

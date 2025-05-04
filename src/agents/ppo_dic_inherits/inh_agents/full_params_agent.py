@@ -135,7 +135,6 @@ class FullParamsSampling(SamplingImplBase):
         corrected_entropy = base_entropy + correction
         # corrected_entropy = - correction
         
-        print("corrected_entropy shape", corrected_entropy.shape, "base_entropy shape", base_entropy.shape, "correction shape", correction.shape)
         
        
         summed_entropy = jnp.sum(corrected_entropy, axis=-1) # Shape: (N, T, batch_size)

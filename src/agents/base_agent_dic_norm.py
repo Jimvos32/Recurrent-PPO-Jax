@@ -131,24 +131,18 @@ class BaseAgentDicNorm:
     def stack_dict_obs(self, obs, dictio):
         if len(dictio.keys()) == 0:
             # If dictionary is empty, initialize it with the current observation
-            # print("obs", obs["actions"].shape, np.expand_dims(np.array(obs["actions"]), axis=1).shape)
             return {key: np.expand_dims(np.array(value), axis=1) for key, value in obs.items()}
         else:
             # Stack the new observation with existing ones
             for key in obs.keys():
                 if key in dictio:
                     
-                    # print("key", key, "obs", np.expand_dims(np.array(obs[key]), axis=1).shape, "dictio", dictio[key].shape)
-                    # # Append the new observation along the first axis (batch dimension)
-                    # print("dict", (dictio[key]).shape, (np.expand_dims(np.array(obs[key]), axis=1).shape))
-                    
+                  
                     
                     dictio[key] = np.concatenate([dictio[key], np.expand_dims(np.array(obs[key]), axis=1)], axis=1)
                 else:
                     # If this key wasn't in the dictionary yet, initialize it
-                    # print("key", key, "obs", obs[key].shape)
                     added_step_dim = jnp.expand_dims(obs[key], axis=1)
-                    # print("key", key, "obs", obs[key].shape, added_step_dim.shape)
                     dictio[key] = added_step_dim
             
             return dictio
@@ -181,8 +175,7 @@ class BaseAgentDicNorm:
                 # Here we use a simple affine transformation:
                 # If no previous sample (carry==0), use scale=1 and shift=0.
                 # Otherwise, compute scale and shift as a function of the mean of 'carry'.
-                # print(carry)
-                # jax.debug.print("carry {}\nsample {}\n", carry, sample)
+           
                 mean_prev =  0.0
                 scale = jnp.where(jnp.abs(mean_prev) < 1e-6, jnp.ones((a_dim,)), jnp.exp(0.1 * mean_prev))
                 shift = jnp.where(jnp.abs(mean_prev) < 1e-6, jnp.zeros((a_dim,)), 0.1 * jnp.tanh(mean_prev))
@@ -225,14 +218,12 @@ class BaseAgentDicNorm:
             noise = jax.random.normal(random_key, shape=means.shape)  # shape: (parallel_env, batch_size, action_dim)
             acts_tick = means + noise * stds  # shape: (parallel_env, batch_size, action_dim)
             # acts_tick = jnp.squeeze(acts_tick)  # shape: (parallel_env, action_dim)
-            # print("ac", acts_tick.shape)
             
             
         elif task == "sampling":
             action_dim = act_logits.shape[-1] // 2
             means = act_logits[..., :action_dim].squeeze(-1)
             log_stds = act_logits[..., action_dim:].squeeze(-1)
-            # print("policy_out", act_logits.shape, "mean", means.shape, "std", log_stds.shape)
             
             # Clip log_stds for numerical stability
             log_stds = jnp.clip(log_stds, -20.0, 2.0)
@@ -241,7 +232,6 @@ class BaseAgentDicNorm:
             # Sample from standard normal and scale
             noise = jax.random.normal(random_key, means.shape)
             acts_tick = means + noise * stds
-            # jax.debug.print("dit kan echt niet meer {} {} {} ", means.shape, log_stds.shape, acts_tick.shape)
             acts_tick = jnp.squeeze(acts_tick)
             
         elif task == "multibatch":
@@ -253,7 +243,6 @@ class BaseAgentDicNorm:
             log_stds = jnp.clip(log_stds, -20.0, 2.0)
             stds = jnp.exp(log_stds)
             
-            # print("means", means.shape, "log_stds", log_stds.shape)
 
             #samples the actions
             noise = jax.random.normal(random_key, shape=means.shape)  # shape: (parallel_env, batch_size, action_dim)

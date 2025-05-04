@@ -51,7 +51,7 @@ class MultiFunctionEnv(gym.Env):
             sampler_class = get_sampler_class(func_name)
             # Pass specific config if available, else None
             sampler_config = self.function_configs.get(func_name, None)
-            print(f"Initializing {func_name} with config: {sampler_config}") # Debug print
+            # print(f"Initializing {func_name} with config: {sampler_config}") # Debug print
             self.samplers[func_name] = sampler_class(self.action_dim, self.x_range, sampler_config)
 
         # --- State Variables (initialized in reset) ---

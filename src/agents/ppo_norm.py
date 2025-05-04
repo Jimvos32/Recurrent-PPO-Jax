@@ -65,7 +65,6 @@ class PPOAgentNorm(BaseAgentDicNorm):
                                             data_batch['rewards'],data_batch['terminations'],data_batch['critic_preds'],data_batch['actor_preds'], data_batch["flow_log_det"]
                                             
             # print("further ", actor_preds)
-            print("actor_preds", actions.shape, "dlow", flow_log_det.shape)
                                             
             gammas=self.gamma*(1-terminations)
             lambdas=self.gae_lambda*jnp.ones(self.num_envs)
@@ -317,7 +316,6 @@ class PPOAgentNorm(BaseAgentDicNorm):
                         
                         # Extract this action dimension's values
                         action_d = u[..., d]  # shape: (N, T, batch_size)
-                        print(actions.shape, action_d.shape)
                         
                         # Broadcast action values, means, log_stds for this dimension to prepare for mixture calculation
                         # Reshape for broadcasting: (N, T, batch_size, 1) to match with (N, T, 1, k)

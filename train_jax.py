@@ -100,7 +100,6 @@ def main(config: DictConfig):
     if trainer_class == ControlTrainerJaxRefactored:
         # Initialize the refactored trainer
         
-        # print("all the kwar", kwargs) # Debugging line to check kwargs
         
         trainer = ControlTrainerJaxRefactored(**kwargs)
         logger.info("Initialized ControlTrainerJaxRefactored.")

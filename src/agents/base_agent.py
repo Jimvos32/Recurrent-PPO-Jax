@@ -187,7 +187,6 @@ class BaseAgent:
                     log_stds = jnp.clip(log_stds, -20.0, 2.0)
                     stds = jnp.exp(log_stds)
                     
-                    print("means", means.shape, "log_stds", log_stds.shape)
 
                     #samples the actions
                     noise = jax.random.normal(random_key, shape=means.shape)  # shape: (parallel_env, batch_size, action_dim)
@@ -262,7 +261,6 @@ class BaseAgent:
                     # Compute the final sampled actions
                     # Shape: (parallel_env, batch_size, num_action_dims)
                     acts_tick = means + noise * stds
-                    print("acts_tick", acts_tick.shape)
                     
                 elif task == "masked":  
                     # print("pol_output", act_logits.shape)
@@ -270,7 +268,6 @@ class BaseAgent:
                     batch_size = self.eval_env.unwrapped.batch_size  # number of samples per environment
                     
                     masks = actions["mask"]
-                    print("mask for your", masks.shape)
                     
                     # Reshape act_logits to extract means and log_stds
                     # Expected shape of act_logits: (parallel_env, 1, 2 * num_action_dims)

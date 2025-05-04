@@ -240,7 +240,6 @@ class MultiMask(gym.Env):
         max_sample = jnp.max(obs, axis=0)
         scaled_max  = (max_sample - self.y_min) / (self.max_y - self.y_min)
         
-        print("scaled_max", scaled_observation.shape, "max_sample", self.scaled_obs[-1].shape)
         
         avg_imp = jnp.mean(scaled_observation - self.scaled_obs[-1], axis=0)
         ns_imp  = jnp.mean(obs[:self.batch_size, :] - (self.scaled_obs[-1] * (self.max_y - self.y_min)), axis=0)

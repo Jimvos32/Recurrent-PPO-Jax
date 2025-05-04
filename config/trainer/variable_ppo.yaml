@@ -16,6 +16,7 @@ update_epochs: 4
 norm_adv: false
 clip_coef: 0.1
 dist_model: ${experiment.combos.${experiment.choice}.dist_model}
+run_mode: random
 
 sample_distribution: ${experiment.combos.${experiment.choice}.sample_distribution}
 

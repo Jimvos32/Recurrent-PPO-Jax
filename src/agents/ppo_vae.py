@@ -547,7 +547,6 @@ class PPOAgentVAE(BaseAgentDicVAE):
                 
                 # normalize the logits https://gregorygundersen.com/blog/2020/02/09/log-sum-exp/
                 
-                print("logits", latent_means.shape, "logp", latent_means.shape, actions.shape)
                 
                 kl_loss = -0.5 * jnp.sum(1 + latent_log_stds - jnp.square(latent_means) - jnp.exp(latent_log_stds), axis=-1).mean()
                 

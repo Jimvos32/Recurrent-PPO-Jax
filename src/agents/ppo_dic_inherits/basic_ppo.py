@@ -105,7 +105,6 @@ class BasePPO(RootAgent):
             #Calculate Lamba for timesteps G_{tick} - G_{tick+rollout_len}
             #rewards, gammas, lambdas values at timesteps {tick+1} - {tick+rollout_len+1}
             # print("rewards", rewards.shape, "gammas", gammas.shape, "lambdas", lambdas.shape, "critic_preds", critic_preds.shape, "actor_preds", actor_preds.shape)
-            print("rewards", rewards.shape, "gammas", gammas.shape, "lambdas", lambdas.shape, "critic_preds", critic_preds.shape, "actor_preds", actor_preds.shape)
             Glambdas=Glambda_fn(rewards[:,1:],gammas[:,1:],
                               critic_preds[:,1:],lambdas)
             # print("Glambdas", Glambdas.shape, "critic_preds", rewards[:,1:].shape, "critix_preds", critic_preds[:,1:].shape)
@@ -141,9 +140,7 @@ class BasePPO(RootAgent):
                             mb_logp, mb_advantages, mb_returns,mb_h_tickminus1):
                 key, random_key = jax.random.split(random_key, 2)
                 
-                for k in mb_observations:
-                    print(k, mb_observations[k].shape)
-                print("mb_observations", mb_observations["actions"].shape, "mb_terminations", mb_terminations.shape, "mb_h_tickminus1", mb_h_tickminus1[0][0].shape, len(mb_h_tickminus1))
+            
                 
                 logits_new,values_new,_=self.actor_critic_fn(random_key,params,mb_observations,mb_terminations,
                                                              mb_h_tickminus1)
@@ -171,7 +168,10 @@ class BasePPO(RootAgent):
                 if self.norm_adv:
                     mb_advantages = (mb_advantages - mb_advantages.mean()) / (mb_advantages.std() + 1e-8)
 
+                print("why is this a current problem!!!!!!")
                 # Policy loss
+                ratio = jnp.reshape(ratio, (ratio.shape[0], ratio.shape[1]))
+                
                 pg_loss1 = -mb_advantages * ratio
                 pg_loss2 = -mb_advantages * jnp.clip(ratio, 1 - self.clip_coef, 1 + self.clip_coef)
                 pg_loss = jnp.maximum(pg_loss1, pg_loss2).mean()

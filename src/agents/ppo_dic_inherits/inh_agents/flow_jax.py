@@ -1,10 +1,11 @@
 import jax, jax.numpy as jnp
 from src.agents.ppo_dic_inherits.inh_agents.standard_sampling import SamplingImplBase
+from src.agents.ppo_dic_inherits.inh_agents.standard_sampling_jax import SamplingImplBaseJax
 from flowjax.distributions import MultivariateNormal, Transformed
 from flowjax.bijections import Tanh
 import time
 
-class FlowMVN(SamplingImplBase):
+class FlowMVNJax(SamplingImplBaseJax):
     def __init__(self, max_batch, action_dim, sampling_distribution=1):
         super().__init__(max_batch, action_dim, sampling_distribution)
         #self.cov_dim = self.action_dim * self.batch_size #For a complete joint action
@@ -12,30 +13,18 @@ class FlowMVN(SamplingImplBase):
         
     def sampling_differ(self, act_logits, key, masks):
         #logits of shape (N, 1, (dim + dim * (dim + 1) // 2))
-        logits = jnp.squeeze(act_logits, axis=1)  # → (N, D)
-        keys = jax.random.split(key, logits.shape[0])
         
-        # print("batvc", self.batch_size, "action", self.action_dim, "wehre does the co", self.cov_dim, logits.shape, keys.shape)
+        print("sampling_differ", act_logits.shape, key.shape, masks.shape)
+       
+      
+        loc, cov = self.generate_mvn_params(act_logits)
 
-        get_params = jax.vmap(self.generate_mvn_params)
-        locs, covs = get_params(logits)  # (N, A), (N, A, A)
-
-        def sample_from_params(loc, cov, key):
-            mvn = MultivariateNormal(loc=loc, covariance=cov)
-            tanh_dist = Transformed(mvn, Tanh(shape=(self.cov_dim,)))
-            ret = tanh_dist.sample(key, sample_shape=(self.batch_size,)) 
-           
-            return ret#tanh_dist.sample(key, sample_shape=(self.batch_size,)) 
-
-        vmapped_sampler = jax.vmap(sample_from_params)
-  
-                
-        samples = vmapped_sampler(locs, covs, keys)  # shape: (N, A)
-        
-        # samples = jnp.tanh(samples)  
-        #I would like to apply this tanh but how does the logprob calculation work then
-        
-        masked = self.apply_padding_mask(samples, masks)  # shape: (N, B, A)
+     
+        mvn = MultivariateNormal(loc=loc, covariance=cov)
+        tanh_dist = Transformed(mvn, Tanh(shape=(self.cov_dim,)))
+        sample = tanh_dist.sample(key, sample_shape=(self.batch_size,)) 
+             
+        masked = self.apply_padding_mask(sample, masks)  # shape: (N, B, A)
         # jax.debug.print("masked shape {} {}", masked[0,0], samples[0,0])
         return masked
     
@@ -65,18 +54,17 @@ class FlowMVN(SamplingImplBase):
 
     
     def gaussian_log_prob(self, actions, act_logits):
-        act_logits = jnp.reshape(act_logits, (act_logits.shape[0],
-                                                act_logits.shape[1],
-                                                1,
-                                                act_logits.shape[-1]))  
-        logits = jnp.squeeze(act_logits, axis=2)
-
+        epsilon = 1e-6
+        
+        N = act_logits.shape[0]
+       
+        # Get loc + cov from logits: shape (N, T, D)
+        get_params = jax.vmap(self.generate_mvn_params)
         
         print("gaussian_log_prob", actions.shape, act_logits.shape)
-        # Get loc + cov from logits: shape (N, T, D)
-        get_params = jax.vmap(jax.vmap(self.generate_mvn_params))
-        locs, covs = get_params(logits)  # locs: (N, T, A), covs: (N, T, A, A)
+        locs, covs = get_params(act_logits)  # locs: (N, T, A), covs: (N, T, A, A)
         # jax.debug.print("locs shape: {} {}", locs[0,0], covs[0,0])
+        print("gaussian_log_prob", actions.shape, act_logits.shape, locs.shape, covs.shape) 
         
         # jax.debug.print("acts shape: {} {}", actions[0,0], act_logits[0,0])
 
@@ -88,7 +76,7 @@ class FlowMVN(SamplingImplBase):
             return ret  # shape: (B,)
 
         # vmapped over N, T
-        log_prob_vmap = jax.vmap(jax.vmap(log_prob_fn))
+        log_prob_vmap = jax.vmap(log_prob_fn)
         
         epsilon = 1e-6
         u = jnp.clip(actions, -1 + epsilon, 1 - epsilon)
@@ -99,9 +87,12 @@ class FlowMVN(SamplingImplBase):
         log_prob = jnp.where(valid_mask, log_probs, 0.0)
         log_prob = jnp.sum(log_prob, axis=-1)  # shape (N, T)
         
-        # jax.debug.print("Log probability shape: {}, std {}", log_prob[0,0], act_logits[0,0])
+        
         print("log_prob out  shape", log_prob.shape, actions.shape, act_logits.shape, locs.shape, covs.shape)
-        return log_probs
+        
+        # jax.debug.print("Log probability shape: {}, std {}", log_prob[0,0], act_logits[0,0])
+
+        return log_prob
         
         
         
@@ -109,13 +100,11 @@ class FlowMVN(SamplingImplBase):
     def entropy(self, logits, mask, key=None, num_samples=20):
         #logits shape (N, T, 1, dim + dim * (dim + 1) // 2) 
         epsilon = 1e-6
-        logits = jnp.reshape(logits, (logits.shape[0],
-                                                logits.shape[1],
-                                                1,
-                                                logits.shape[-1]))  
+      
         
-        N, T, _, D = logits.shape
-        logits = jnp.squeeze(logits, axis=2)  # Shape: (N, T, D)
+        N, D = logits.shape
+        
+        print("entropy", logits.shape, mask.shape, key.shape)
         
 
         # Vectorized function to compute entropy for a single (N, T) pair

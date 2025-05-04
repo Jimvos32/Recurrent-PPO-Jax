@@ -224,8 +224,7 @@ class MultiCosine(gym.Env):
             penalty = jnp.sum(jnp.abs(x) * mask)
             return penalty
         
-        boundary_penalty_value = boundary_penalty(action)   
-        print("boundary_penalty_value", boundary_penalty_value)
+        # boundary_penalty_value = boundary_penalty(action)   
         
         
         self.tick += 1
