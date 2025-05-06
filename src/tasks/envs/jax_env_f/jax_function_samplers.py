@@ -92,9 +92,7 @@ def create_env_params(config) -> EnvParams:
     
     
     fun_ind = [FuncIndices[fun].value for fun in config["function_types"]]
-    
 
-    
     sampler_params = {
         'common': {
             'type_index': fun_ind[0], # Assuming Ackley is index 0
@@ -102,16 +100,27 @@ def create_env_params(config) -> EnvParams:
             'max_y': 0,
             'min_y': 0,
             'action_dim': config["action_dim"],
+            'bounds': config["bounds"],
         },
         'specific': {
         }
     }
     
+    functions = ["ackley", "poly", "neg_abs", "gaussian", "matern52"]
+
+    
+    # for function in functions:
+    #     sampler_params['specific'][function] = function_params_to_dict(function, config["action_dim"])
+        
+        
+    f_dict = function_dictionaries(functions, config)
+    
+    print("ff", f_dict['poly']['weights'].shape)
+    
+    sampler_params['specific'] = f_dict
     
     
-    for function in ["ackley", "poly", "neg_abs", "gaussian", "matern52"]:
-        sampler_params['specific'][function] = function_params_to_dict(function, config["action_dim"])
-            
+    
             
       
     # print("function types", config["function_types"], fun_ind, sampler_params)
@@ -145,7 +154,7 @@ def initialize_gaussian(key: chex.PRNGKey, params: EnvParams, action_dim: int) -
 
     key_center, key_width, key_amp, key_base = jax.random.split(key, 4)
     dim = action_dim # Use concrete integer passed in
-    lower, upper = params.x_range # General bounds from params
+    lower, upper = gaussian_config['bounds'] # General bounds from params
     opt_factor = gaussian_config.get('center_opt_factor', 1.0) # Factor for center range
 
     # Sample Gaussian parameters
@@ -191,6 +200,8 @@ def initialize_gaussian(key: chex.PRNGKey, params: EnvParams, action_dim: int) -
     # --- Structure the output dictionary ---
     # Get the base structure, potentially with other sampler types
     sam_con = params.sampler_configs
+    
+    # print("sam_con", sam_con['specific']['gausian'], "gaussian")
 
     # Populate common parameters
     sam_con['common'] = {
@@ -199,6 +210,7 @@ def initialize_gaussian(key: chex.PRNGKey, params: EnvParams, action_dim: int) -
         'max_y': max_y,
         'min_y': min_y,
         'action_dim': dim,
+        'bounds': sam_con['specific']['gaussian']['bounds'],
     }
 
     # Populate Gaussian specific parameters
@@ -235,7 +247,7 @@ def initialize_inner_matern52(key: chex.PRNGKey, params: EnvParams, action_dim: 
     """
     gp_config = params.sampler_configs['specific']['matern52']
     grid_size = gp_config['grid_size'] # Use grid size from config
-    lower, upper = params.x_range
+    lower, upper = gp_config['bounds'] # General bounds from params
 
     # 1. Define GP components (common for all dimensions)
     kernel = gpx.kernels.Matern52()
@@ -290,6 +302,7 @@ def initialize_inner_matern52(key: chex.PRNGKey, params: EnvParams, action_dim: 
         'max_y': max_y_est,
         'min_y': min_y_est,
         'action_dim': action_dim,
+        'bounds': sam_con['specific']['matern52']['bounds'],
     }
     
     # Store the grids in the specific section
@@ -481,7 +494,7 @@ def initialize_ackley(key: chex.PRNGKey, params: EnvParams, action_dim: int) -> 
 
     key_a, key_b, key_c, key_opt = jax.random.split(key, 4)
     dim = action_dim # Use concrete integer passed in
-    lower, upper = params.x_range # General bounds from params
+    lower, upper = lower, upper = ackley_config['bounds']
     opt_factor = ackley_config['optimum_range_factor'] # Specific factor
 
     center_range = (upper - lower) * opt_factor
@@ -513,6 +526,7 @@ def initialize_ackley(key: chex.PRNGKey, params: EnvParams, action_dim: int) -> 
         'max_y': max_y,
         'min_y': min_y,
         'action_dim': dim,
+        'bounds': sam_con['specific']['ackley']['bounds'],
     }
     
     sam_con['specific']['ackley']['a'] = a
@@ -524,6 +538,7 @@ def initialize_ackley(key: chex.PRNGKey, params: EnvParams, action_dim: int) -> 
     #     'c': c,
     # }
     # jax.debug.print("init_ack {} {}", params.sampler_configs['common']['type_index'], sam_con['common']['min_y'])
+    jax.debug.print("spece {} {}", params.sampler_configs['specific']['poly']['weights'], sam_con['common']['min_y'])
     
     return sam_con
 
@@ -544,9 +559,12 @@ def initialize_poly(key: chex.PRNGKey, params: EnvParams, action_dim: int) -> Di
 
     key_c, key_weights, key_xmax = jax.random.split(key, 3)
     dim = action_dim # Use concrete integer passed in
-    lower, upper = params.x_range # General bounds from params
+    lower, upper = poly_config['bounds']
     degree = poly_config['degree'] # Specific degree
     opt_factor = poly_config['optimum_range_factor'] # Specific factor
+    
+    
+    jax.debug.print("poly_config {} {}", params.x_range,  params.sampler_configs['specific']['poly']['bounds'])
 
     # Sample Poly parameters using bounds from poly_config
     poly_c = jax.random.uniform(key_c, shape=(), minval=poly_config['c_bounds'][0], maxval=poly_config['c_bounds'][1])
@@ -572,6 +590,7 @@ def initialize_poly(key: chex.PRNGKey, params: EnvParams, action_dim: int) -> Di
         'max_y': max_y,
         'min_y': min_y,
         'action_dim': dim,
+        'bounds': sam_con['specific']['poly']['bounds'],
     }
     
     sam_con['specific']['poly']['c'] = poly_c
@@ -581,7 +600,9 @@ def initialize_poly(key: chex.PRNGKey, params: EnvParams, action_dim: int) -> Di
     sam_con['specific']['poly']['steepness_factor'] = poly_steep # Real Array
     
    
-    # jax.debug.print("init_pol {} {}", params.sampler_configs['common']['type_index'], sam_con['common']['min_y'])
+    # jax.debug.print("init_pol {} {} {} {}", params.sampler_configs['common']['type_index'], sam_con['common']['min_y'], sam_con['common'], sam_con['specific']['poly'])
+    jax.debug.print("spece {} {} {}", params.sampler_configs['specific']['poly']['weights'], sam_con['common']['min_y'], poly_weights)
+
     
     return sam_con
 
@@ -599,7 +620,7 @@ def initialize_neg_abs(key: chex.PRNGKey, params: EnvParams, action_dim: int) ->
     
     # No specific parameters to sample for this function.
     dim = action_dim
-    lower, upper = params.x_range
+    lower, upper = params.sampler_configs['specific']['neg_abs']['bounds']
 
     # Optimum point is always at the origin for this function.
     optimum_point = jnp.zeros((dim,))
@@ -632,6 +653,7 @@ def initialize_neg_abs(key: chex.PRNGKey, params: EnvParams, action_dim: int) ->
         'max_y': max_y,
         'min_y': min_y,
         'action_dim': dim,
+        'bounds': [-5,5],
     }
     
     
@@ -709,7 +731,7 @@ def initialize_sampler(key: chex.PRNGKey, type_index: int, action_dim:int, param
     ]
 
     
-    type_index = type_index - 1
+    type_index = type_index 
     num_samplers = len(partial_branches)
     # Ensure type_index is treated as a JAX type for tracing if necessary
     type_index_jax = jnp.asarray(type_index)
@@ -718,128 +740,18 @@ def initialize_sampler(key: chex.PRNGKey, type_index: int, action_dim:int, param
  
     sampler_params = jax.lax.switch(type_index_clipped, partial_branches, key, params)
     sampler_params['common']['type_index'] = type_index 
-    print("sampler_params", type_index, type_index_clipped, sampler_params['common']['type_index'])
+    
+    print("sampler_params", sampler_params['common']['type_index'], "type", type_index, "clipped", type_index_clipped, "min", sampler_params['common']['min_y'])
     
     # jax.debug.print("init_general {}  {} {} {}", params.sampler_configs['common']['type_index'], type_index, type_index_clipped, sampler_params['common']['min_y'])
     
     # jax.debug.print("sampler_params {} afeter init", sampler_params)
     return sampler_params
 
-# # @partial(jax.jit, static_argnames=('action_dim'))
-# def initialize_sampler(key: chex.PRNGKey, type_index: int, action_dim:int, params: EnvParams) -> Dict:
-#     """
-#     Dispatches to the correct sampler initialization based on index.
-#     Handles static action_dim for lax.switch compatibility.
-#     Returns a nested dictionary with a unified, padded structure.
-#     """
-#     # action_dim = params.action_dim # Concrete Python int
-
-#     # # Ensure the order here matches the type_index assumption (0: Ackley, 1: Poly)
-#     # base_branches: List[callable] = [
-#     #     initialize_ackley,  # Index 0
-#     #     initialize_poly,    # Index 1
-#     #     initialize_neg_abs,
-#     #     initialize_gaussian,
-#     #     initialize_matern52,
-#     #     # Add other initializers here...
-#     # ]
-#     # # print("pasdg", params)
-#     # # # base_branches = params
-#     # # base_branches = params.sample_switch
-    
-#     # partial_branches = [
-#     #     functools.partial(func, action_dim=action_dim) for func in base_branches
-#     # ]
-    
-    
-#     checked_jitted_branches = [
-#         # Apply checkify FIRST to handle internal checks (like GPJax's)
-#         # Apply JIT SECOND, making action_dim static
-#         jax.jit(
-#             checkify.checkify(func, errors=checkify.float_checks), # Handles GPJax checks
-#             static_argnames='action_dim'                             # Handles shape requirements
-#         )
-#         for func in [
-#                 initialize_ackley,  # Index 0
-#                 initialize_poly,    # Index 1
-#                 initialize_neg_abs,
-#                 initialize_gaussian,
-#                 initialize_matern52,
-#         ]
-#     ]
-    
-#     partial_branches = [
-#         functools.partial(func, action_dim=action_dim) for func in checked_jitted_branches
-#     ]
-
-    
-    
-#     type_index = type_index - 1
-#     num_samplers = len(partial_branches)
-#     # Ensure type_index is treated as a JAX type for tracing if necessary
-#     type_index_jax = jnp.asarray(type_index)
-#     type_index_clipped = jnp.clip(type_index_jax, 0, num_samplers - 1)
-
- 
-#     sampler_params = jax.lax.switch(type_index_clipped, partial_branches, key, params)
-#     sampler_params['common']['type_index'] = type_index 
-    
-#     # jax.debug.print("init_general {}  {} {} {}", params.sampler_configs['common']['type_index'], type_index, type_index_clipped, sampler_params['common']['min_y'])
-    
-#     # jax.debug.print("sampler_params {} afeter init", sampler_params)
-#     return sampler_params
 
 
-# --- Helper function to get the correct init function ---
-def _get_initializer(type_index: int) -> Callable:
-    # Map the public type_index (often 1-based from Enum) to 0-based list index
-    # Example: if Enum starts at 1, subtract 1. Adjust if your Enum is different.
-    idx_0_based = type_index # Assuming Enum starts at 1
-    
-
-    initializers: List[Callable] = [
-        initialize_ackley,       # Index 0
-        initialize_poly,         # Index 1
-        initialize_neg_abs,      # Index 2
-        initialize_gaussian,     # Index 3
-        initialize_matern52, # Index 4
-        # Add others...
-    ]
-
-    return initializers[idx_0_based]
-    
 
 
-# def initialize_sampler(key: chex.PRNGKey, type_index: int, action_dim:int, params: EnvParams) -> Dict:
-#     """
-#     Dispatches to the correct sampler initialization based on index
-#     using standard Python if/elif.
-#     NOTE: This version is NOT JIT-compatible due to Python control flow.
-#     """
-#     # Ensure type_index is a concrete Python integer for Python control flow
-#     # type_index = type_index.astype(int)# Ensure it's a concrete int for Python dispatch
-#     type_index = jnp.array(type_index, int)
-#     # if not isinstance(type_index, int):
-#     #      # If it's a JAX tracer array, try to convert if possible (will fail under jit)
-#     #      try:
-#     #          type_index = int(type_index)
-#     #      except TypeError:
-#     #           raise TypeError("type_index must be a concrete integer for Python if/elif dispatch.")
-
-#     # Get the specific initializer function based on the type_index
-#     initializer_func = _get_initializer(type_index)
-
-#     # Call the selected initializer function directly
-#     print(f"[initialize_sampler] Using Python dispatch: Calling {initializer_func.__name__}", type_index)
-#     sampler_params = initializer_func(key=key, params=params, action_dim=action_dim)
-
-#     # Ensure the final type_index reflects the requested type,
-#     # as the initializer might have its own default.
-#     # It's safer to update the common dict *after* the call.
-#     sampler_params['common'] = sampler_params['common'].copy() # Avoid modifying original if it's part of params
-#     sampler_params['common']['type_index'] = type_index
-
-#     return sampler_params
 
 
 # --- compute_y_ackley remains the same (accessing nested params) ---
@@ -964,7 +876,7 @@ def compute_y_sampler(x: chex.Array, sampler_params: Dict, env_params: EnvParams
 
     # Pass the full nested sampler_params dictionary
     y = jax.lax.switch(type_index_clipped, branches, x, sampler_params, env_params)
-    # jax.debug.print("compute_y_sampler {} {} {}", type_index, x, y)
+    # jax.debug.print("compute_y_sampler {} in {} out {}", type_index, x, y)
 
     return y
 
@@ -977,6 +889,8 @@ class FuncIndices(enum.Enum):
     gaussian = enum.auto()   # Gets assigned 4
     matern = enum.auto() # Gets assigned 5
     
+    
+
 class FunctionToSampler(enum.Enum):
     ackley = initialize_ackley
     poly = initialize_poly
@@ -1000,6 +914,44 @@ func_to_compute = {
     "gaussian": compute_y_gaussian,
     "matern52": compute_y_matern52,
 }
+
+
+def function_dictionaries(function: list, conf:Dict) -> Dict[str, Any]:
+    f_dict = {}
+    for f_name in function:
+        f_params_k = f_name + "_env"
+        print("sdfh", conf['action_dim'])
+        
+        for k, v in conf[f_params_k].items():
+             
+            if isinstance(v, list) and all(isinstance(item, str) for item in v):
+                dims = []
+                for item in v:
+                    if item == 'dim':
+                        dims.append(conf['action_dim'])
+                    else:
+                        dims.append(conf[f_params_k][item])
+                        
+                print("d9ks", dims)
+                conf[f_params_k][k] = jnp.zeros(dims)  
+                # print("dims", dims, conf[f_params_k][k].shape)
+                
+                
+        f_dict[f_name] = conf[f_params_k]
+        
+    
+                
+                
+         
+    return f_dict
+            
+                
+                
+# def get_sizes(key: str, conf:Dict) -> Dict[str, Any]:
+#     if key == 'dim'
+#         return conf['action_dim']
+                
+      
     
     
 def function_params_to_dict(function: str, dim: int) -> Dict[str, Any]:

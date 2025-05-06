@@ -29,6 +29,7 @@ from src.agents.ppo_dic_inherits.inh_agents.cor_gmm_agent import CorrelatedGauss
 from src.agents.ppo_dic_inherits.inh_agents.low_mvn_agent import LowRankMVN 
 from src.model_fns.repr_fns import dict_unpack_model, dict_unpack_mask
 from src.agents.ppo_dic_inherits.inh_agents.flow_jax_agent import FlowMVN
+from src.gp.gp_eval import run_bo_evaluation
 
 
 
@@ -83,6 +84,7 @@ class ControlTrainerJaxRefactored: # Renamed class
         bathes = jnp.array(conf.get("batches", [1,1]))
         m_batch = jnp.max(bathes)
         b_train, b_test = jnp.split(bathes, 2)
+        
         
         conf["max_batches"] = m_batch
         conf["batches"] = b_train
@@ -207,7 +209,9 @@ class ControlTrainerJaxRefactored: # Renamed class
         avg_batch_size = jnp.array(self.env_params_train.batches).mean()
         
         
-
+        first_interaction = True # Flag to check if first interaction for BO eval
+        
+        
         for update_idx in range(self.num_updates):
             start_time = time.time()
             step_metrics = {}
@@ -277,15 +281,29 @@ class ControlTrainerJaxRefactored: # Renamed class
                 if run_mode == "eval_random":
                     current_eval_mode = "random"
                 elif run_mode == "eval_bo":
-                    # --- BO Evaluation Handling ---
-                    # Option A: Integrate into agent.evaluate (requires agent modifications)
-                    # current_eval_mode = "bo"
-                    # Option B: Call a separate BO evaluation function (Recommended)
-                    logger.info("BO Evaluation - Skipping agent.evaluate, assuming separate process.")
-                    eval_metrics = {} # No metrics from agent.evaluate for BO here
-                    # Trigger your separate BO evaluation script/function if needed
-                    # run_bo_evaluation(...)
-                    # --- End BO Evaluation Handling ---
+                    # for env_p in self.test_environments.keys():
+                    #     self.test_environments[env_p]["batches"] = [1] # Set reset key for BO evaluation
+                    if first_interaction:
+                        bo_eval_metrics = run_bo_evaluation(
+                            eval_key,
+                            self.test_environments, # Pass the dict of env_params
+                            self.global_config['eval_episodes'],
+                            # Pass other relevant configs needed by BO eval
+                        )
+                        # Log BO eval metrics
+                        # BO metrics might already be NumPy/Python types
+                        bo_eval_metrics_log = {k: (v.item() if hasattr(v, 'item') else v) for k, v in bo_eval_metrics.items()}
+                        first_interaction = False # Set to False after first BO eval
+                    bo_eval_metrics_log['step'] = self.step_count
+                    logger.info(f"BO Agent Eval Results: {bo_eval_metrics_log}")
+                    if self.wandb_run:
+                        self.wandb_run.log(bo_eval_metrics_log)
+                    self.results_data.append({"run_mode": run_mode, "step": self.step_count, **bo_eval_metrics_log})
+                    logger.info("BO evaluation run finished.")
+                    
+                    
+                    
+                    
                 else: # Default PPO evaluation during training or if mode is just 'train'
                      current_eval_mode = "ppo"
                      

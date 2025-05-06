@@ -32,6 +32,7 @@ import logging
 # import ast # Not used directly here
 
 logger = logging.getLogger(__name__)
+logging.getLogger('root').disabled = True
 # Configure logging if needed, e.g., logging.basicConfig(level=logging.INFO)
 
 # --- Updated Task Mapping ---

@@ -1,4 +1,5 @@
 # Required imports (ensure flax is installed: pip install flax)
+from functools import partial
 import jax
 from jax import config, jit, value_and_grad
 import jax.numpy as jnp
@@ -10,6 +11,8 @@ from scipy.optimize import minimize
 # pip install flax
 from flax import struct
 import warnings
+import optax as ox
+
 
 # Configure JAX
 config.update("jax_enable_x64", True)
@@ -47,14 +50,6 @@ def _build_likelihood(n_datapoints, **likelihood_params):
     # In this version, likelihood is simple, but could be configured via likelihood_params
     return gpx.likelihoods.Gaussian(num_datapoints=n_datapoints)
 
-@jit
-def _conjugate_mll(posterior: gpx.gps.Posterior, dataset: gpx.Dataset):
-    """JIT-compilable Marginal Log-Likelihood calculation."""
-    # Using the ConjugateMLL objective requires the posterior object
-    # Note: GPJax objectives might directly take model+data. Check specific version.
-    # This assumes ConjugateMLL is compatible with this structure.
-    # The negative=True is handled by the caller if minimizing.
-    return gpx.objectives.ConjugateMLL(negative=False)(posterior, dataset)
 
 
 # Note: GP fitting with SciPy optimizer inside isn't directly JIT-compilable.
@@ -73,48 +68,70 @@ def fit_gp_model(state: BOState, static_params: BOStaticParams) -> object:
     likelihood = _build_likelihood(state.dataset.n)
     current_posterior_unfitted = static_params.prior * likelihood
 
-    # Using the negative MLL for minimization by the optimizer
-    objective = jit(gpx.objectives.ConjugateMLL(negative=True))
+    @partial(jax.jit, static_argnums=(0))
+    def negative_mll(posterior, dataset):
+        mll = gpx.objectives.conjugate_mll(posterior, dataset)
+        return -mll
+    # --- END CORRECTION ---
 
-    print("Optimizing GP hyperparameters...")
     try:
-        # Using gpx.fit which often wraps scipy or other optimizers.
-        # This step is usually the boundary of JIT compilation.
-        optimised_posterior, history = gpx.fit(
+        # Pass the JIT-compiled negative_mll function to the optimizer.
+        # `gpx.fit` expects a function that takes (model, data) and returns scalar loss.
+        #this is how it is called in the gpjax library demo
+        # optimizer must be a optax GradientTransformation but I would like to keep it plain and let the library do what it normally does
+        
+        optimised_posterior, history = gpx.fit_scipy(
             model=current_posterior_unfitted,
-            objective=objective,
+            objective=negative_mll, # Pass the JITted function
             train_data=state.dataset,
-            # optimizer=gpx.optimizers.Scipy(), # Specify if needed
-            num_iters=100 # Default for scipy optimizer in older gpjax
+            max_iters=100,
+            # optim=optimizer,
         )
-        mll_val = objective(optimised_posterior, state.dataset)
-        print(f"Optimization complete. Final Neg MLL: {mll_val:.4f}")
+
+        # Calculate the final *negative* MLL value using the optimized posterior
+        # final_nll_val = negative_mll(optimised_posterior, state.dataset)
+
         return optimised_posterior
 
     except Exception as e:
-         warnings.warn(f"Error during GP optimization: {e}. Returning unfitted posterior.", stacklevel=2)
-         # Fallback: Return the unfitted posterior based on current data
-         return current_posterior_unfitted
+        print(f"Error during GP optimization: {e}")
+        warnings.warn(f"Error during GP optimization: {e}. Returning unfitted posterior.", stacklevel=2)
+        return current_posterior_unfitted
 
 
-@jit
+@partial(jax.jit, static_argnums=(1,))
 def calculate_ucb(x_candidate: jnp.ndarray,
-                  posterior: gpx.gps.Posterior, # Pass the fitted posterior
-                  dataset: gpx.Dataset,       # Pass the corresponding dataset
+                  posterior: gpx.gps.AbstractPosterior, # Static arg index 1
+                  X_train: jnp.ndarray,             # Dynamic JAX array
+                  y_train: jnp.ndarray,             # Dynamic JAX array
                   kappa: float) -> jnp.ndarray:
     """
     Calculates the Upper Confidence Bound (UCB). JIT-compilable.
+    Accepts X_train, y_train directly to avoid passing unhashable Dataset.
+    Only 'posterior' needs to be static.
     Assumes maximization of the objective function.
     """
-    # Reshape for prediction: GPJax expects (n_points, n_features)
     x_candidate_2d = jnp.atleast_2d(x_candidate)
+    
+    X_train = jnp.zeros((X_train.shape[0], X_train.shape[1]), dtype=jnp.float64)
+    y_train = jnp.zeros((y_train.shape[0], y_train.shape[1]), dtype=jnp.float64)
+    # Create a temporary Dataset inside JIT scope if posterior.predict needs it.
+    # This is generally fine for JIT as Dataset creation is traceable.
+    train_data = gpx.Dataset(X=X_train, y=y_train)
 
-    # Predict latent function distribution using the provided posterior and dataset
-    latent_dist = posterior.predict(x_candidate_2d, train_data=dataset)
+    # Predict latent function distribution using the static posterior and dynamic data
+    latent_dist = posterior.predict(x_candidate_2d, train_data=train_data)
+    
+    predictive_dist  = posterior.likelihood(latent_dist) # Ensure likelihood is called for correct prediction
+    
+    mean = predictive_dist.mean
+    std_dev = jnp.sqrt(predictive_dist.variance + 1e-6) # Variance from likelihood   
 
-    mean = latent_dist.mean()
-    variance = latent_dist.variance()
-    std_dev = jnp.sqrt(jnp.maximum(variance, 1e-12)) # Epsilon for stability
+    # mean = latent_dist.mean()
+    # variance = latent_dist.variance()
+    # std_dev = jnp.sqrt(jnp.maximum(variance, 1e-12)) # Epsilon for stability
+    
+    # jax.debug.print("UCB mean: {} std_dev: {} canidate {}", mean, std_dev, x_candidate_2d)
 
     ucb_value = mean + kappa * std_dev
     return ucb_value.squeeze() # Return scalar
@@ -124,64 +141,65 @@ def calculate_ucb(x_candidate: jnp.ndarray,
 def optimize_acquisition(state: BOState, static_params: BOStaticParams, n_restarts: int) -> tuple[jnp.ndarray, float, jr.PRNGKey]:
     """
     Finds the point maximizing UCB using scipy.optimize.minimize.
+    Extracts X, y from state.dataset to pass to calculate_ucb.
+    obj_fn remains NOT JITted.
     Returns the best point, its UCB value, and the updated key.
     """
     if state.posterior is None or state.dataset is None:
         raise ValueError("GP model must be fitted before optimizing acquisition.")
+    # Ensure dataset actually has data before accessing .X, .Y
+    if state.dataset.n == 0:
+        raise ValueError("Dataset is empty, cannot optimize acquisition.")
+
 
     key, subkey = jr.split(state.key)
     bounds = list(zip(static_params.min_bounds, static_params.max_bounds))
-
     best_acq_value = -jnp.inf
     best_x = None
 
-    # Define the objective for scipy.optimize.minimize (negative UCB)
-    # We capture the necessary parts of the state and params for the objective call
+    # Capture posterior (static), extract X/y (dynamic), capture kappa (dynamic)
     posterior_for_opt = state.posterior
-    dataset_for_opt = state.dataset
+    X_train_for_opt = state.dataset.X # Extract JAX array X
+    y_train_for_opt = state.dataset.y # Extract JAX array y
     kappa_for_opt = static_params.kappa
 
-    # Define the function to minimize (negated UCB)
-    # This internal function `obj_fn` can be JITted for faster evaluation
-    @jit
+    # Define the function to minimize (negated UCB) - NOT JITTED
     def obj_fn(x):
-         return -calculate_ucb(x, posterior_for_opt, dataset_for_opt, kappa_for_opt)
+         # Call the JITted calculate_ucb, passing X_train and y_train directly
+         return -calculate_ucb(x,
+                                posterior_for_opt,
+                                X_train_for_opt, # Pass array
+                                y_train_for_opt, # Pass array
+                                kappa_for_opt)
 
-    print(f"Optimizing UCB acquisition function with {n_restarts} restarts...")
+    # print("min", bounds, static_params.min_bounds, static_params.max_bounds)
     random_starts = jr.uniform(subkey, (n_restarts, static_params.input_dim),
                                minval=static_params.min_bounds,
                                maxval=static_params.max_bounds)
 
     for start_point in random_starts:
-        res = minimize(fun=obj_fn, # Pass the JITted evaluation function
+        # Pass the non-JITted obj_fn wrapper to minimize.
+        res = minimize(fun=obj_fn,
                        x0=start_point,
                        method='L-BFGS-B',
                        bounds=bounds)
-
+        
         if res.success:
-             # Value of obj_fn is -UCB, so res.fun is -UCB
-             # We want to maximize UCB, so we compare -res.fun
             if -res.fun > best_acq_value:
                 best_acq_value = -res.fun
                 best_x = res.x
-        # else:
-        #     print(f"Optimizer restart failed from {start_point}. Message: {res.message}")
+                # jax.debug.print("Best point found in this restart: {} {}", best_x, best_acq_value)
 
     if best_x is None:
         warnings.warn("Acquisition optimization failed. Returning random point.", stacklevel=2)
         key, subkey = jr.split(key)
         best_x = jr.uniform(subkey, (static_params.input_dim,), minval=static_params.min_bounds, maxval=static_params.max_bounds)
-        # Evaluate UCB at the random point if possible
-        best_acq_value = -obj_fn(best_x) # Calculate UCB for the random point
+        best_acq_value = -obj_fn(best_x)
     else:
-        # Ensure best_x is a JAX array for consistency
         best_x = jnp.array(best_x)
 
-
-    print(f"Suggesting point: {best_x} with UCB value: {best_acq_value:.4f}")
     # Return the best point, its acquisition value, and the updated key state
     return best_x.reshape(-1), best_acq_value, key
-
 
 def update_step(state: BOState, static_params: BOStaticParams, x_new: jnp.ndarray, y_new: jnp.ndarray) -> BOState:
     """
@@ -191,18 +209,20 @@ def update_step(state: BOState, static_params: BOStaticParams, x_new: jnp.ndarra
     y_new = jnp.atleast_2d(y_new)
 
     # Append new data
+    
+    
     new_X = jnp.concatenate([state.X, x_new], axis=0)
     new_Y = jnp.concatenate([state.Y, y_new], axis=0)
 
     # Update GPJax Dataset
     new_dataset = gpx.Dataset(X=new_X, y=new_Y)
-    print(f"Dataset updated. Total points: {new_dataset.n}")
 
     # Create a temporary state with new data for fitting
     state_for_fitting = state.replace(X=new_X, Y=new_Y, dataset=new_dataset)
 
     # Fit the model using the updated data
     # This step is not JIT-compilable if gpx.fit uses non-jax optimizers
+    jax.debug.print("Fitting GP model with new data... {} {}", new_X.shape[0], new_X.shape[1])
     new_posterior = fit_gp_model(state_for_fitting, static_params)
 
     # Return the completely new state
@@ -213,30 +233,97 @@ def update_step(state: BOState, static_params: BOStaticParams, x_new: jnp.ndarra
         dataset=new_dataset
     )
 
-def suggest_step(state: BOState, static_params: BOStaticParams, n_restarts: int = 10) -> tuple[jnp.ndarray, BOState]:
+# def suggest_step(state: BOState, static_params: BOStaticParams, n_restarts: int = 10) -> tuple[jnp.ndarray, BOState]:
+#     """
+#     Pure function to suggest the next point based on the current state.
+#     Returns the suggestion and the updated state (key).
+#     """
+#     key = state.key # Get current key
+
+#     # Handle cases where suggestion is not possible/meaningful
+#     if state.X.shape[0] < 1 or state.posterior is None or state.dataset is None:
+#          key, subkey = jr.split(key)
+#          suggestion = jr.uniform(subkey, (static_params.input_dim,), minval=static_params.min_bounds, maxval=static_params.max_bounds)
+#          # Update state only with the new key
+#          new_state = state.replace(key=key)
+#          return suggestion, new_state
+
+#     # Optimize acquisition function
+#     # This step is not JIT-compilable if using scipy.optimize
+#     suggestion, best_acq_value, updated_key = optimize_acquisition(state, static_params, n_restarts)
+
+#     # Create the new state with the updated key
+#     new_state = state.replace(key=updated_key)
+
+#     return suggestion, new_state
+
+def suggest_batch_step(state: BOState, static_params: BOStaticParams, batch_size: int, n_restarts: int = 10) -> tuple[jnp.ndarray, BOState]:
     """
-    Pure function to suggest the next point based on the current state.
-    Returns the suggestion and the updated state (key).
+    Pure function to suggest a BATCH of points using sequential greedy UCB.
+    Returns the batch of suggestions and the updated state (key).
     """
-    key = state.key # Get current key
+    current_key = state.key # Start with the key from the input state
 
     # Handle cases where suggestion is not possible/meaningful
     if state.X.shape[0] < 1 or state.posterior is None or state.dataset is None:
-         print("Insufficient data or model not fitted. Suggesting a random point.")
-         key, subkey = jr.split(key)
-         suggestion = jr.uniform(subkey, (static_params.input_dim,), minval=static_params.min_bounds, maxval=static_params.max_bounds)
+         current_key, subkey = jr.split(current_key)
+         suggestions = jr.uniform(subkey, (batch_size, static_params.input_dim,),
+                                  minval=static_params.min_bounds, maxval=static_params.max_bounds)
          # Update state only with the new key
-         new_state = state.replace(key=key)
-         return suggestion, new_state
+         new_state = state.replace(key=current_key)
+         return suggestions, new_state
 
-    # Optimize acquisition function
-    # This step is not JIT-compilable if using scipy.optimize
-    suggestion, best_acq_value, updated_key = optimize_acquisition(state, static_params, n_restarts)
+    # --- Sequential Greedy Batch Selection ---
+    batch_points = []
+    # Start with the real observed data
+    fantasy_X = state.X
+    fantasy_Y = state.Y
+    # Use the single posterior fitted on the real data for all fantasy steps
+    fixed_posterior = state.posterior
 
-    # Create the new state with the updated key
-    new_state = state.replace(key=updated_key)
+    for i in range(batch_size):
+        # Create dataset based on current fantasy data
+        current_fantasy_dataset = gpx.Dataset(X=fantasy_X, y=fantasy_Y)
 
-    return suggestion, new_state
+        # Create a temporary state for optimize_acquisition
+        # Use the *fixed* posterior but *updated* fantasy dataset and current key
+        temp_state_for_opt = BOState( # Construct directly or use .replace if base state is suitable
+            X=fantasy_X,
+            Y=fantasy_Y,
+            posterior=fixed_posterior,
+            dataset=current_fantasy_dataset,
+            key=current_key # Pass the current key to the optimizer
+        )
+
+        # Find the best point given current fantasy data
+        x_next, _, updated_key = optimize_acquisition(temp_state_for_opt, static_params, n_restarts)
+        current_key = updated_key # Use the key returned by optimize_acquisition for the next step
+
+        # Store the suggested point
+        # Ensure it has the correct shape (input_dim,) before appending? optimize_acquisition returns (dim,)
+        batch_points.append(x_next)
+
+        # If not the last point, create fantasy observation for the next iteration
+        if i < batch_size - 1:
+            # Use the fixed posterior, conditioned on the current fantasy data, to predict the mean
+            x_next_2d = jnp.atleast_2d(x_next) # Ensure shape (1, dim)
+            latent_dist = fixed_posterior.predict(x_next_2d, train_data=current_fantasy_dataset)
+            predictive_dist = fixed_posterior.likelihood(latent_dist) # Ensure likelihood is called for correct prediction
+            y_fantasy = predictive_dist.mean # Get the mean prediction
+            y_fantasy = jnp.atleast_2d(y_fantasy) # Ensure shape (1, 1)
+
+            # Augment fantasy data for the *next* iteration
+            fantasy_X = jnp.concatenate([fantasy_X, x_next_2d], axis=0)
+            fantasy_Y = jnp.concatenate([fantasy_Y, y_fantasy], axis=0)
+         
+    # Convert list of points to a JAX array -> shape (batch_size, input_dim)
+    final_batch = jnp.stack(batch_points, axis=0)
+
+    # Create the final state to return: Use the original state's X, Y, posterior, dataset
+    # but update the key to the latest one used/returned by the process.
+    final_state = state.replace(key=current_key)
+
+    return final_batch, final_state
 
 
 # --- Class Wrapper ---
@@ -254,7 +341,7 @@ class BayesianOptimizer:
     """
     def __init__(self,
                  search_space_bounds: tuple[jnp.ndarray, jnp.ndarray],
-                 kernel: gpx.kernels.Kernel = None,
+                 kernel: gpx.kernels.AbstractKernel = None,
                  mean_function: gpx.mean_functions.AbstractMeanFunction = None,
                  acquisition_kappa: float = 1.96,
                  key: jr.PRNGKey = jr.key(123)
@@ -266,7 +353,11 @@ class BayesianOptimizer:
         input_dim = min_bounds.shape[0]
 
         # Setup static parameters
-        _kernel = kernel if kernel is not None else gpx.kernels.RBF(active_dims=list(range(input_dim)))
+        print("dfg", list(range(input_dim)))
+        
+        # _kernel = kernel if kernel is not None else gpx.kernels.RBF(active_dims=list(range(input_dim)))
+        _kernel = kernel if kernel is not None else gpx.kernels.RBF()
+        print("dfg", _kernel.active_dims)
         _mean_function = mean_function if mean_function is not None else gpx.mean_functions.Zero()
         prior = gpx.gps.Prior(mean_function=_mean_function, kernel=_kernel)
 
@@ -289,8 +380,7 @@ class BayesianOptimizer:
             dataset=None    # No dataset initially
         )
 
-        print(f"Initialized BayesianOptimizer with {input_dim} input dimension(s).")
-        print(f"Search space bounds: Min={min_bounds}, Max={max_bounds}")
+       
 
 
     def update(self, x_new: jnp.ndarray, y_new: jnp.ndarray):
@@ -300,28 +390,45 @@ class BayesianOptimizer:
         # Ensure shapes are okay before passing to step function
         x_new_arr = jnp.atleast_2d(x_new)
         y_new_arr = jnp.atleast_2d(y_new)
-        if x_new_arr.shape[1] != self.static_params.input_dim:
-             raise ValueError(f"Input x_new has wrong dimension {x_new_arr.shape[1]}, expected {self.static_params.input_dim}")
-        if y_new_arr.shape[1] != 1:
-             raise ValueError(f"Input y_new must have shape (n, 1), got {y_new_arr.shape}")
-        if x_new_arr.shape[0] != y_new_arr.shape[0]:
-             raise ValueError("Number of points in x_new and y_new must match.")
+        # if x_new_arr.shape[1] != self.static_params.input_dim:
+        #      raise ValueError(f"Input x_new has wrong dimension {x_new_arr.shape[1]}, expected {self.static_params.input_dim}")
+        # if y_new_arr.shape[1] != 1:
+        #      raise ValueError(f"Input y_new must have shape (n, 1), got {y_new_arr.shape}")
+        # if x_new_arr.shape[0] != y_new_arr.shape[0]:
+        #      raise ValueError("Number of points in x_new and y_new must match.")
 
         # Call the pure function, get the new state back
         self.state = update_step(self.state, self.static_params, x_new_arr, y_new_arr)
 
-    def suggest(self, n_restarts: int = 10) -> jnp.ndarray:
+    def suggest(self, batch_size: int = 1, n_restarts: int = 10) -> jnp.ndarray:
         """
-        Suggests the next point by calling the pure suggest_step function.
-        Updates the internal state (key).
+        Suggests the next batch of points to sample.
+
+        Args:
+            batch_size (int): The number of points to suggest in the batch. Defaults to 1.
+            n_restarts (int): Number of random restarts for acquisition function optimization
+                              within each step of batch generation.
+
+        Returns:
+            jnp.ndarray: The suggested batch of input points, shape (batch_size, input_dim).
         """
-        # Call the pure function
-        suggestion, new_state = suggest_step(self.state, self.static_params, n_restarts)
+        if batch_size < 1:
+            raise ValueError("batch_size must be at least 1.")
+
+        # Call the batch suggestion step function
+        suggestions, new_state = suggest_batch_step(
+            self.state,
+            self.static_params,
+            batch_size,
+            n_restarts
+        )
 
         # Update the optimizer's state (mainly the key)
         self.state = new_state
 
-        return suggestion # Return only the suggestion
+        # Return the batch of suggestions
+        # If batch_size was 1, shape is (1, dim), otherwise (batch_size, dim)
+        return suggestions
 
     # --- Helper properties to access state if needed ---
     @property
@@ -337,95 +444,95 @@ class BayesianOptimizer:
         return self.state.posterior
 
 
-# --- Example Usage (Identical to previous, but uses the new structure) ---
-if __name__ == '__main__':
+# # --- Example Usage (Identical to previous, but uses the new structure) ---
+# if __name__ == '__main__':
 
-    # Define the 'environment' function (the function to optimize)
-    def objective_function(x: jnp.ndarray) -> jnp.ndarray:
-        x_col = x.reshape(-1, 1)
-        val = jnp.sin(4 * x_col) + jnp.cos(2 * x_col)
-        key = jr.PRNGKey(int(jnp.sum(x)*1000 + jnp.prod(x)*500)) # Slightly better key gen
-        noise = 0.1
-        noisy_val = val + jr.normal(key, shape=val.shape) * noise
-        return noisy_val.reshape(-1, 1)
+#     # Define the 'environment' function (the function to optimize)
+#     def objective_function(x: jnp.ndarray) -> jnp.ndarray:
+#         x_col = x.reshape(-1, 1)
+#         val = jnp.sin(4 * x_col) + jnp.cos(2 * x_col)
+#         key = jr.PRNGKey(int(jnp.sum(x)*1000 + jnp.prod(x)*500)) # Slightly better key gen
+#         noise = 0.1
+#         noisy_val = val + jr.normal(key, shape=val.shape) * noise
+#         return noisy_val.reshape(-1, 1)
 
-    # --- BO Setup ---
-    search_bounds = (jnp.array([-3.0]), jnp.array([3.0])) # 1D search space
-    bo_optimizer = BayesianOptimizer(search_space_bounds=search_bounds, key=jr.PRNGKey(42))
+#     # --- BO Setup ---
+#     search_bounds = (jnp.array([-3.0]), jnp.array([3.0])) # 1D search space
+#     bo_optimizer = BayesianOptimizer(search_space_bounds=search_bounds, key=jr.PRNGKey(42))
 
-    # --- Initial Data ---
-    initial_X = jnp.array([[0.0]])
-    initial_Y = objective_function(initial_X)
-    bo_optimizer.update(initial_X, initial_Y) # Update uses the new structure
+#     # --- Initial Data ---
+#     initial_X = jnp.array([[0.0]])
+#     initial_Y = objective_function(initial_X)
+#     bo_optimizer.update(initial_X, initial_Y) # Update uses the new structure
 
-    # --- The Optimization Loop ---
-    n_iterations = 15
+#     # --- The Optimization Loop ---
+#     n_iterations = 15
 
-    print("\n--- Starting Bayesian Optimization Loop ---")
-    for i in range(n_iterations):
-        print(f"\n--- Iteration {i+1}/{n_iterations} ---")
-        # 1. Get suggestion from BO (suggest uses the new structure)
-        suggested_x = bo_optimizer.suggest(n_restarts=10)
+#     print("\n--- Starting Bayesian Optimization Loop ---")
+#     for i in range(n_iterations):
+#         print(f"\n--- Iteration {i+1}/{n_iterations} ---")
+#         # 1. Get suggestion from BO (suggest uses the new structure)
+#         suggested_x = bo_optimizer.suggest(n_restarts=10)
 
-        suggested_x_reshaped = suggested_x.reshape(1, -1) # Ensure shape (1, input_dim)
+#         suggested_x_reshaped = suggested_x.reshape(1, -1) # Ensure shape (1, input_dim)
 
-        # 2. Query the 'environment'
-        observed_y = objective_function(suggested_x_reshaped)
+#         # 2. Query the 'environment'
+#         observed_y = objective_function(suggested_x_reshaped)
 
-        print(f"Sampled point: {suggested_x.flatten()}, Observed value: {observed_y.item():.4f}")
+#         print(f"Sampled point: {suggested_x.flatten()}, Observed value: {observed_y.item():.4f}")
 
-        # 3. Update the BO model (update uses the new structure)
-        bo_optimizer.update(suggested_x_reshaped, observed_y)
+#         # 3. Update the BO model (update uses the new structure)
+#         bo_optimizer.update(suggested_x_reshaped, observed_y)
 
-    # --- Results ---
-    print("\n--- Optimization Finished ---")
-    # Access data via properties that read from the state
-    print(f"Observed data points (X): \n{bo_optimizer.X}")
-    print(f"Observed data points (Y): \n{bo_optimizer.Y}")
+#     # --- Results ---
+#     print("\n--- Optimization Finished ---")
+#     # Access data via properties that read from the state
+#     print(f"Observed data points (X): \n{bo_optimizer.X}")
+#     print(f"Observed data points (Y): \n{bo_optimizer.Y}")
 
-    best_idx = jnp.argmax(bo_optimizer.Y)
-    best_x_found = bo_optimizer.X[best_idx]
-    best_y_found = bo_optimizer.Y[best_idx]
+#     best_idx = jnp.argmax(bo_optimizer.Y)
+#     best_x_found = bo_optimizer.X[best_idx]
+#     best_y_found = bo_optimizer.Y[best_idx]
 
-    print(f"\nBest point found: X = {best_x_found}, Y = {best_y_found.item():.4f}")
+#     print(f"\nBest point found: X = {best_x_found}, Y = {best_y_found.item():.4f}")
 
-    # --- Optional: Plotting (accesses posterior via property) ---
-    if bo_optimizer.static_params.input_dim == 1 and bo_optimizer.posterior is not None:
-        import matplotlib.pyplot as plt
-        import matplotlib as mpl
-        cols = mpl.rcParams["axes.prop_cycle"].by_key()["color"]
+#     # --- Optional: Plotting (accesses posterior via property) ---
+#     if bo_optimizer.static_params.input_dim == 1 and bo_optimizer.posterior is not None:
+#         import matplotlib.pyplot as plt
+#         import matplotlib as mpl
+#         cols = mpl.rcParams["axes.prop_cycle"].by_key()["color"]
 
-        xtest = jnp.linspace(bo_optimizer.static_params.min_bounds[0], bo_optimizer.static_params.max_bounds[0], 200).reshape(-1, 1)
+#         xtest = jnp.linspace(bo_optimizer.static_params.min_bounds[0], bo_optimizer.static_params.max_bounds[0], 200).reshape(-1, 1)
 
-        # Predict using the final posterior and dataset from the state
-        final_posterior = bo_optimizer.posterior
-        final_dataset = bo_optimizer.state.dataset
+#         # Predict using the final posterior and dataset from the state
+#         final_posterior = bo_optimizer.posterior
+#         final_dataset = bo_optimizer.state.dataset
 
-        latent_dist = final_posterior.predict(xtest, train_data=final_dataset)
-        predictive_dist = final_posterior.likelihood(latent_dist)
+#         latent_dist = final_posterior.predict(xtest, train_data=final_dataset)
+#         predictive_dist = final_posterior.likelihood(latent_dist)
 
-        pred_mean = predictive_dist.mean()
-        pred_std = jnp.sqrt(predictive_dist.variance())
+#         pred_mean = predictive_dist.mean()
+#         pred_std = jnp.sqrt(predictive_dist.variance())
 
-        f_true = lambda x: jnp.sin(4 * x) + jnp.cos(2 * x)
-        ytest_true = f_true(xtest)
+#         f_true = lambda x: jnp.sin(4 * x) + jnp.cos(2 * x)
+#         ytest_true = f_true(xtest)
 
-        fig, ax = plt.subplots(figsize=(10, 5))
-        ax.plot(bo_optimizer.X, bo_optimizer.Y, "x", label="Observations", color=cols[0], markersize=8)
-        ax.plot(xtest, pred_mean, label="Predictive Mean", color=cols[1])
-        ax.fill_between(
-             xtest.flatten(),
-             pred_mean.flatten() - 1.96 * pred_std.flatten(),
-             pred_mean.flatten() + 1.96 * pred_std.flatten(),
-             alpha=0.2, color=cols[1], label="95% Confidence Interval"
-         )
-        ax.plot(xtest, ytest_true, 'k--', label="True Function (noiseless)")
-        ax.scatter(best_x_found, best_y_found, color='red', s=100, zorder=5, label=f'Best Observed Point')
+#         fig, ax = plt.subplots(figsize=(10, 5))
+#         ax.plot(bo_optimizer.X, bo_optimizer.Y, "x", label="Observations", color=cols[0], markersize=8)
+#         ax.plot(xtest, pred_mean, label="Predictive Mean", color=cols[1])
+#         ax.fill_between(
+#              xtest.flatten(),
+#              pred_mean.flatten() - 1.96 * pred_std.flatten(),
+#              pred_mean.flatten() + 1.96 * pred_std.flatten(),
+#              alpha=0.2, color=cols[1], label="95% Confidence Interval"
+#          )
+#         ax.plot(xtest, ytest_true, 'k--', label="True Function (noiseless)")
+#         ax.scatter(best_x_found, best_y_found, color='red', s=100, zorder=5, label=f'Best Observed Point')
 
-        ax.set_xlabel("X")
-        ax.set_ylabel("Y")
-        ax.set_title("Bayesian Optimization Result (Stateful Class, Pure Steps)")
-        ax.legend()
-        ax.grid(True, which='both', linestyle='--', linewidth=0.5)
-        plt.tight_layout()
-        plt.show()
+#         ax.set_xlabel("X")
+#         ax.set_ylabel("Y")
+#         ax.set_title("Bayesian Optimization Result (Stateful Class, Pure Steps)")
+#         ax.legend()
+#         ax.grid(True, which='both', linestyle='--', linewidth=0.5)
+#         plt.tight_layout()
+#         plt.show()

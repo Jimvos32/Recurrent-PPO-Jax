@@ -1,0 +1,46 @@
+poly_standard:
+  c: 10.0
+  weights: [dim]
+  x_max: [dim]
+  degree: 2
+  optimum_range_factor: 0.9
+  c_bounds: [5.0, 20.0]
+  weight_bounds: [0.5, 2.0]
+  steepness_factor: 1.0
+  steep_min: 0.5
+  steep_max: 2.0
+  bounds: [-5, 5]
+
+
+
+ackley_standard:
+  a: 15.0
+  b: 0.1
+  c: 6.283
+  optimum_range_factor: 0.9
+  a_bounds: [15.0, 20.0]
+  b_bounds: [0.1, 0.2]
+  c_bounds: [6.283, 6.283]
+  bounds: [-5, 5]
+
+
+gaussian_standard:
+  center: [dim]
+  width: [dim]
+  amplitude: 1.0
+  baseline: 0.5
+  width_bounds: [1.0,2.0]
+  amplitude_bounds: [0.5, 2.0]
+  baseline_bounds: [0.5, 2.0]
+  bounds: [-5, 5]
+
+matern52_standard:
+  x_grid: [grid_size]
+  y_grids: [dim, grid_size]
+  grid_size: 200
+  bounds: [-5, 5]
+
+neg_abs_standard:
+  bounds: [-5, 5]
+
+

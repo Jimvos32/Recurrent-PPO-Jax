@@ -3,10 +3,11 @@ defaults:
   - task: variable
   - trainer: variable_ppo
   - experiment: combos   # loads config/experiment/combos.yaml
-
+  - function_params: funcs  # loads config/function_params/variable.yaml
 # Default experiment selection (can be overridden on the CLI)
 experiment:
-  choice: exp1
+  choice: test_jax
+
 
 # Global settings
 tags: null

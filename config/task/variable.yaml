@@ -3,6 +3,13 @@ task: ${experiment.combos.${experiment.choice}.task}
 pol_dist: ${experiment.combos.${experiment.choice}.pol_dist}
 env_train: ${experiment.combos.${experiment.choice}.env_train}
 env_test: ${experiment.combos.${experiment.choice}.env_test}
+
+poly_env:  ${function_params.${experiment.combos.${experiment.choice}.poly_params}}
+gaussian_env:  ${function_params.${experiment.combos.${experiment.choice}.gaussian_params}}
+ackley_env:  ${function_params.${experiment.combos.${experiment.choice}.ackley_params}}
+matern52_env:  ${function_params.${experiment.combos.${experiment.choice}.matern52_params}}
+neg_abs_env: ${function_params.${experiment.combos.${experiment.choice}.neg_abs_params}}
+
 function_types: []
 bounds: ${experiment.combos.${experiment.choice}.bounds}
 # These keys are set from the experiment combos:

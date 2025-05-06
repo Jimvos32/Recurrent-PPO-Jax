@@ -8,7 +8,7 @@ from typing import Tuple, Optional, Dict, Any
 from jax.experimental import checkify
 
 
-from src.tasks.envs.jax_env_f.jax_function_samplers import initialize_sampler, compute_y_sampler, EnvParams
+from src.tasks.envs.jax_env_f.jax_function_samplers import initialize_sampler, compute_y_sampler, EnvParams, FuncIndices
 # from src.tasks.envs.jax_env.env_params import EnvParams
 
 # Assume JAX versions of your samplers exist:
@@ -36,6 +36,7 @@ class EnvState:
     last_action_mapped: chex.Array # Shape (max_batches, action_dim)
     last_padded_obs_raw: chex.Array # Shape (max_batches, 1)
     last_action: chex.Array # Shape (max_batches, action_dim)
+    last_raw_obs: chex.Array # Shape (max_batches, 1)
     last_reward: float
     done: bool # True if episode is done (for info dict)
     max_steps_in_episode: int # Set during reset, used for truncation
@@ -82,15 +83,11 @@ class MultiFunctionGymnax(environment.Environment):
         
         action_normalized = action.reshape(max_batches, action_dim)
         
-        # jax.lax.cond(
-        #     params.use_random_action_on_step,
-        #     lambda _: jax.random.uniform(key_random_action,
-        #                                   shape=(params.max_batches, params.action_dim),
-        #                                   minval=-1.0, maxval=1.0, dtype=jnp.float32),
-        #     lambda _: action.reshape(params.max_batches, params.action_dim), # Ensure shape
-        #     None,
-        # )
-        action_mapped = map_to_bounds_jax(action_normalized, params.x_range)
+        # idx = state.sampler_type_index.astype(int)
+        
+        # f_name = FuncIndices._value2member_map_.get(idx).name
+        range = state.params_for_compute['common']["bounds"]
+        action_mapped = map_to_bounds_jax(action_normalized, range)
 
         # --- Observation Calculation ---
         # Use the current batch_size from state
@@ -219,6 +216,9 @@ class MultiFunctionGymnax(environment.Environment):
         
         # print("asgd", obs_raw.shape, action_mapped.shape, scaled_observation.shape, jnp.squeeze(scaled_observation).shape)
         last_obs = jnp.reshape(scaled_observation, (max_batches, 1))
+        last_raw = jnp.reshape(obs_raw, (max_batches, 1))
+        
+        print("last_obs", last_obs.shape, action_mapped.shape, scaled_observation.shape, obs_raw.shape, action_normalized.shape)
         
         
         
@@ -232,6 +232,7 @@ class MultiFunctionGymnax(environment.Environment):
             last_action_mapped=action_mapped, # Store full mapped actions
             last_padded_obs_raw=last_obs, # Store padded obs)
             last_action=action_normalized, # Store action taken
+            last_raw_obs=last_raw, # Store raw observation
             last_reward=reward,
             done=done, # Store done flag reflecting current step's outcome
             # max_steps_in_episode remains same
@@ -377,6 +378,7 @@ class MultiFunctionGymnax(environment.Environment):
         # print("rsa", obs_raw.shape, initial_actions_normalized.shape, jnp.squeeze(scaled_observation).shape)
         # Initialize state
         last_obs = jnp.reshape(scaled_observation, (max_batches, 1))
+        last_raw = jnp.reshape(obs_raw, (max_batches, 1))
         
         state = EnvState(
             tick=0,
@@ -392,6 +394,7 @@ class MultiFunctionGymnax(environment.Environment):
             last_action_mapped=initial_actions_mapped,
             last_padded_obs_raw=last_obs,
             last_action=initial_actions_normalized, # Store action taken
+            last_raw_obs=last_raw, # Store raw observation
             last_reward=initial_reward,
             done=False, # Reset is not done
             max_steps_in_episode=max_steps, # Set max steps for this episode
@@ -421,8 +424,8 @@ class MultiFunctionGymnax(environment.Environment):
         # Generate initial actions
         initial_actions_normalized = jax.lax.cond(
             params.use_random_action_on_reset,
-            lambda k: jax.random.uniform(k, (max_batches, action_dim), minval=-1.0, maxval=1.0, dtype=jnp.float32),
-            lambda k: jnp.zeros((max_batches, action_dim), dtype=jnp.float32),
+            lambda k: jax.random.uniform(k, (max_batches, action_dim), minval=-1.0, maxval=1.0),
+            lambda k: jnp.zeros((max_batches, action_dim)),
             key_action,
         )
         initial_actions_mapped = map_to_bounds_jax(initial_actions_normalized, params.x_range)
@@ -529,30 +532,64 @@ class MultiFunctionGymnax(environment.Environment):
                     low=params.x_range[0],
                     high=params.x_range[1],
                     shape=(params.max_batches, params.action_dim),
-                    dtype=jnp.float32,
+                  
                 ),
                 "observations": spaces.Box(
                     low=-jnp.inf, high=jnp.inf,
                     shape=(params.max_batches, 1),
-                    dtype=jnp.float32
+                   
                 ),
                 "reward": spaces.Box(
                     low=-jnp.inf, high=jnp.inf,
                     shape=(1,),
-                    dtype=jnp.float32
+                  
                 ),
                 "mask": spaces.Box( # Mask is now implicit via batch_size in state, but can expose if needed
                     low=0, high=params.max_batches,
                     shape=(1,),
-                    dtype=jnp.int32
+                 
                 ),
                 "step": spaces.Box(
                     low=0, high=params.max_steps_in_episode,
                     shape=(1,),
-                    dtype=jnp.int32
+                  
                 )
             }
         )
+        
+        # return spaces.Dict(
+        #     {
+        #         "actions": spaces.Box(
+        #             low=params.x_range[0],
+        #             high=params.x_range[1],
+        #             shape=(params.max_batches, params.action_dim),
+        #             dtype=jnp.float32,
+        #         ),
+        #         "observations": spaces.Box(
+        #             low=-jnp.inf, high=jnp.inf,
+        #             shape=(params.max_batches, 1),
+        #             dtype=jnp.float32
+        #         ),
+        #         "reward": spaces.Box(
+        #             low=-jnp.inf, high=jnp.inf,
+        #             shape=(1,),
+        #             dtype=jnp.float32
+        #         ),
+        #         "mask": spaces.Box( # Mask is now implicit via batch_size in state, but can expose if needed
+        #             low=0, high=params.max_batches,
+        #             shape=(1,),
+        #             dtype=jnp.int32
+        #         ),
+        #         "step": spaces.Box(
+        #             low=0, high=params.max_steps_in_episode,
+        #             shape=(1,),
+        #             dtype=jnp.int32
+        #         )
+        #     }
+        # )
+        
+        
+    
 
     def action_space(self, params: EnvParams) -> spaces.Box:
         """Defines the action space."""
@@ -560,7 +597,6 @@ class MultiFunctionGymnax(environment.Environment):
             low=-1.0,
             high=1.0,
             shape=(params.max_batches, params.action_dim),
-            dtype=jnp.float32
         )
 
 # --- Helper JAX functions (must be defined outside the class) ---
@@ -590,13 +626,22 @@ def get_obs(state: EnvState, params: EnvParams) -> chex.ArrayTree:
     """Constructs the observation dictionary from the current state."""
     
     
+    # return {
+    #     "actions": state.last_action_mapped.astype(jnp.float64),
+    #     "observations": state.last_padded_obs_raw.astype(jnp.float32),
+    #     "reward": jnp.array([state.last_reward], dtype=jnp.float32),
+    #     "mask": jnp.array([state.batch_size], dtype=jnp.int32), # Expose batch size if needed by agent
+    #     "step": jnp.array([state.tick], dtype=jnp.int32)
+    # }
     return {
-        "actions": state.last_action_mapped.astype(jnp.float64),
-        "observations": state.last_padded_obs_raw.astype(jnp.float32),
-        "reward": jnp.array([state.last_reward], dtype=jnp.float32),
-        "mask": jnp.array([state.batch_size], dtype=jnp.int32), # Expose batch size if needed by agent
-        "step": jnp.array([state.tick], dtype=jnp.int32)
+        "actions": state.last_action_mapped,
+        "observations": state.last_padded_obs_raw,
+        "reward": jnp.array([state.last_reward]),
+        "mask": jnp.array([state.batch_size]), # Expose batch size if needed by agent
+        "step": jnp.array([state.tick])
     }
+    
+    
 
 def get_info(state: EnvState, params: EnvParams, done: bool, scaled_difference: chex.Array) -> Dict:
     """Constructs the info dictionary, populated only when done."""
