@@ -113,8 +113,8 @@ def calculate_ucb(x_candidate: jnp.ndarray,
     """
     x_candidate_2d = jnp.atleast_2d(x_candidate)
     
-    X_train = jnp.zeros((X_train.shape[0], X_train.shape[1]), dtype=jnp.float64)
-    y_train = jnp.zeros((y_train.shape[0], y_train.shape[1]), dtype=jnp.float64)
+    # X_train = jnp.zeros((X_train.shape[0], X_train.shape[1]), dtype=jnp.float64)
+    # y_train = jnp.zeros((y_train.shape[0], y_train.shape[1]), dtype=jnp.float64)
     # Create a temporary Dataset inside JIT scope if posterior.predict needs it.
     # This is generally fine for JIT as Dataset creation is traceable.
     train_data = gpx.Dataset(X=X_train, y=y_train)
