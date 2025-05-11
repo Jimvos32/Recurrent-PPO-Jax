@@ -8,6 +8,7 @@ import chex
 from src.tasks.envs.jax_env_f.jax_env import MultiFunctionGymnax
 from src.tasks.envs.jax_env_f.jax_function_samplers import compute_y_sampler
 import gpjax as gpx
+from tqdm import tqdm
 
 
 def run_bo_evaluation(
@@ -25,7 +26,7 @@ def run_bo_evaluation(
         all_bo_metrics = {}
 
         for env_name, env_params in test_environments.items():
-            print(f"Evaluating {env_name} with Bayesian Optimization")
+            # print(f"Evaluating {env_name} with Bayesian Optimization")
             key, env_key = jax.random.split(key)
             env_keys = jax.random.split(env_key, num_eval_episodes)
 
@@ -35,8 +36,8 @@ def run_bo_evaluation(
             episode_final_regrets = []
 
             # Loop over episodes for this env type
-            for episode_idx in range(num_eval_episodes):
-                print(f"Evaluating {env_name} - Episode {episode_idx+1}/{num_eval_episodes}")
+            for episode_idx in tqdm(range(num_eval_episodes)):
+                # print(f"Evaluating {env_name} - Episode {episode_idx+1}/{num_eval_episodes}")
                 episode_key = env_keys[episode_idx]
                 ep_key, bo_key, reset_key = jax.random.split(episode_key, 3)
 
@@ -106,7 +107,7 @@ def run_bo_evaluation(
                 final_info = {} # Store final info dict
 
                 for step in range(current_env_state.max_steps_in_episode):
-                    print(f"Episode {episode_idx+1}/{num_eval_episodes}, Step {step+1}/{env_params.max_steps_in_episode}")
+                    # print(f"Episode {episode_idx+1}/{num_eval_episodes}, Step {step+1}/{env_params.max_steps_in_episode}")
                     if ep_done: break # Stop if already done
 
                     ep_key, step_key, suggest_key = jax.random.split(ep_key, 3)
@@ -131,7 +132,7 @@ def run_bo_evaluation(
 
                     # Update BO model with the new observation (action, reward)
                     # BO typically optimizes f(x), so reward IS the observation y
-                    jax.debug.print("BO update with action: {} and reward: {}", reward_val, ep_done)
+                    # jax.debug.print("BO update with action: {} and reward: {}", reward_val, ep_done)
                     
                     bo_optimizer.update(current_env_state.last_action_mapped, current_env_state.last_raw_obs)
 

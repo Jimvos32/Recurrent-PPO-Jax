@@ -85,6 +85,7 @@ def fit_gp_model(state: BOState, static_params: BOStaticParams) -> object:
             objective=negative_mll, # Pass the JITted function
             train_data=state.dataset,
             max_iters=100,
+            verbose=False,
             # optim=optimizer,
         )
 
@@ -182,7 +183,7 @@ def optimize_acquisition(state: BOState, static_params: BOStaticParams, n_restar
         res = minimize(fun=obj_fn,
                        x0=start_point,
                        method='L-BFGS-B',
-                       bounds=bounds)
+                       bounds=bounds, options={'disp': False})
         
         if res.success:
             if -res.fun > best_acq_value:
@@ -222,7 +223,7 @@ def update_step(state: BOState, static_params: BOStaticParams, x_new: jnp.ndarra
 
     # Fit the model using the updated data
     # This step is not JIT-compilable if gpx.fit uses non-jax optimizers
-    jax.debug.print("Fitting GP model with new data... {} {}", new_X.shape[0], new_X.shape[1])
+    # jax.debug.print("Fitting GP model with new data... {} {}", new_X.shape[0], new_X.shape[1])
     new_posterior = fit_gp_model(state_for_fitting, static_params)
 
     # Return the completely new state
@@ -353,11 +354,11 @@ class BayesianOptimizer:
         input_dim = min_bounds.shape[0]
 
         # Setup static parameters
-        print("dfg", list(range(input_dim)))
+        # print("dfg", list(range(input_dim)))
         
         # _kernel = kernel if kernel is not None else gpx.kernels.RBF(active_dims=list(range(input_dim)))
         _kernel = kernel if kernel is not None else gpx.kernels.RBF()
-        print("dfg", _kernel.active_dims)
+        # print("dfg", _kernel.active_dims)
         _mean_function = mean_function if mean_function is not None else gpx.mean_functions.Zero()
         prior = gpx.gps.Prior(mean_function=_mean_function, kernel=_kernel)
 

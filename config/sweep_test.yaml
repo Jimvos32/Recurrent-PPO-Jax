@@ -18,5 +18,5 @@ steps: ${experiment.combos.${experiment.choice}.steps}
 log_interval: 4096
 eval_episodes: 8
 eval_interval: 1000
-use_wandb: false
+use_wandb: true
 

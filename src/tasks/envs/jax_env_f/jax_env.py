@@ -218,7 +218,6 @@ class MultiFunctionGymnax(environment.Environment):
         last_obs = jnp.reshape(scaled_observation, (max_batches, 1))
         last_raw = jnp.reshape(obs_raw, (max_batches, 1))
         
-        print("last_obs", last_obs.shape, action_mapped.shape, scaled_observation.shape, obs_raw.shape, action_normalized.shape)
         
         
         

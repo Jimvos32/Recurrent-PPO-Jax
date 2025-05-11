@@ -115,7 +115,6 @@ def create_env_params(config) -> EnvParams:
         
     f_dict = function_dictionaries(functions, config)
     
-    print("ff", f_dict['poly']['weights'].shape)
     
     sampler_params['specific'] = f_dict
     
@@ -331,7 +330,7 @@ def initialize_inner_matern52(key: chex.PRNGKey, params: EnvParams, action_dim: 
 
 
 def checked_inner(key, params, action_dim):
-    return checkify.checkify(initialize_inner_matern52, errors=checkify.float_checks)(key, params, action_dim)
+    return checkify.checkify(initialize_inner_matern52, errors=checkify.nan_checks)(key, params, action_dim)
 
 _checked_jitted_matern52 = jax.jit(checked_inner, static_argnames='action_dim')
 
@@ -538,7 +537,7 @@ def initialize_ackley(key: chex.PRNGKey, params: EnvParams, action_dim: int) -> 
     #     'c': c,
     # }
     # jax.debug.print("init_ack {} {}", params.sampler_configs['common']['type_index'], sam_con['common']['min_y'])
-    jax.debug.print("spece {} {}", params.sampler_configs['specific']['poly']['weights'], sam_con['common']['min_y'])
+    # jax.debug.print("spece {} {}", params.sampler_configs['specific']['poly']['weights'], sam_con['common']['min_y'])
     
     return sam_con
 
@@ -564,7 +563,7 @@ def initialize_poly(key: chex.PRNGKey, params: EnvParams, action_dim: int) -> Di
     opt_factor = poly_config['optimum_range_factor'] # Specific factor
     
     
-    jax.debug.print("poly_config {} {}", params.x_range,  params.sampler_configs['specific']['poly']['bounds'])
+    # jax.debug.print("poly_config {} {}", params.x_range,  params.sampler_configs['specific']['poly']['bounds'])
 
     # Sample Poly parameters using bounds from poly_config
     poly_c = jax.random.uniform(key_c, shape=(), minval=poly_config['c_bounds'][0], maxval=poly_config['c_bounds'][1])
@@ -601,7 +600,7 @@ def initialize_poly(key: chex.PRNGKey, params: EnvParams, action_dim: int) -> Di
     
    
     # jax.debug.print("init_pol {} {} {} {}", params.sampler_configs['common']['type_index'], sam_con['common']['min_y'], sam_con['common'], sam_con['specific']['poly'])
-    jax.debug.print("spece {} {} {}", params.sampler_configs['specific']['poly']['weights'], sam_con['common']['min_y'], poly_weights)
+    # jax.debug.print("spece {} {} {}", params.sampler_configs['specific']['poly']['weights'], sam_con['common']['min_y'], poly_weights)
 
     
     return sam_con
@@ -741,7 +740,7 @@ def initialize_sampler(key: chex.PRNGKey, type_index: int, action_dim:int, param
     sampler_params = jax.lax.switch(type_index_clipped, partial_branches, key, params)
     sampler_params['common']['type_index'] = type_index 
     
-    print("sampler_params", sampler_params['common']['type_index'], "type", type_index, "clipped", type_index_clipped, "min", sampler_params['common']['min_y'])
+    # print("sampler_params", sampler_params['common']['type_index'], "type", type_index, "clipped", type_index_clipped, "min", sampler_params['common']['min_y'])
     
     # jax.debug.print("init_general {}  {} {} {}", params.sampler_configs['common']['type_index'], type_index, type_index_clipped, sampler_params['common']['min_y'])
     
@@ -807,7 +806,6 @@ def compute_y_gaussian(x: chex.Array, sampler_params: Dict, env_params: EnvParam
     """
     Computes the y value for a given x using the sampled Gaussian parameters.
     """
-    print("compute_y_gaussian", x.shape, x.dtype, sampler_params['common']['type_index'])
     # Extract Gaussian parameters
     gauss_params = sampler_params['specific']['gaussian']
     center = gauss_params['center']
@@ -920,7 +918,6 @@ def function_dictionaries(function: list, conf:Dict) -> Dict[str, Any]:
     f_dict = {}
     for f_name in function:
         f_params_k = f_name + "_env"
-        print("sdfh", conf['action_dim'])
         
         for k, v in conf[f_params_k].items():
              
@@ -932,7 +929,7 @@ def function_dictionaries(function: list, conf:Dict) -> Dict[str, Any]:
                     else:
                         dims.append(conf[f_params_k][item])
                         
-                print("d9ks", dims)
+                # print("d9ks", dims)
                 conf[f_params_k][k] = jnp.zeros(dims)  
                 # print("dims", dims, conf[f_params_k][k].shape)
                 
