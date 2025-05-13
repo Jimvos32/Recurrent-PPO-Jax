@@ -300,9 +300,9 @@ combos:
     project_name: "seperate_loss_test"
     pol_dist: "flow_jax_mvn"
     task: "jax"
-    env_train: ["poly"]
+    env_train: ["neg_abs"]
     env_test: ["poly", "ackley"]
-    steps: 10000
+    steps: 1000000
     
     bounds: [-1, 1]
     total_episode_samples: 5

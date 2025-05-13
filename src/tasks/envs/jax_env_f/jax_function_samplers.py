@@ -874,7 +874,7 @@ def compute_y_sampler(x: chex.Array, sampler_params: Dict, env_params: EnvParams
 
     # Pass the full nested sampler_params dictionary
     y = jax.lax.switch(type_index_clipped, branches, x, sampler_params, env_params)
-    # jax.debug.print("compute_y_sampler {} in {} out {}", type_index, x, y)
+    jax.debug.print("compute_y_sampler {} in {} out {}", type_index, x, y)
 
     return y
 
