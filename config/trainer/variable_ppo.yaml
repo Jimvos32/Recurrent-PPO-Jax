@@ -7,7 +7,7 @@ decoder_params_hidden: [16,16]
 latent_dim: 6
 d_critic: 32
 num_envs: 8
-rollout_len: 128
+rollout_len: 64
 sequence_length: null
 gamma: 0.99
 gae_lambda: 0.95

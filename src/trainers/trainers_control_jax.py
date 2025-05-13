@@ -30,6 +30,12 @@ from src.agents.ppo_dic_inherits.inh_agents.low_mvn_agent import LowRankMVN
 from src.model_fns.repr_fns import dict_unpack_model, dict_unpack_mask
 from src.agents.ppo_dic_inherits.inh_agents.flow_jax_agent import FlowMVN
 from src.gp.gp_eval import run_bo_evaluation
+from flowjax.bijections import Planar
+
+
+from flowjax.flows import block_neural_autoregressive_flow
+
+
 
 
 
@@ -48,7 +54,9 @@ from functools import partial
 from src.tasks.envs.jax_env_f.jax_env import MultiFunctionGymnax, EnvState
 from src.agents.ppo_dic_inherits.inh_agents.jax_full_params import FullParamsSamplingJax
 from src.agents.ppo_dic_inherits.inh_agents.flow_jax import FlowMVNJax
+from src.agents.ppo_dic_inherits.inh_agents.norm_flow_agent import NormFlowAgent
 from src.agents.jax_agent import PPOAgentJax
+from src.agents.norm_jax_agent import NormPPOAgentJax
 from src.tasks.envs.jax_env_f.jax_function_samplers import create_env_params, EnvParams, initialize_sampler
 # from .jax_env import EnvParams # Example
 # from .env_utils import create_env_params # Example
@@ -145,30 +153,69 @@ class ControlTrainerJaxRefactored: # Renamed class
                  **optimizer_config
             ),
         )
-
-        # Instantiate the JAX Agent
-        self.agent = PPOAgentJax(
-            env_params=self.env_params_train,
-            env_params_test=self.test_environments,
-            repr_model_fn=repr_fn,
-            seq_model_fn=seq_model_fn,
-            actor_fn=actor_fn,
-            critic_fn=critic_fn,
-            optimizer=optimizer,
-            sampling_impl_class=sampling_impl_class,
-            rollout_len=self.rollout_len,
-            gamma=self.trainer_config.get('gamma', 0.99),
-            gae_lambda=self.trainer_config.get('gae_lambda', 0.95),
-            num_minibatches=self.trainer_config.get('num_minibatches', 4),
-            update_epochs=self.trainer_config.get('update_epochs', 4),
-            norm_adv=self.trainer_config.get('norm_adv', True),
-            clip_coef=self.trainer_config.get('clip_coef', 0.1),
-            ent_coef_schedule=ent_schedule, # Pass the schedule object
-            vf_coef=self.trainer_config.get('vf_coef', 0.5),
-            max_grad_norm=self.trainer_config.get('max_grad_norm', 0.5),
-            target_kl=self.trainer_config.get('target_kl', None),
-        )
         
+        extension = self.trainer_config["dist_model"]
+        print("Extension:", extension) # Debugging line
+        if extension == "normal":
+            sampling_impl_class = NormFlowAgent
+            
+            
+            planar_tanh_kwargs = {'negative_slope': 0.01} 
+
+            # num_layers = 1
+            # test_flow_config = []
+            # for _ in range(num_layers):
+            #     test_flow_config.append( (Planar, planar_tanh_kwargs.copy()) ) 
+            test_flow_config = []
+            
+            self.agent = NormPPOAgentJax(
+                env_params=self.env_params_train,
+                env_params_test=self.test_environments,
+                repr_model_fn=repr_fn,
+                seq_model_fn=seq_model_fn,
+                actor_fn=actor_fn,
+                critic_fn=critic_fn,
+                optimizer=optimizer,
+                sampling_impl_class=sampling_impl_class,
+                rollout_len=self.rollout_len,
+                gamma=self.trainer_config.get('gamma', 0.99),
+                gae_lambda=self.trainer_config.get('gae_lambda', 0.95),
+                num_minibatches=self.trainer_config.get('num_minibatches', 4),
+                update_epochs=self.trainer_config.get('update_epochs', 4),
+                norm_adv=self.trainer_config.get('norm_adv', True),
+                clip_coef=self.trainer_config.get('clip_coef', 0.1),
+                ent_coef_schedule=ent_schedule, # Pass the schedule object
+                vf_coef=self.trainer_config.get('vf_coef', 0.5),
+                max_grad_norm=self.trainer_config.get('max_grad_norm', 0.5),
+                target_kl=self.trainer_config.get('target_kl', None),
+                flow_layer_configs=test_flow_config
+                
+            )
+            
+        else:
+            # Instantiate the JAX Agent
+            self.agent = PPOAgentJax(
+                env_params=self.env_params_train,
+                env_params_test=self.test_environments,
+                repr_model_fn=repr_fn,
+                seq_model_fn=seq_model_fn,
+                actor_fn=actor_fn,
+                critic_fn=critic_fn,
+                optimizer=optimizer,
+                sampling_impl_class=sampling_impl_class,
+                rollout_len=self.rollout_len,
+                gamma=self.trainer_config.get('gamma', 0.99),
+                gae_lambda=self.trainer_config.get('gae_lambda', 0.95),
+                num_minibatches=self.trainer_config.get('num_minibatches', 4),
+                update_epochs=self.trainer_config.get('update_epochs', 4),
+                norm_adv=self.trainer_config.get('norm_adv', True),
+                clip_coef=self.trainer_config.get('clip_coef', 0.1),
+                ent_coef_schedule=ent_schedule, # Pass the schedule object
+                vf_coef=self.trainer_config.get('vf_coef', 0.5),
+                max_grad_norm=self.trainer_config.get('max_grad_norm', 0.5),
+                target_kl=self.trainer_config.get('target_kl', None),
+            )
+            
         self.action_dim = self.env_params_train.action_dim
         self.max_batches = self.env_params_train.max_batches
 
@@ -227,6 +274,7 @@ class ControlTrainerJaxRefactored: # Renamed class
                     self.batch_env_states
                 )
                 
+                
             elif run_mode in ['random', 'bo']:
                 pass
             
@@ -243,11 +291,18 @@ class ControlTrainerJaxRefactored: # Renamed class
             if run_mode == "train" and self.step_count >= self.next_log_step:
                 self.next_log_step += self.log_interval
                 
+                
+                print("ewa yo", step_metrics['actions'].shape)
+                
                 actions = np.reshape(step_metrics['actions'], ((self.num_envs * self.rollout_len), step_metrics['actions'].shape[2], step_metrics['actions'].shape[3]))
+                
+                print("actions shape", actions.shape)
+                
                 histo_dic = {}
-                for k in range(actions.shape[1]):
+                for k in range(actions.shape[-1]):
                     histo_dic['env/action dimension ' + str(k)] = wandb.Histogram(actions[:, k]) # Log each action dimension separately
                     
+                print("histo_dic", histo_dic)
                 step_metrics.pop('actions') # Remove actions from metrics to avoid confusion
                 
                 interactions += self.num_envs * self.rollout_len * avg_batch_size
@@ -277,10 +332,10 @@ class ControlTrainerJaxRefactored: # Renamed class
                 logger.info(f"Evaluating at step {self.step_count}...")
                 self.key, eval_key = jax.random.split(self.key)
                 
-                current_eval_mode = "ppo" # Default if training
-                if run_mode == "eval_random":
-                    current_eval_mode = "random"
-                elif run_mode == "eval_bo":
+                # current_eval_mode = "ppo" # Default if training
+                # if run_mode == "eval_random":
+                #     current_eval_mode = "random"
+                if run_mode == "eval_bo":
                     # for env_p in self.test_environments.keys():
                     #     self.test_environments[env_p]["batches"] = [1] # Set reset key for BO evaluation
                     if first_interaction:
@@ -305,10 +360,14 @@ class ControlTrainerJaxRefactored: # Renamed class
                     
                     
                 else: # Default PPO evaluation during training or if mode is just 'train'
-                     current_eval_mode = "ppo"
+                    
+                #     print("okay bonny")
+                #     current_eval_mode = "ppo"
                      
-                if current_eval_mode in ["ppo", "random"]:
-                
+                # if current_eval_mode in ["ppo", "random"]:
+                    # print("this is being evaluated", vj.shape)
+                    print("this is being evaluated", self.agent_state.params.keys())
+                    
                     eval_metrics = self.agent.evaluate(
                         self.eval_key,
                         self.agent_state.params,
@@ -317,12 +376,15 @@ class ControlTrainerJaxRefactored: # Renamed class
                         self.env_params_train.action_dim,
                         self.env_params_train.max_batches,
                         self.env_params_train.max_steps_in_episode,
-                        eval_mode=current_eval_mode,
+                        eval_mode=run_mode,
                     )
                     # Log eval metrics
                     eval_metrics_np = jax.tree_map(lambda x: np.array(x).item() if np.isscalar(x) else np.array(x), eval_metrics)
                     eval_metrics_np['step'] = self.step_count # Add step count
                     # logger.info(f"Evaluation Results: {eval_metrics_np}")
+                    
+                    print("this is being evaluates")
+                    
                     if self.wandb_run:
                         self.wandb_run.log(eval_metrics_np)
                     # Optionally add eval metrics to results_data too
@@ -396,6 +458,8 @@ class ControlTrainerJaxRefactored: # Renamed class
 
         # Calculate mean for 'best_actions'
         mean_valid_best_action = jnp.mean(trajectory_data.best_actions, where=valid_mask)
+        
+        
 
 
         # Add metrics (consider adding the count of valid steps too)
@@ -418,6 +482,9 @@ class ControlTrainerJaxRefactored: # Renamed class
         update_metrics['env/mean_valid_success'] = mean_valid_success # Optional: Store mean valid success separately
         
         update_metrics['actions'] = trajectory_data.actions # Optional: Store mean valid regret separately
+        
+        # jax.debug.print("the actions {}\n", trajectory_data.actions)
+        
         # print("Actions shape:", trajectory_data.actions.shape) # Debugging line
         
         # jax.debug.print("Mean valid success: {} {}", valid_mask, trajectory_data.last_step) # Debugging line
@@ -452,7 +519,7 @@ class ControlTrainerJaxRefactored: # Renamed class
             # policy_out = eval_env.unwrapped.action_dim * eval_env.unwrapped.max_batches
             # policy_out = covariance + covariance * (covariance + 1) // 2
             
-            
+            print("we giving head")
 
             actor_fn = mvn_flow_head(policy_out, shared_seq_sizes=self.trainer_config['d_actor'], 
                                         policy_hidden_sizes=self.trainer_config['actor_params_hidden'])

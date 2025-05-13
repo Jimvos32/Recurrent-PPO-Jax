@@ -78,7 +78,6 @@ class FlowMVNJax(SamplingImplBaseJax):
         # vmapped over N, T
         log_prob_vmap = jax.vmap(log_prob_fn)
         
-        epsilon = 1e-6
         u = jnp.clip(actions, -1 + epsilon, 1 - epsilon)
 
         log_probs = log_prob_vmap(locs, covs, u)  # shape: (N, T, B)

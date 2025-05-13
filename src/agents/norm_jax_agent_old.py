@@ -8,8 +8,11 @@ from flax.training.train_state import TrainState
 from functools import partial
 import chex # Use chex.dataclass if available, otherwise flax.struct
 import flax.struct as struct
-from typing import Callable,Tuple, Optional, Any
+from typing import Callable,Tuple, Optional, Any, List, Dict, Type
 import jax.experimental.checkify as checkify # Make sure checkify is imported
+from flowjax.bijections import AbstractBijection
+import equinox as eqx
+from src.agents.normalising_flow.flow_construction import create_flow_chain
 
 
 # Assume ActorCriticModel, model_fns, sampling_impl are imported correctly
@@ -50,7 +53,7 @@ class RolloutData:
     
 
 
-class PPOAgentJax:
+class NormPPOAgentJax:
     def __init__(self,
                  env_params: EnvParams, # Pass EnvParams directly
                  env_params_test: EnvParams, # Pass EnvState directly if needed
@@ -60,6 +63,9 @@ class PPOAgentJax:
                  critic_fn: Callable,
                  optimizer: optax.GradientTransformation,
                  sampling_impl_class, # e.g., FullParamsSampling
+                 
+                 flow_layer_configs: List[Tuple[Type[AbstractBijection], Dict[str, Any]]] | None = None,
+                 
                  # PPO Hyperparameters
                  rollout_len: int = 128,
                  gamma: float = 0.99,
@@ -72,6 +78,9 @@ class PPOAgentJax:
                  vf_coef: float = 0.5,
                  max_grad_norm: float = 0.5,
                  target_kl: Optional[float] = None,
+                 
+                 
+                 
                  # Add other relevant config...
                  ):
 
@@ -89,12 +98,18 @@ class PPOAgentJax:
         self.max_grad_norm = max_grad_norm
         self.target_kl = target_kl
         self.optimizer = optimizer
+        
+        self.action_dim = env_params.action_dim 
 
         self.sampling_impl = sampling_impl_class(
             action_dim=env_params.action_dim,
             max_batch=env_params.max_batches,
             # Add other necessary args for sampling_impl init
         )
+        
+        self.flow_layer_configs = flow_layer_configs if flow_layer_configs else []
+        self.static_flow_structure: Optional[AbstractBijection] = None # Initialize attribute
+
         
         # self.env_params["max_batches"] = jnp.max(jnp.array(env_params["batches"]))
         # Note: Sampling impl no longer needs self.agent reference in pure JAX
@@ -108,10 +123,22 @@ class PPOAgentJax:
 
         # Bind the apply function for convenience
         self.ac_apply = self.ac_model.apply
+        
+        init_key_for_structure_only = jax.random.PRNGKey(0)
+        temp_flow_obj = create_flow_chain( 
+            key=init_key_for_structure_only, # Key here might not matter if layers are deterministic in structure
+            action_dim=self.action_dim, 
+            layer_configs=self.flow_layer_configs
+        )
+        if temp_flow_obj is not None:
+            _, self.static_flow_structure = eqx.partition(temp_flow_obj, eqx.is_array)
+            print(f"AGENT INIT: Stored static_flow_structure with shape: {self.static_flow_structure.shape}")
+        else:
+            print("AGENT INIT: No flow configured, static_flow_structure is None.")
 
         # Define a pure function for actor-critic forward pass
         # This will be called inside the rollout scan
-        def _actor_critic_step(params, random_key, obs, done, h_prev):
+        def _actor_critic_step(ac_params, random_key, obs, done, h_prev):
             # Ensure inputs have correct shape for the model (e.g., add time dim if needed)
             # Model expects T=1, potentially B=1 depending on design
             # Assuming model handles obs dict and done shape (1,) and h_prev pytree
@@ -126,7 +153,7 @@ class PPOAgentJax:
 
             # Add rngs={'random': key} if model uses randomness internally beyond sampling
             act_logits, value, h_next_b = self.ac_apply(
-                {'params': params}, obs_b, done_b, h_prev_b # Removed rngs assuming model is deterministic given inputs
+                {'params': ac_params}, obs_b, done_b, h_prev_b # Removed rngs assuming model is deterministic given inputs
             )
 
             # Remove batch dim B=1
@@ -142,7 +169,7 @@ class PPOAgentJax:
 
     def init(self, key: chex.PRNGKey) -> AgentTrainState:
         """Initializes agent parameters and optimizer state."""
-        key, params_key, seq_key = jax.random.split(key, 3)
+        key, params_key, flow_key = jax.random.split(key, 3)
 
         obs_space = MultiFunctionGymnax().observation_space(self.env_params) # Instantiate temporarily
 
@@ -169,22 +196,42 @@ class PPOAgentJax:
         
         
         #This is where the ac is initialsed
-        params = self.ac_model.init(
+        ac_params = self.ac_model.init(
             {'params': params_key}, # Add rngs if needed
             dummy_obs_b, dummy_done, dummy_h_b
         )['params']
+        
+        dynamic_params_for_state = {'ac': ac_params}
 
-        optimizer_state = self.optimizer.init(params)
+        if self.static_flow_structure is not None: # Check if flow is configured
+            # Create the initial flow object with actual parameters using flow_init_key
+            actual_flow_obj = create_flow_chain( 
+                key=flow_key, 
+                action_dim=int(self.action_dim.item()) if isinstance(self.action_dim, jnp.ndarray) else int(self.action_dim), # Ensure Python int
+                layer_configs=self.flow_layer_configs
+            )
+            if actual_flow_obj is not None:
+                dynamic_flow_parts, _ = eqx.partition(actual_flow_obj, eqx.is_array)
+                dynamic_params_for_state['flow_dynamic'] = dynamic_flow_parts
+            else: # Should not happen if self.static_flow_structure is not None
+                dynamic_params_for_state['flow_dynamic'] = {} 
+        else:
+            dynamic_params_for_state['flow_dynamic'] = {} # Placeholder if no flow
 
-        # Assuming AgentTrainState is correctly defined
-        # from flax.training.train_state import TrainState
-        # class AgentTrainState(TrainState): pass # Example definition
+        # # --- Combine Parameters ---
+        # combined_params = {'ac': ac_params}
+        # if flow_chain_obj is not None:
+        #     # Store the single Chain object which is a PyTree containing all layer params
+        #     combined_params['flow'] = flow_chain_obj 
 
+        # --- Initialize Optimizer State ---
+        optimizer_state = self.optimizer.init(dynamic_params_for_state)
+
+        # --- Create Train State ---
         return AgentTrainState.create(
-            apply_fn=self.ac_apply,
-            params=params,
-            tx=self.optimizer  # Pass the optimizer itself
-            # REMOVE opt_state=optimizer_state
+            apply_fn=self.ac_apply, 
+            params=dynamic_params_for_state, # Store combined parameters
+            tx=self.optimizer
         )
 
     # --- Rollout ---
@@ -194,7 +241,7 @@ class PPOAgentJax:
     @partial(jax.jit, static_argnames=('self', 'max_batches', 'action_dim')) #using the upper one makes it fail later whent the parameters are used
     def rollout(self,
                 keys: chex.PRNGKey, # Shape: (num_envs,) - keys for each env
-                params: chex.ArrayTree,
+                dynamic_params: chex.ArrayTree,
                 initial_h_states: chex.ArrayTree, # Shape: (num_envs, *)
                 initial_obs: chex.ArrayTree, # Shape: (num_envs, *)
                 initial_env_states: chex.ArrayTree, # Shape: (num_envs, *)
@@ -204,7 +251,8 @@ class PPOAgentJax:
                 ) -> tuple[tuple[chex.ArrayTree, chex.ArrayTree, chex.ArrayTree], RolloutData]:
         """Runs parallel rollouts using vmap and scan."""
 
-     
+        ac_params_rollout = dynamic_params['ac']
+        dynamic_flow_parts_rollout = dynamic_params.get('flow_dynamic', {})
       
         # In PPOAgentJax class, inside rollout method:
 
@@ -212,21 +260,26 @@ class PPOAgentJax:
         def _env_step_scan(carry, key_t):
             h_prev, obs, env_state, last_done = carry # last_done is from the PREVIOUS step
             key_model, key_sample, key_env_step, key_env_reset = jax.random.split(key_t, 4) # Need extra key for potential reset
+            
+            current_flow_obj_rollout = None
+            if self.static_flow_structure is not None: # Use agent's static structure
+                current_flow_obj_rollout = eqx.combine(dynamic_flow_parts_rollout, self.static_flow_structure)
 
             # 1. Get action from policy
             # Reset hidden state *before* processing obs if the *previous* step was done
             h_reset = self.seq_init() # Get the structure of initial hidden state
             # Select h_prev if last_done is False, h_reset if last_done is True
             h_processed = jax.tree_map(lambda reset_h, prev_h: jax.lax.select(last_done, reset_h, prev_h), h_reset, h_prev)
+            
 
             #Here the forward pass of the network is done in order to get the networks output
-            act_logits, value, h_next = self._actor_critic_step(params, key_model, obs, last_done, h_processed) # Pass last_done for potential model use
+            act_logits, value, h_next = self._actor_critic_step(ac_params_rollout, key_model, obs, last_done, h_processed) # Pass last_done for potential model use
             mask = obs.get("mask", None)
             
             #here the network output is used to sample an action but without the normalising flow yet
             #This self.sampling_impl is of type SamplingImplBaseJax
-            action = self.sampling_impl.sampling_differ(act_logits, key_sample, mask)
-            log_prob = self.sampling_impl.gaussian_log_prob(jnp.expand_dims(action, axis=0), jnp.expand_dims(act_logits, axis=0))
+            action = self.sampling_impl.sampling_differ(act_logits, current_flow_obj_rollout, key_sample, mask)
+            log_prob = self.sampling_impl.gaussian_log_prob(jnp.expand_dims(action, axis=0), jnp.expand_dims(act_logits, axis=0), current_flow_obj_rollout)
 
             # 2. Step the environment
             # This step uses the *current* env_state
@@ -328,7 +381,7 @@ class PPOAgentJax:
             h_reset_final = self.seq_init()
             final_h_processed = jax.tree_map(lambda reset_h, prev_h: jax.lax.select(final_done, reset_h, prev_h), h_reset_final, final_h)
 
-            _, final_value, _ = self._actor_critic_step(params, key_final_model, final_obs, final_done, final_h_processed)
+            _, final_value, _ = self._actor_critic_step(ac_params_rollout, key_final_model, final_obs, final_done, final_h_processed)
 
             # --- Populate RolloutData (Using corrected obs logic from previous answer) ---
             all_obs = jax.tree_map(
@@ -359,7 +412,81 @@ class PPOAgentJax:
             # Return the final state *after* the scan (might be a reset state)
             return (final_h, final_obs, final_env_state), rollout
 
-      
+        # # --- Vmap the scan over environments ---
+        # def _rollout_single_env(key_env, h_init, obs_init, env_state_init):
+        #     # Initial carry state for the scan
+        #     # We need done=False for the first step's hidden state calculation
+        #     initial_carry = (h_init, obs_init, env_state_init, jnp.array(False, dtype=bool))
+        #     keys_t = jax.random.split(key_env, self.rollout_len) # Keys for each time step
+            
+            
+            
+            
+            
+
+        #     # Scan over the rollout length
+        #     (final_h, final_obs, final_env_state, _), step_data_sequence = jax.lax.scan(
+        #         _env_step_scan, initial_carry, keys_t, length=self.rollout_len
+        #     )
+        #     # step_data_sequence is a pytree with leaves of shape (rollout_len, *)
+
+        #     # Get the value prediction for the final observation
+        #     key_final_model, _ = jax.random.split(key_env) # Use env key split again
+            
+        #     # print("final obs", final_env_state)
+            
+        #     _, final_value, _ = self._actor_critic_step(params, key_final_model, final_obs, final_env_state.done, final_h) # TODO Check done state passing
+
+        #     # Combine initial obs/value with sequence data
+        #     # print("initial obs", initial_obs["actions"].shape, step_data_sequence["obs"]["actions"].shape)
+            
+
+            
+        #     all_obs = jax.tree_map(
+        #         lambda init, seq: jnp.concatenate([jnp.expand_dims(init, 0), seq], axis=0),
+        #         obs_init, step_data_sequence["obs"]
+        #     ) # Shape: (rollout_len + 1, *)
+        #     # print("all_obs", all_obs["actions"].shape, all_obs["actions"].dtype)
+            
+            
+        #     # all_obs = jax.tree_map(
+        #     #     lambda init, seq_next: jnp.concatenate([jnp.expand_dims(init, 0), seq_next], axis=0),
+        #     #     initial_obs, # s_0
+        #     #     step_data_sequence["next_obs"] # s_1, ..., s_T
+        #     # ) # Shape should now be (rollout_len + 1, *obs_dims) e.g. (257, 1, 2)
+
+        #     # Note: Initial value is not computed here, adding final_value instead
+        #     # Need to decide if V(s0) is needed or V(s_T)
+        #     print("first time", final_value.shape, step_data_sequence["value"].shape)
+        #     final_value = jnp.reshape(final_value, (1,)) # Shape: (1,)
+        #     # final_value = jnp.expand_dims(final_value, 1) # Shape: (1,)
+        #     # step_data_sequence["value"] = jnp.expand_dims(step_data_sequence["value"], -1) # Shape: (rollout_len, 1)
+        #     print("Tgis is now wrong", final_value.shape, step_data_sequence["value"].shape)
+        #     # print
+            
+        #     all_values = jnp.concatenate([step_data_sequence["value"], final_value], axis=0) # Shape: (rollout_len + 1,)
+        #     print("all_values", all_values.shape, all_values.dtype)
+
+        #     # Collect trajectory data
+        #     rollout = RolloutData(
+        #         observations=all_obs, # Includes s_0 to s_T
+        #         actions=step_data_sequence["action"], # a_0 to a_{T-1}
+        #         rewards=step_data_sequence["reward"], # r_1 to r_T
+        #         dones=step_data_sequence["done"],     # d_1 to d_T
+        #         log_probs=step_data_sequence["log_prob"], # logpi(a_t|s_t) for t=0..T-1
+        #         values=all_values, # V(s_0) to V(s_T) - ADJUST if V(s0) is needed
+        #         actor_preds=step_data_sequence["actor_pred"], # logits/params for a_0..a_{T-1}
+        #         masks=step_data_sequence["mask"], # mask_0..mask_{T-1}
+        #         hidden_states=step_data_sequence["hidden_state"], # h_0 to h_{T-1}
+        #         start_dones=step_data_sequence["start_dones"], # d_0 to d_{T-1}
+        #         success=step_data_sequence["success"], # success flag at step t+1
+        #         regret=step_data_sequence["regret"], # regret at step t+1
+        #         best_actions=step_data_sequence["best_rewards"], # actions taken at step t+1
+        #         last_step=step_data_sequence["last_yes"], # last step before stepping
+                
+        #     )
+
+        #     return (final_h, final_obs, final_env_state), rollout
 
         # Vmap over the batch of environments
         vmapped_rollout = jax.vmap(_rollout_single_env, in_axes=(0, 0, 0, 0))
@@ -417,11 +544,45 @@ class PPOAgentJax:
         advantages = targets - values_T[:, :-1]
                 
         
-       
+        #Calculate log probs shape (num_envs*rollout_len,num_actions)
+        
+        # advantages, targets shape (B, T) corresponding to s_0..s_{T-1
+        
+        # advantages, targets shape (B, T) corresponding to s_0..s_{T-1}
+
+        # --- PPO Loss Calculation ---
+        # Flatten data for minibatching: (num_envs * rollout_len, *)
         num_envs = rewards_T.shape[0]
         batch_size = num_envs * self.rollout_len
 
-       
+        # def flatten_dict(d):
+        #      # Flatten tree leaves, keeping structure for obs dict
+        #      return jax.tree_map(lambda x: x[:, :-1].reshape((batch_size,) + x.shape[2:]), d) # Exclude last obs
+
+        # # # Observations s_0 to s_{T-1}
+        # # observations_flat = flatten_dict(obs_T)
+        # # actions_flat = actions_T.reshape((batch_size,) + actions_T.shape[2:])
+        # # log_probs_flat = log_probs_T.reshape((batch_size,) + log_probs_T.shape[2:])
+        # # advantages_flat = advantages.reshape(batch_size)
+        # # targets_flat = targets.reshape(batch_size)
+        # # masks_flat = masks_T.reshape((batch_size,) + masks_T.shape[2:]) if masks_T is not None else None
+        # def flatten_rollout_data(x_T): # Handles data of length T
+        #      if x_T is None: return None
+        #      return jax.tree_map(lambda x: x.reshape((batch_size,) + x.shape[2:]), x_T)
+        # def flatten_obs_data(o_T): # Handles obs data of length T+1, taking s_0..s_{T-1}
+        #     return jax.tree_map(lambda x: x[:, :-1].reshape((batch_size,) + x.shape[2:]), o_T)
+        
+        # # print
+
+        # observations_flat = flatten_obs_data(obs_T) # s_0 to s_{T-1}
+        # actions_flat = flatten_rollout_data(actions_T)
+        # log_probs_flat = flatten_rollout_data(log_probs_T)
+        # advantages_flat = advantages.reshape(batch_size)
+        # targets_flat = targets.reshape(batch_size)
+        # masks_flat = flatten_rollout_data(masks_T)
+        
+        # print("ac", actions_flat.shape, actions_T.shape)
+        
         rollout_len = actions_T.shape[1] # T
 
         # We will minibatch over the 'num_envs' dimension
@@ -445,7 +606,7 @@ class PPOAgentJax:
         # Inside PPOAgentJax class
 
         def _ppo_loss_fn_single(
-                            params, random_key,
+                            dym_params, random_key,
                             obs_seq,        # Shape (T, *) - s_0..s_{T-1}
                             actions_seq,    # Shape (T, *) - a_0..a_{T-1}
                             logp_old_seq,   # Shape (T, *)
@@ -458,23 +619,34 @@ class PPOAgentJax:
                             ):
             """Calculates PPO loss for a SINGLE sequence."""
             key_model, key_entropy = jax.random.split(random_key)
-
-            # --- 1. Apply model (NO internal vmap needed now) ---
-            # Inputs are already single sequence (T, *) and single h_init (*)
-            act_logits_seq, values_seq, _ = self.ac_apply(
-                {'params': params}, obs_seq, start_dones_seq, h_init
-            )
-            # Output shapes (T, *)
+            ac_params_loss = dym_params['ac']
+        
+            flow_params = None
+            if self.static_flow_structure is not None: # From agent instance
+                # params_for_loss_calc['flow_dynamic'] has the current dynamic flow params
+                flow_params = eqx.combine(
+                    dym_params.get('flow_dynamic', {}), # Default to empty if not present
+                    self.static_flow_structure
+                )
             
-          
+            # Output shapes (T, *)
+            # print("ways givem shapes", actions_seq.shape, obs_seq['observations'].shape, start_dones_seq.shape, h_init[0][0].shape, act_logits_seq.shape, values_seq.shape)
+            # jax.debug.print("act_logits_seq {} \n{} \n{}\n", actions_seq[:5], obs_seq['observations'][:5], start_dones_seq[:5])
+
+
+            # values_seq = values_seq.squeeze(-1) # Shape (T,)
+            
+            act_logits_seq, values_seq, _ = self.ac_apply(
+                {'params': ac_params_loss}, obs_seq, start_dones_seq, h_init
+            )
 
             # --- 2. Calculate probs, entropy for the single sequence ---
             # These sampling_impl methods must work on (T, *) inputs
-            logp_new_seq = self.sampling_impl.gaussian_log_prob(actions_seq, act_logits_seq) # Shape (T, *)
+            logp_new_seq = self.sampling_impl.gaussian_log_prob(actions_seq, act_logits_seq, flow_params) # Shape (T, *)
             
             print("logp_new_seq", logp_new_seq.shape, actions_seq.shape, act_logits_seq.shape)
             # Entropy might return (T,) or scalar mean. Assume (T,) for now.
-            entropy_seq = self.sampling_impl.entropy(act_logits_seq, masks_seq, key=key_entropy) # Shape (T,)
+            entropy_seq = self.sampling_impl.entropy(act_logits_seq, masks_seq, flow_params, key=key_entropy) # Shape (T,)
             # We need the mean entropy for the loss term
             mean_entropy = entropy_seq.mean() # Mean over T
 
@@ -500,7 +672,7 @@ class PPOAgentJax:
             # ent_coef = self.ent_coef_schedule(update_step)
             ent_coef = -0.01 # Placeholder - pass update_step if schedule is needed
             total_loss = pg_loss + self.vf_coef * v_loss - ent_coef * mean_entropy
-            total_loss = pg_loss
+            # total_loss = ent_coef * mean_entropy
 
             # --- 6. Metrics for the sequence ---
             approx_kl = jnp.mean((ratio - 1) - logratio) # Mean over T
@@ -515,7 +687,7 @@ class PPOAgentJax:
             # Return scalar loss and metrics dict for this single sequence
             return total_loss, metrics
 
-
+    
         def _update_epoch(carry, _):
             agent_state_epoch, key_epoch = carry
             key_epoch, key_perm = jax.random.split(key_epoch)
@@ -606,7 +778,44 @@ class PPOAgentJax:
 
                 return (agent_state_new, key_mb), final_mb_metrics # Return aggregated metrics
             
-      
+            # def _update_minibatch(carry_mb, i):
+            #     agent_state_mb, key_mb = carry_mb
+            #     key_mb, key_loss = jax.random.split(key_mb)
+            #     start = i * minibatch_size
+            #     end = start + minibatch_size # Not strictly needed for dynamic_slice
+
+            #     # Slice function for pytrees along first dimension
+            #     def slice_tree(t):
+            #         if t is None: return None
+            #         return jax.tree_map(lambda x: jax.lax.dynamic_slice_in_dim(x, start, minibatch_size, axis=0), t)
+            #     # Slice function for arrays along first dimension
+            #     def slice_arr(arr):
+            #          if arr is None: return None
+            #          return jax.lax.dynamic_slice_in_dim(arr, start, minibatch_size, axis=0)
+
+            #     mb_obs_seq = slice_tree(observations_shuffled)
+            #     mb_actions_seq = slice_tree(actions_shuffled)
+            #     mb_logp_old_seq = slice_tree(log_probs_shuffled)
+            #     mb_adv_seq = slice_arr(advantages_shuffled)
+            #     mb_targets_seq = slice_arr(targets_shuffled)
+            #     mb_masks_seq = slice_tree(masks_shuffled)
+            #     mb_start_dones_seq = slice_arr(start_dones_shuffled)
+            #     mb_h_init = slice_tree(hidden_init_shuffled)
+                
+            #     print("mb", mb_obs_seq["actions"].shape, mb_actions_seq.shape, mb_logp_old_seq.shape, mb_adv_seq.shape, mb_targets_seq.shape, mb_masks_seq.shape, mb_start_dones_seq.shape, mb_h_init[0][0].shape)
+
+
+            #     # Call loss function with sequences and initial hidden state
+            #     (_, mb_metrics), grads = ppo_loss_grad_fn(
+            #         agent_state_mb.params, key_loss,
+            #         mb_obs_seq, mb_actions_seq, mb_logp_old_seq,
+            #         mb_adv_seq, mb_targets_seq, mb_masks_seq,
+            #         mb_start_dones_seq, mb_h_init # Pass correct args
+            #     )
+                
+            #     # Apply updates (updates agent_state)
+            #     agent_state_new = agent_state_mb.apply_gradients(grads=grads)
+            #     return (agent_state_new, key_mb), mb_metrics
 
             (agent_state_epoch, key_epoch), mb_metrics_all = jax.lax.scan(
                 _update_minibatch, (agent_state_epoch, key_epoch), jnp.arange(self.num_minibatches)
@@ -647,8 +856,6 @@ class PPOAgentJax:
         all_eval_metrics = {}
         env_names = list(env_params_dict.keys())
         
-        print("env_names", params.keys())
-        
         
         for i, env_name in enumerate(env_names):
             key, subkey = jax.random.split(key) # Use a new key for each env type
@@ -659,7 +866,6 @@ class PPOAgentJax:
             # Ensure action_dim, max_batches, max_steps are consistent or derived from current_env_params
             # If they vary per env_params, get them from current_env_params inside the loop
             # Example: action_dim = current_env_params.action_dim (if defined)
-            
             eval_metrics_single_type = self.evaluate_func_type(
                 subkey,
                 params,
@@ -696,7 +902,7 @@ class PPOAgentJax:
                  eval_mode: str,
                  ) -> dict:
         """Runs evaluation episodes in parallel."""
-        print("evaluate_func_type", params.keys())
+
         # --- Reset environments ---
         keys_reset = jax.random.split(key, num_eval_episodes)
         vmapped_reset = jax.vmap(MultiFunctionGymnax.reset_env, in_axes=(0, None, None, None))
@@ -707,6 +913,9 @@ class PPOAgentJax:
         key, h_init_key = jax.random.split(keys_reset[0]) # Just need one key for shape
         single_h_init = self.seq_init()
         batch_h_states = jax.tree_map(lambda x: jnp.repeat(jnp.expand_dims(x, 0), num_eval_episodes, 0), single_h_init)
+        
+        ac_params_eval = params['ac']
+        flow_params_obj_eval = params.get('flow_dynamic', None)
 
         # --- Define scan function for episode steps ---
         def _eval_step_scan(carry, _): # Scan over steps, input not used
@@ -716,10 +925,10 @@ class PPOAgentJax:
             
             def ppo_action_fn():
                 # Standard PPO evaluation action selection
-                act_logits, _, h_next = self._actor_critic_step(params, key_model, obs, done, h_prev)
+                act_logits, _, h_next = self._actor_critic_step(ac_params_eval, key_model, obs, done, h_prev)
                 mask = obs.get("mask", None)
                 # Use deterministic action (mode/mean) or sampling
-                action = self.sampling_impl.sampling_differ(act_logits, key_sample, mask) # Keep sampling or use mode
+                action = self.sampling_impl.sampling_differ(act_logits, flow_params_obj_eval, key_sample, mask) # Keep sampling or use mode
                 return action, h_next
 
             def random_action_fn():
@@ -743,6 +952,12 @@ class PPOAgentJax:
             )
 
 
+            # # Get deterministic action (e.g., mean of distribution) or sample
+            # # Note: _actor_critic_step expects single env data
+            # act_logits, _, h_next = self._actor_critic_step(params, key_model, obs, done, h_prev)
+            # mask = obs.get("mask", None)
+            # # Use deterministic sampling for evaluation
+            # action = self.sampling_impl.sampling_differ(act_logits, key_sample, mask) # Assuming sampling_impl has a mode method
 
             # Step environment - only if not already done
             def step_fn():
@@ -844,3 +1059,53 @@ def l2_norm(pytree):
     """Computes the L2 norm of a pytree of arrays."""
     return jnp.sqrt(sum([jnp.sum(jnp.square(x)) for x in jax.tree_util.tree_leaves(pytree)]))
 
+@jax.jit
+def calculate_gae_jax(rewards: chex.Array, # Shape (B, T)
+                      dones: chex.Array, # Shape (B, T)
+                      values: chex.Array, # Shape (B, T+1)
+                      gamma: float,
+                      gae_lambda: float) -> tuple[chex.Array, chex.Array]:
+    """Calculates GAE and targets using jax.lax.scan."""
+    # values includes V(s_0)...V(s_T)
+    # rewards includes r_1...r_T
+    # dones includes d_1...d_T
+    T = rewards.shape[1]
+    advantages = jnp.zeros_like(rewards) # Shape (B, T)
+    gae = jnp.zeros(rewards.shape[0]) # Shape (B,) - gae at step t+1
+
+    # Scan backwards in time: t = T-1 down to 0
+    def _gae_step(carry, t_data):
+        gae_next, next_value = carry
+        reward_t, done_t, value_t = t_data # r_{t+1}, d_{t+1}, V(s_t)
+
+        # Calculate delta_t = r_{t+1} + gamma * V(s_{t+1}) * (1 - d_{t+1}) - V(s_t)
+        delta = reward_t + gamma * next_value * (1.0 - done_t) - value_t
+
+        # Calculate gae_t = delta_t + gamma * lambda * (1 - d_{t+1}) * gae_{t+1}
+        gae_t = delta + gamma * gae_lambda * (1.0 - done_t) * gae_next
+
+        # Return new carry (gae_t, value_t) and the advantage for this step (gae_t)
+        return (gae_t, value_t), gae_t
+
+    # Prepare inputs for scan (reverse order)
+    # rewards_rev: r_T, r_{T-1}, ..., r_1
+    # dones_rev: d_T, d_{T-1}, ..., d_1
+    # values_rev: V(s_{T-1}), V(s_{T-2}), ..., V(s_0)
+    rewards_rev = jnp.flip(rewards, axis=1)
+    dones_rev = jnp.flip(dones, axis=1)
+    values_T_rev = jnp.flip(values[:, :-1], axis=1) # V(s_{T-1}) down to V(s_0)
+    scan_inputs = (rewards_rev, dones_rev, values_T_rev)
+
+    # Initial carry: gae starts at 0, value is V(s_T)
+    initial_carry = (jnp.zeros(rewards.shape[0]), values[:, -1])
+
+    # Run scan
+    _, advantages_rev = jax.lax.scan(_gae_step, initial_carry, scan_inputs, length=T, unroll=16)
+
+    # Reverse advantages back to forward time: A(s_0)...A(s_{T-1})
+    advantages = jnp.flip(advantages_rev, axis=1)
+
+    # Calculate targets (lambda returns) V(s_t) + A(s_t)
+    targets = advantages + values[:, :-1] # Shape (B, T)
+
+    return advantages, targets

@@ -85,7 +85,7 @@ def fit_gp_model(state: BOState, static_params: BOStaticParams) -> object:
             objective=negative_mll, # Pass the JITted function
             train_data=state.dataset,
             max_iters=100,
-            verbose=False,
+            # verbose=False,
             # optim=optimizer,
         )
 
@@ -174,7 +174,7 @@ def optimize_acquisition(state: BOState, static_params: BOStaticParams, n_restar
                                 kappa_for_opt)
 
     # print("min", bounds, static_params.min_bounds, static_params.max_bounds)
-    random_starts = jr.uniform(subkey, (n_restarts, static_params.input_dim),
+    random_starts = jr.uniform(subkey, (50, static_params.input_dim),
                                minval=static_params.min_bounds,
                                maxval=static_params.max_bounds)
 

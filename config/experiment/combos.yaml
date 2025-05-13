@@ -296,13 +296,38 @@ combos:
 
   test_jax:
     batches: [1,1]
+    dist_model: normal
+    project_name: "seperate_loss_test"
+    pol_dist: "flow_jax_mvn"
+    task: "jax"
+    env_train: ["neg_abs"]
+    env_test: ["poly", "ackley"]
+    steps: 1000000
+    
+    bounds: [-1, 1]
+    total_episode_samples: 5
+    action_dim: 1
+    degree: 2
+    rank: 2
+    oscilations: 5
+    random: false
+    sample_distribution: 5
+
+    poly_params: poly_standard
+    gaussian_params: gaussian_standard
+    ackley_params: ackley_standard
+    matern52_params: matern52_standard
+    neg_abs_params: neg_abs_standard
+
+  test_standard:
+    batches: [1,1]
     dist_model: standard
     project_name: "seperate_loss_test"
     pol_dist: "flow_jax_mvn"
     task: "jax"
-    env_train: ["poly"]
+    env_train: ["neg_abs"]
     env_test: ["poly", "ackley"]
-    steps: 10000
+    steps: 1000000
     
     bounds: [-1, 1]
     total_episode_samples: 5

@@ -34,6 +34,7 @@ def run_bo_evaluation(
             episode_lengths = []
             episode_successes = []
             episode_final_regrets = []
+            epsiode_best_actions = []
 
             # Loop over episodes for this env type
             for episode_idx in tqdm(range(num_eval_episodes)):
@@ -149,11 +150,16 @@ def run_bo_evaluation(
                 scaled_diff = final_info.get("scaled_diff", np.nan)
                 episode_successes.append(float(success)) # Convert bool to float
                 episode_final_regrets.append(float(scaled_diff))
+                best_action = final_info.get("best_rewards", np.nan)
+                epsiode_best_actions.append(best_action)
+                
 
             # Average metrics for this environment type
-            all_bo_metrics[f"eval/{env_name}/bo/episode_return"] = np.mean(episode_returns)
-            all_bo_metrics[f"eval/{env_name}/bo/episode_length"] = np.mean(episode_lengths)
-            all_bo_metrics[f"eval/{env_name}/bo/success"] = np.mean(episode_successes)
-            all_bo_metrics[f"eval/{env_name}/bo/final_scaled_diff"] = np.nanmean(episode_final_regrets) # Use nanmean
+            all_bo_metrics[f"eval_{env_name}/episode_return"] = np.mean(episode_returns)
+            all_bo_metrics[f"eval_{env_name}/episode_length"] = np.mean(episode_lengths)
+            all_bo_metrics[f"eval_{env_name}/success"] = np.mean(episode_successes)
+            all_bo_metrics[f"eval_{env_name}/regret"] = np.nanmean(episode_final_regrets) # Use nanmean
+            all_bo_metrics[f"eval_{env_name}/best_action"] = np.mean(epsiode_best_actions) # Use nanmean
+            
 
         return all_bo_metrics
