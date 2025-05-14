@@ -156,7 +156,6 @@ class NormFlowAgent(SamplingImplBaseJax):
         log_prob = jnp.sum(log_prob, axis=-1)  # shape (N, T)
         
         
-        print("log_prob out  shape", log_prob.shape, actions.shape, act_logits.shape, locs.shape, covs.shape)
         
         # jax.debug.print("Log probability shape: {}, std {}", log_prob[0,0], act_logits[0,0])
 
@@ -176,7 +175,6 @@ class NormFlowAgent(SamplingImplBaseJax):
     
         # Vectorized function to compute entropy for a single (N, T) pair
         def compute_entropy_single(logit, subkey):
-            jax.debug,print("compute_entropy_single", logits)
             loc, cov = self.generate_mvn_params(logit)
             base_dist = MultivariateNormal(loc, cov)
             final_bijection = self._get_final_bijection(flow_object)

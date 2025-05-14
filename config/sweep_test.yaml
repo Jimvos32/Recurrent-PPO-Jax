@@ -15,8 +15,8 @@ project_name: ${experiment.combos.${experiment.choice}.project_name}
 run_name: ""
 seed: 77
 steps: ${experiment.combos.${experiment.choice}.steps}
-log_interval: 4096
-eval_episodes: 8
-eval_interval: 10000
+log_interval: 8192
+eval_episodes: 16
+eval_interval: 15000
 use_wandb: true
 

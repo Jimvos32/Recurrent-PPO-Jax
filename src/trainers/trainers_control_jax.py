@@ -99,6 +99,7 @@ class ControlTrainerJaxRefactored: # Renamed class
         conf["function_types"] = conf.get("env_train", ["pol"])
         self.env_params_train = create_env_params(conf)
         
+        
         conf["batches"] = b_test
         self.test_environments = {}
         test_functions = conf.get("env_test", ["pol"])
@@ -162,10 +163,10 @@ class ControlTrainerJaxRefactored: # Renamed class
             
             planar_tanh_kwargs = {'negative_slope': 0.01} 
 
-            # num_layers = 1
-            # test_flow_config = []
-            # for _ in range(num_layers):
-            #     test_flow_config.append( (Planar, planar_tanh_kwargs.copy()) ) 
+            num_layers = 1
+            test_flow_config = []
+            for _ in range(num_layers):
+                test_flow_config.append( (Planar, planar_tanh_kwargs.copy()) ) 
             test_flow_config = []
             
             self.agent = NormPPOAgentJax(
@@ -292,17 +293,15 @@ class ControlTrainerJaxRefactored: # Renamed class
                 self.next_log_step += self.log_interval
                 
                 
-                print("ewa yo", step_metrics['actions'].shape)
                 
-                actions = np.reshape(step_metrics['actions'], ((self.num_envs * self.rollout_len), step_metrics['actions'].shape[2], step_metrics['actions'].shape[3]))
+                actions = np.reshape(step_metrics['actions'], ( self.rollout_len * self.max_batches, self.action_dim))
                 
-                print("actions shape", actions.shape)
                 
                 histo_dic = {}
                 for k in range(actions.shape[-1]):
+                    print(actions[:,k].shape)
                     histo_dic['env/action dimension ' + str(k)] = wandb.Histogram(actions[:, k]) # Log each action dimension separately
                     
-                print("histo_dic", histo_dic)
                 step_metrics.pop('actions') # Remove actions from metrics to avoid confusion
                 
                 interactions += self.num_envs * self.rollout_len * avg_batch_size
@@ -351,6 +350,8 @@ class ControlTrainerJaxRefactored: # Renamed class
                         first_interaction = False # Set to False after first BO eval
                     bo_eval_metrics_log['step'] = self.step_count
                     logger.info(f"BO Agent Eval Results: {bo_eval_metrics_log}")
+                    
+                    print("BO eval metrics log:", "okay", bo_eval_metrics_log.keys()) # Debugging line
                     if self.wandb_run:
                         self.wandb_run.log(bo_eval_metrics_log)
                     self.results_data.append({"run_mode": run_mode, "step": self.step_count, **bo_eval_metrics_log})
@@ -366,7 +367,6 @@ class ControlTrainerJaxRefactored: # Renamed class
                      
                 # if current_eval_mode in ["ppo", "random"]:
                     # print("this is being evaluated", vj.shape)
-                    print("this is being evaluated", self.agent_state.params.keys())
                     
                     eval_metrics = self.agent.evaluate(
                         self.eval_key,
@@ -383,7 +383,6 @@ class ControlTrainerJaxRefactored: # Renamed class
                     eval_metrics_np['step'] = self.step_count # Add step count
                     # logger.info(f"Evaluation Results: {eval_metrics_np}")
                     
-                    print("this is being evaluates")
                     
                     if self.wandb_run:
                         self.wandb_run.log(eval_metrics_np)
@@ -481,7 +480,7 @@ class ControlTrainerJaxRefactored: # Renamed class
         update_metrics['env/best_action_mean'] = mean_valid_best_action # Renamed slightly for clarity
         update_metrics['env/mean_valid_success'] = mean_valid_success # Optional: Store mean valid success separately
         
-        update_metrics['actions'] = trajectory_data.actions # Optional: Store mean valid regret separately
+        update_metrics['actions'] = trajectory_data.actions[0] # Optional: Store mean valid regret separately
         
         # jax.debug.print("the actions {}\n", trajectory_data.actions)
         
@@ -519,7 +518,6 @@ class ControlTrainerJaxRefactored: # Renamed class
             # policy_out = eval_env.unwrapped.action_dim * eval_env.unwrapped.max_batches
             # policy_out = covariance + covariance * (covariance + 1) // 2
             
-            print("we giving head")
 
             actor_fn = mvn_flow_head(policy_out, shared_seq_sizes=self.trainer_config['d_actor'], 
                                         policy_hidden_sizes=self.trainer_config['actor_params_hidden'])

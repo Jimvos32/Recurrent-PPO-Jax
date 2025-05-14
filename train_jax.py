@@ -50,19 +50,21 @@ def main(config: DictConfig):
     # logger.info("Starting Job for Config:\n"+str(OmegaConf.to_yaml(config)))
     # Construct run name, project name, tags based on config
     norm = "-norm:" + config.trainer.dist_model if config.trainer.dist_model != "standard" else ""
-    rand = "rand_" if config.task.random == True else "" # Assuming 'random' key exists
     # Ensure batches is usable in name (convert list to string if needed)
     batch_str = str(config.task.batches)
     
     mode = ""
     if config.trainer.run_mode == "train":
-        mode = f"{rand}method {config.task.pol_dist}"
+        mode = f"{config.task.pol_dist}"
     elif config.trainer.run_mode == "eval_bo":
         mode = "BO"
     elif config.trainer.run_mode == "random":
         mode = "random"
         
+    print("mode", mode)
+        
     run_name = f"method {mode}-batch {batch_str}-samples {config.task.total_episode_samples}{norm}-seed {config.seed}- {config.run_name}"
+    print("run_name", run_name)
 
     env_str = "train" + str(config.task.env_train) + "-test" + str(config.task.env_test)
     project_name = f"env {env_str}-dim {config.task.action_dim}-{config.project_name}"

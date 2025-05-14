@@ -85,7 +85,7 @@ def fit_gp_model(state: BOState, static_params: BOStaticParams) -> object:
             objective=negative_mll, # Pass the JITted function
             train_data=state.dataset,
             max_iters=100,
-            # verbose=False,
+            verbose=False,
             # optim=optimizer,
         )
 

@@ -22,8 +22,8 @@ degree: ${experiment.combos.${experiment.choice}.degree}
 rank: ${experiment.combos.${experiment.choice}.rank}
 num_oscillations: ${experiment.combos.${experiment.choice}.oscilations}
 random: ${experiment.combos.${experiment.choice}.random}
-batch_expand_hidden: [16,16]
-batch_combine_hidden: [16,16]
-step_expand_hidden: [16,16]
-input_combine_hidden: [16,16]
+batch_expand_hidden: [64,128,64]
+batch_combine_hidden: [64,64]
+step_expand_hidden: [64,64]
+input_combine_hidden: [64,64]
 tag: no_tag

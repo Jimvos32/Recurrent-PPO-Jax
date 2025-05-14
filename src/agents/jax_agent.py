@@ -500,7 +500,6 @@ class PPOAgentJax:
             # ent_coef = self.ent_coef_schedule(update_step)
             ent_coef = -0.01 # Placeholder - pass update_step if schedule is needed
             total_loss = pg_loss + self.vf_coef * v_loss - ent_coef * mean_entropy
-            total_loss = pg_loss
 
             # --- 6. Metrics for the sequence ---
             approx_kl = jnp.mean((ratio - 1) - logratio) # Mean over T

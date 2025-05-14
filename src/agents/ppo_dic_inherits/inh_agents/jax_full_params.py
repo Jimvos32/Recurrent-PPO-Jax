@@ -96,7 +96,6 @@ class FullParamsSamplingJax(SamplingImplBaseJax):
         # jax.debug.print("Log probability shape: {}, std {} mean {}", log_prob[0,0], stds[0,0], means[0,0])
         # print("Log probability shape", log_prob.shape, stds.shape, means.shape)
         
-        print("log_prob out  shape", log_prob.shape, actions.shape, act_logits.shape)
         
         
         return log_prob

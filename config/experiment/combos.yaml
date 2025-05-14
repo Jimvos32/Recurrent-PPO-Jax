@@ -306,7 +306,7 @@ combos:
     
     bounds: [-1, 1]
     total_episode_samples: 5
-    action_dim: 1
+    action_dim: 2
     degree: 2
     rank: 2
     oscilations: 5
@@ -345,18 +345,18 @@ combos:
     neg_abs_params: neg_abs_standard
 
 
-  daic_jax:
+  matern:
     batches: [1,1]
     dist_model: standard
     project_name: "seperate_loss_test"
-    pol_dist: "full_params"
+    pol_dist: "flow_jax_mvn"
     task: "jax"
-    env_train: ["gaussian"]
-    env_test: ["poly", "ackley"]
-    steps: 100
+    env_train: ["matern52"]
+    env_test: ["poly", "ackley", "gaussian", "matern52"]
+    steps: 5000000
     
-    bounds: [-5, 5]
-    total_episode_samples: 25
+    bounds: [-1, 1]
+    total_episode_samples: 5
     action_dim: 1
     degree: 2
     rank: 2
@@ -364,17 +364,23 @@ combos:
     random: false
     sample_distribution: 5
 
-  daic_jax_2:
+    poly_params: poly_standard
+    gaussian_params: gaussian_standard
+    ackley_params: ackley_standard
+    matern52_params: matern52_standard
+    neg_abs_params: neg_abs_standard
+
+  matern_long:
     batches: [1,1]
     dist_model: standard
     project_name: "seperate_loss_test"
-    pol_dist: "full_params"
+    pol_dist: "flow_jax_mvn"
     task: "jax"
-    env_train: ["poly"]
-    env_test: ["gaussian", "ackley"]
-    steps: 1000000
+    env_train: ["matern52"]
+    env_test: ["poly", "ackley", "gaussian", "matern52"]
+    steps: 5000000
     
-    bounds: [-5, 5]
+    bounds: [-1, 1]
     total_episode_samples: 25
     action_dim: 1
     degree: 2
@@ -383,17 +389,23 @@ combos:
     random: false
     sample_distribution: 5
 
-  daic_jax_3:
-    batches: [1,1]
+    poly_params: poly_standard
+    gaussian_params: gaussian_standard
+    ackley_params: ackley_standard
+    matern52_params: matern52_standard
+    neg_abs_params: neg_abs_standard
+
+  matern_mix:
+    batches: [1,2,1,2]
     dist_model: standard
     project_name: "seperate_loss_test"
-    pol_dist: "full_params"
+    pol_dist: "flow_jax_mvn"
     task: "jax"
-    env_train: ["ackley"]
-    env_test: ["poly", "gaussian"]
-    steps: 1000000
+    env_train: ["matern52"]
+    env_test: ["poly", "ackley", "gaussian", "matern52"]
+    steps: 5000000
     
-    bounds: [-5, 5]
+    bounds: [-1, 1]
     total_episode_samples: 25
     action_dim: 1
     degree: 2
@@ -402,17 +414,23 @@ combos:
     random: false
     sample_distribution: 5
 
-  daic_jax_4:
-    batches: [1,2]
+    poly_params: poly_standard
+    gaussian_params: gaussian_standard
+    ackley_params: ackley_standard
+    matern52_params: matern52_standard
+    neg_abs_params: neg_abs_standard
+
+  matern_batch:
+    batches: [3,3]
     dist_model: standard
     project_name: "seperate_loss_test"
-    pol_dist: "full_params"
+    pol_dist: "flow_jax_mvn"
     task: "jax"
-    env_train: ["gaussian"]
-    env_test: ["poly", "ackley"]
-    steps: 1000000
+    env_train: ["matern52"]
+    env_test: ["poly", "ackley", "gaussian", "matern52"]
+    steps: 5000000
     
-    bounds: [-5, 5]
+    bounds: [-1, 1]
     total_episode_samples: 25
     action_dim: 1
     degree: 2
@@ -421,17 +439,23 @@ combos:
     random: false
     sample_distribution: 5
 
-  daic_jax_5:
-    batches: [2,1]
+    poly_params: poly_standard
+    gaussian_params: gaussian_standard
+    ackley_params: ackley_standard
+    matern52_params: matern52_standard
+    neg_abs_params: neg_abs_standard
+
+  matern_big_var:
+    batches: [2,6,2,6]
     dist_model: standard
     project_name: "seperate_loss_test"
-    pol_dist: "full_params"
+    pol_dist: "flow_jax_mvn"
     task: "jax"
-    env_train: ["gaussian"]
-    env_test: ["poly", "ackley"]
-    steps: 1000000
+    env_train: ["matern52"]
+    env_test: ["poly", "ackley", "gaussian", "matern52"]
+    steps: 5000000
     
-    bounds: [-5, 5]
+    bounds: [-1, 1]
     total_episode_samples: 25
     action_dim: 1
     degree: 2
@@ -440,17 +464,23 @@ combos:
     random: false
     sample_distribution: 5
 
-  daic_jax_6:
+    poly_params: poly_standard
+    gaussian_params: gaussian_standard
+    ackley_params: ackley_standard
+    matern52_params: matern52_standard
+    neg_abs_params: neg_abs_standard
+
+  matern_unseen:
     batches: [1,3,2,4]
     dist_model: standard
     project_name: "seperate_loss_test"
-    pol_dist: "full_params"
+    pol_dist: "flow_jax_mvn"
     task: "jax"
-    env_train: ["gaussian"]
-    env_test: ["poly", "ackley"]
-    steps: 1000000
+    env_train: ["matern52"]
+    env_test: ["poly", "ackley", "gaussian", "matern52"]
+    steps: 5000000
     
-    bounds: [-5, 5]
+    bounds: [-1, 1]
     total_episode_samples: 25
     action_dim: 1
     degree: 2
@@ -459,18 +489,176 @@ combos:
     random: false
     sample_distribution: 5
 
-  daic_jax_7:
-    batches: [2,4,1,3]
+    poly_params: poly_standard
+    gaussian_params: gaussian_standard
+    ackley_params: ackley_standard
+    matern52_params: matern52_standard
+    neg_abs_params: neg_abs_standard
+
+
+  matern_normal:
+    batches: [1,1]
+    dist_model: normal
+    project_name: "seperate_loss_test"
+    pol_dist: "flow_jax_mvn"
+    task: "jax"
+    env_train: ["matern52"]
+    env_test: ["poly", "ackley", "gaussian", "matern52"]
+    steps: 5000000
+    
+    bounds: [-1, 1]
+    total_episode_samples: 5
+    action_dim: 1
+    degree: 2
+    rank: 2
+    oscilations: 5
+    random: false
+    sample_distribution: 5
+
+    poly_params: poly_standard
+    gaussian_params: gaussian_standard
+    ackley_params: ackley_standard
+    matern52_params: matern52_standard
+    neg_abs_params: neg_abs_standard
+
+  matern_long_normal:
+    batches: [1,1]
+    dist_model: normal
+    project_name: "seperate_loss_test"
+    pol_dist: "flow_jax_mvn"
+    task: "jax"
+    env_train: ["matern52"]
+    env_test: ["poly", "ackley", "gaussian", "matern52"]
+    steps: 5000000
+    
+    bounds: [-1, 1]
+    total_episode_samples: 25
+    action_dim: 1
+    degree: 2
+    rank: 2
+    oscilations: 5
+    random: false
+    sample_distribution: 5
+
+    poly_params: poly_standard
+    gaussian_params: gaussian_standard
+    ackley_params: ackley_standard
+    matern52_params: matern52_standard
+    neg_abs_params: neg_abs_standard
+
+  matern_mix_normal:
+    batches: [1,2,1,2]
+    dist_model: normal
+    project_name: "seperate_loss_test"
+    pol_dist: "flow_jax_mvn"
+    task: "jax"
+    env_train: ["matern52"]
+    env_test: ["poly", "ackley", "gaussian", "matern52"]
+    steps: 5000000
+    
+    bounds: [-1, 1]
+    total_episode_samples: 25
+    action_dim: 1
+    degree: 2
+    rank: 2
+    oscilations: 5
+    random: false
+    sample_distribution: 5
+
+    poly_params: poly_standard
+    gaussian_params: gaussian_standard
+    ackley_params: ackley_standard
+    matern52_params: matern52_standard
+    neg_abs_params: neg_abs_standard
+
+  matern_batch_normal:
+    batches: [3,3]
+    dist_model: normal
+    project_name: "seperate_loss_test"
+    pol_dist: "flow_jax_mvn"
+    task: "jax"
+    env_train: ["matern52"]
+    env_test: ["poly", "ackley", "gaussian", "matern52"]
+    steps: 5000000
+    
+    bounds: [-1, 1]
+    total_episode_samples: 25
+    action_dim: 1
+    degree: 2
+    rank: 2
+    oscilations: 5
+    random: false
+    sample_distribution: 5
+
+    poly_params: poly_standard
+    gaussian_params: gaussian_standard
+    ackley_params: ackley_standard
+    matern52_params: matern52_standard
+    neg_abs_params: neg_abs_standard
+
+  matern_big_var_normal:
+    batches: [2,6,2,6]
+    dist_model: normal
+    project_name: "seperate_loss_test"
+    pol_dist: "flow_jax_mvn"
+    task: "jax"
+    env_train: ["matern52"]
+    env_test: ["poly", "ackley", "gaussian", "matern52"]
+    steps: 5000000
+    
+    bounds: [-1, 1]
+    total_episode_samples: 25
+    action_dim: 1
+    degree: 2
+    rank: 2
+    oscilations: 5
+    random: false
+    sample_distribution: 5
+
+    poly_params: poly_standard
+    gaussian_params: gaussian_standard
+    ackley_params: ackley_standard
+    matern52_params: matern52_standard
+    neg_abs_params: neg_abs_standard
+
+  matern_unseen_normal:
+    batches: [1,3,2,4]
+    dist_model: normal
+    project_name: "seperate_loss_test"
+    pol_dist: "flow_jax_mvn"
+    task: "jax"
+    env_train: ["matern52"]
+    env_test: ["poly", "ackley", "gaussian", "matern52"]
+    steps: 5000000
+    
+    bounds: [-1, 1]
+    total_episode_samples: 25
+    action_dim: 1
+    degree: 2
+    rank: 2
+    oscilations: 5
+    random: false
+    sample_distribution: 5
+
+    poly_params: poly_standard
+    gaussian_params: gaussian_standard
+    ackley_params: ackley_standard
+    matern52_params: matern52_standard
+    neg_abs_params: neg_abs_standard
+
+
+  simple_neg:
+    batches: [1,1]
     dist_model: standard
     project_name: "seperate_loss_test"
-    pol_dist: "full_params"
+    pol_dist: "flow_jax_mvn"
     task: "jax"
-    env_train: ["gaussian"]
-    env_test: ["poly", "ackley"]
+    env_train: ["neg_abs"]
+    env_test: ["gaussian"]
     steps: 1000000
     
-    bounds: [-5, 5]
-    total_episode_samples: 25
+    bounds: [-1, 1]
+    total_episode_samples: 5
     action_dim: 1
     degree: 2
     rank: 2
@@ -478,24 +666,38 @@ combos:
     random: false
     sample_distribution: 5
 
-  daic_jax_8:
-    batches: [5,5]
-    dist_model: standard
+    poly_params: poly_standard
+    gaussian_params: gaussian_standard
+    ackley_params: ackley_standard
+    matern52_params: matern52_standard
+    neg_abs_params: neg_abs_standard
+
+  simple_neg_normal:
+    batches: [1,1]
+    dist_model: normal
     project_name: "seperate_loss_test"
-    pol_dist: "full_params"
+    pol_dist: "flow_jax_mvn"
     task: "jax"
-    env_train: ["gaussian"]
-    env_test: ["poly", "ackley"]
+    env_train: ["neg_abs"]
+    env_test: ["gaussian"]
     steps: 1000000
     
-    bounds: [-5, 5]
-    total_episode_samples: 25
+    bounds: [-1, 1]
+    total_episode_samples: 5
     action_dim: 1
     degree: 2
     rank: 2
     oscilations: 5
     random: false
     sample_distribution: 5
-  
 
- 
+    poly_params: poly_standard
+    gaussian_params: gaussian_standard
+    ackley_params: ackley_standard
+    matern52_params: matern52_standard
+    neg_abs_params: neg_abs_standard
+
+
+
+
+

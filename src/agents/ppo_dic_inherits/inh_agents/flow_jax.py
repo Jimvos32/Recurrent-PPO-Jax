@@ -87,7 +87,6 @@ class FlowMVNJax(SamplingImplBaseJax):
         log_prob = jnp.sum(log_prob, axis=-1)  # shape (N, T)
         
         
-        print("log_prob out  shape", log_prob.shape, actions.shape, act_logits.shape, locs.shape, covs.shape)
         
         # jax.debug.print("Log probability shape: {}, std {}", log_prob[0,0], act_logits[0,0])
 

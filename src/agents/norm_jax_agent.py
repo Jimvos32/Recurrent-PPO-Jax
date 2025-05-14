@@ -321,6 +321,7 @@ class NormPPOAgentJax:
                     self.static_flow_structure
                 )
             
+            jax.debug.print("flow_dynamic params shape: {} {}", actions_seq, obs_seq)
           
             # Recompute AC outputs
             act_logits_seq, values_seq, _ = self.ac_apply({'params': ac_params_loss}, obs_seq, start_dones_seq, h_init)
