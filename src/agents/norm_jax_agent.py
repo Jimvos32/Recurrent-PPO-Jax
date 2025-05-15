@@ -277,7 +277,7 @@ class NormPPOAgentJax:
         start_dones_T = rollout_data.start_dones # d_0 to d_{T-1}
 
        
-        print("why is this not used??!!!!!!", log_probs_T.shape)
+        # print("why is this not used??!!!!!!", log_probs_T.shape)
         
        
         
@@ -321,7 +321,6 @@ class NormPPOAgentJax:
                     self.static_flow_structure
                 )
             
-            jax.debug.print("flow_dynamic params shape: {} {}", actions_seq, obs_seq)
           
             # Recompute AC outputs
             act_logits_seq, values_seq, _ = self.ac_apply({'params': ac_params_loss}, obs_seq, start_dones_seq, h_init)
@@ -383,7 +382,6 @@ class NormPPOAgentJax:
         (final_agent_state, _), epoch_metrics_all = jax.lax.scan(_update_epoch, (agent_state, key_epochs), None, length=self.update_epochs)
         update_metrics = jax.tree_map(jnp.mean, epoch_metrics_all)
         update_metrics["params_l2"] = l2_norm(final_agent_state.params)
-        print("update_metrics", final_agent_state.params.keys())
         
         return final_agent_state, update_metrics
 
@@ -484,7 +482,6 @@ class NormPPOAgentJax:
         all_eval_metrics = {}
         env_names = list(env_params_dict.keys())
         
-        print("evaluate: paramshh", params.keys())
         
         
         ac_original_params = params['ac']

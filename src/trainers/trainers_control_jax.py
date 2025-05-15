@@ -158,16 +158,16 @@ class ControlTrainerJaxRefactored: # Renamed class
         extension = self.trainer_config["dist_model"]
         print("Extension:", extension) # Debugging line
         if extension == "normal":
-            sampling_impl_class = NormFlowAgent
+            samp_class = NormFlowAgent
             
             
             planar_tanh_kwargs = {'negative_slope': 0.01} 
 
-            num_layers = 1
+            num_layers = 2
             test_flow_config = []
             for _ in range(num_layers):
                 test_flow_config.append( (Planar, planar_tanh_kwargs.copy()) ) 
-            test_flow_config = []
+            # test_flow_config = []
             
             self.agent = NormPPOAgentJax(
                 env_params=self.env_params_train,
@@ -177,7 +177,7 @@ class ControlTrainerJaxRefactored: # Renamed class
                 actor_fn=actor_fn,
                 critic_fn=critic_fn,
                 optimizer=optimizer,
-                sampling_impl_class=sampling_impl_class,
+                sampling_impl_class=samp_class,
                 rollout_len=self.rollout_len,
                 gamma=self.trainer_config.get('gamma', 0.99),
                 gae_lambda=self.trainer_config.get('gae_lambda', 0.95),

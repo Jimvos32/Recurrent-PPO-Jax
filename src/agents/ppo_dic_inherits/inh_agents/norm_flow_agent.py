@@ -38,36 +38,27 @@ class NormFlowAgent(SamplingImplBaseJax):
         # typically the flow object passed in will already be configured.
         # self.action_dim = action_dim 
 
-    def generate_mvn_params(self, act_logits_for_mvn):
+    def generate_mvn_params(self, act_logits):
         """
-        Generates MVN parameters (location and covariance matrix) from actor logits.
-        Assumes `act_logits_for_mvn` are for a single distribution.
-
-        Args:
-            act_logits_for_mvn: 1D JAX array containing flattened parameters for loc and Cholesky factor.
-                                Shape (action_dim + action_dim * (action_dim + 1) // 2,).
-
-        Returns:
-            A tuple (loc, covariance_matrix).
-            loc: (action_dim,)
-            covariance_matrix: (action_dim, action_dim)
+        act_logits: shape (dim + dim*(dim+1)//2,)
+        Returns: loc (action_dim,), covariance (action_dim, action_dim)
         """
-        loc = act_logits_for_mvn[:self.cov_dim]
         
-        tril_values = act_logits_for_mvn[self.cov_dim:]
+        loc = act_logits[:self.cov_dim]
+        tril_values = act_logits[self.cov_dim:]
 
         tril_indices = jnp.tril_indices(self.cov_dim)
         L = jnp.zeros((self.cov_dim, self.cov_dim)).at[tril_indices].set(tril_values)
 
         diag_indices = jnp.diag_indices(self.cov_dim)
-        # Ensure positive diagonal for Cholesky factor
-        L = L.at[diag_indices].set(jax.nn.softplus(L[diag_indices])) 
-        # L = L.at[diag_indices].set(jnp.exp(L[diag_indices])) # Alternative
+        L = L.at[diag_indices].set(L[diag_indices])
 
         covariance = L @ L.T
-        # Ensure covariance is symmetric and add a small epsilon for numerical stability
-        covariance = (covariance + covariance.T) / 2
-        covariance = covariance + jnp.eye(self.cov_dim) * 1e-6 
+        
+        # loc = jnp.full((self.cov_dim,), 8)  
+        # covariance = jnp.eye(self.cov_dim) * 8  # Ensure positive definiteness
+      
+        
         return loc, covariance
 
     def _get_final_bijection(self, flow_object: AbstractBijection | None):
