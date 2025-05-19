@@ -32,6 +32,7 @@ class CosineEnv(BaseOptimizationEnv):
         # Compute theoretical bounds.
         self.max_y = self.c + self.A0 * self.action_dim + np.sum(self.small_A)
         self.min_y = self.c - self.A0 * self.action_dim - np.sum(self.small_A)
+        
 
     def compute_y(self, x):
         x = np.atleast_2d(x)

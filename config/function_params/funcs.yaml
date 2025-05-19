@@ -41,6 +41,35 @@ matern52_standard:
   bounds: [-5, 5]
 
 neg_abs_standard:
-  bounds: [-5, 5]
+  bounds: [-3, 3]
+
+branin_standard:
+  bounds: [-3, 3]
+
+cosine_standard:
+  bounds: [-3, 3]
+
+egg_standard:
+  bounds: [-3, 3]
+
+hartmann_standard:
+  bounds: [-3, 3]
+
+matern52_kernel:
+  bounds: [-3, 3]
+  kernel_type_str : Matern52
+
+rbf_kernel:
+  bounds: [-3, 3]
+  kernel_type_str : RBF
+
+michalewicz_standard:
+  bounds: [-3, 3]
+
+rosenbrock_standard:
+  bounds: [-3, 3]
+
+
+
 
 

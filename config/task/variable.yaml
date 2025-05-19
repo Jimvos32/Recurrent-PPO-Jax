@@ -9,6 +9,14 @@ gaussian_env:  ${function_params.${experiment.combos.${experiment.choice}.gaussi
 ackley_env:  ${function_params.${experiment.combos.${experiment.choice}.ackley_params}}
 matern52_env:  ${function_params.${experiment.combos.${experiment.choice}.matern52_params}}
 neg_abs_env: ${function_params.${experiment.combos.${experiment.choice}.neg_abs_params}}
+branin_env: ${function_params.${experiment.combos.${experiment.choice}.branin_params}}
+cosine_env: ${function_params.${experiment.combos.${experiment.choice}.cosine_params}}
+egg_env: ${function_params.${experiment.combos.${experiment.choice}.egg_params}}
+hartmann_env: ${function_params.${experiment.combos.${experiment.choice}.hartmann_params}}
+matern52_kernel_env: ${function_params.${experiment.combos.${experiment.choice}.matern52_kernel_params}}
+rbf_kernel_env: ${function_params.${experiment.combos.${experiment.choice}.rbf_kernel_params}}
+# michalewicz_env: ${function_params.${experiment.combos.${experiment.choice}.michalewicz_params}}
+rosenbrock_env: ${function_params.${experiment.combos.${experiment.choice}.rosenbrock_params}}
 
 function_types: []
 bounds: ${experiment.combos.${experiment.choice}.bounds}
@@ -22,8 +30,8 @@ degree: ${experiment.combos.${experiment.choice}.degree}
 rank: ${experiment.combos.${experiment.choice}.rank}
 num_oscillations: ${experiment.combos.${experiment.choice}.oscilations}
 random: ${experiment.combos.${experiment.choice}.random}
-batch_expand_hidden: [128, 64]
-batch_combine_hidden: [128, 64]
-step_expand_hidden: [128, 64]
-input_combine_hidden: [128, 64]
+batch_expand_hidden: [128, 256, 128]
+batch_combine_hidden: [128, 256, 128]
+step_expand_hidden: [128, 256, 128]
+input_combine_hidden: [128, 256, 128]
 tag: no_tag

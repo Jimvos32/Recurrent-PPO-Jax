@@ -8,8 +8,11 @@ from typing import Tuple, Optional, Dict, Any
 from jax.experimental import checkify
 
 
-from src.tasks.envs.jax_env_f.jax_function_samplers import initialize_sampler, compute_y_sampler, EnvParams, FuncIndices
+# from src.tasks.envs.jax_env_f.jax_function_samplers import initialize_sampler_dispatch, compute_y_sampler_dispatch, EnvParams
+from src.tasks.envs.jax_env_f.jax_disp_samplers import initialize_sampler_dispatch, compute_y_sampler_dispatch, EnvParams
+# from src.tasks.envs.jax_env_f.jax_disp_samplers import EnvParams, initialize_sampler_dispatch, compute_y_sampler_dispatch
 # from src.tasks.envs.jax_env.env_params import EnvParams
+# from 
 
 # Assume JAX versions of your samplers exist:
 # from .jax_samplers import initialize_sampler, compute_y_sampler # You'll need to create these
@@ -69,7 +72,8 @@ class MultiFunctionGymnax(environment.Environment):
         self, key: chex.PRNGKey, params: EnvParams, action_dim: int, max_batches: int
     ) -> Tuple[chex.ArrayTree, EnvState]:
         """Initializes the environment."""
-        return initialize_sampler(key, params, action_dim, max_batches)
+        # return initialize_sampler(key, params, action_dim, max_batches)
+        return initialize_sampler_dispatch(key, params, action_dim, max_batches)
     
     @staticmethod
     def step_env(
@@ -102,7 +106,8 @@ class MultiFunctionGymnax(environment.Environment):
         
         # bb = 1
         # print("here is something that is not corret!!!!!!!")
-        obs_raw = compute_y_sampler(action_mapped, state.params_for_compute, params)
+        # obs_raw = compute_y_sampler(action_mapped, state.params_for_compute, params)
+        obs_raw = compute_y_sampler_dispatch(action_mapped, state.params_for_compute, params)
         
         
         
@@ -271,7 +276,12 @@ class MultiFunctionGymnax(environment.Environment):
         # Use JAX dispatch function for sampler initialization
         # jax.debug.print("sampler_type_index {} {} {}", sampler_type_index, params.sampler_configs["specific"].keys(), params.function_type_indices)
         # print("sampler_type_index", sampler_type_index, type(sampler_type_index))
-        sam_con = initialize_sampler(key_sampler, sampler_type_index, action_dim, params)
+        
+        
+        # sam_con = initialize_sampler(key_sampler, sampler_type_index, action_dim, params)
+        sam_con = initialize_sampler_dispatch(key_sampler, sampler_type_index, params)
+
+        
         min_y = sam_con['common']['min_y']
         max_y = sam_con['common']['max_y']
         optimum_point = sam_con['common']['optimum_point']
@@ -310,7 +320,8 @@ class MultiFunctionGymnax(environment.Environment):
         # }
         
         
-        obs_raw = compute_y_sampler(initial_actions_mapped, sam_con, params)
+        # obs_raw = compute_y_sampler(initial_actions_mapped, sam_con, params)
+        obs_raw = compute_y_sampler_dispatch(initial_actions_mapped, sam_con, params)
         obs_raw = jnp.atleast_1d(obs_raw)
         
         mask = jnp.arange(max_batches) < batch_size
@@ -429,7 +440,8 @@ class MultiFunctionGymnax(environment.Environment):
         )
         initial_actions_mapped = map_to_bounds_jax(initial_actions_normalized, params.x_range)
   
-        obs_raw = compute_y_sampler(initial_actions_mapped, state.params_for_compute, params)
+        # obs_raw = compute_y_sampler(initial_actions_mapped, state.params_for_compute, params)
+        obs_raw = compute_y_sampler_dispatch(initial_actions_mapped, state.params_for_compute, params)
         obs_raw = jnp.atleast_1d(obs_raw)
         
         mask = jnp.arange(max_batches) < state.batch_size

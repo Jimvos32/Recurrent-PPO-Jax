@@ -6,7 +6,9 @@ import logging
 from typing import Dict, Any
 import chex
 from src.tasks.envs.jax_env_f.jax_env import MultiFunctionGymnax
-from src.tasks.envs.jax_env_f.jax_function_samplers import compute_y_sampler
+# from src.tasks.envs.jax_env_f.jax_function_samplers import compute_y_sampler
+# from src.tasks.envs.jax_env_f.jax_function_samplers import compute_y_sampler_dispatch
+
 import gpjax as gpx
 from tqdm import tqdm
 

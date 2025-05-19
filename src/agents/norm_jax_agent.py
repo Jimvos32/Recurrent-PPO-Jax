@@ -25,6 +25,12 @@ from src.models.actor_critic import ActorCriticModel
 from src.agents.normalising_flow.flow_construction import create_flow_chain
 from flowjax.bijections import Tanh
 
+import numpy as np
+# from src.tasks.envs.jax_env_f.jax_function_samplers import compute_y_sampler_dispatch
+from src.tasks.envs.jax_env_f.jax_disp_samplers import compute_y_sampler_dispatch
+from src.tasks.envs.jax_env_f.jax_env import get_obs, map_to_bounds_jax, get_info
+import matplotlib.pyplot as plt
+
 
 
 # Define TrainState for the Agent
@@ -125,6 +131,7 @@ class NormPPOAgentJax:
             _, self.static_flow_structure = eqx.partition(temp_flow_obj, eqx.is_array)
             print(f"AGENT INIT: Stored static_flow_structure with shape: {self.static_flow_structure.shape}")
         else:
+            self.static_flow_structure = None
             print("AGENT INIT: No flow configured, static_flow_structure is None.")
  
         # Flow chain instance will be created and stored in parameters during init
@@ -340,7 +347,6 @@ class NormPPOAgentJax:
             ent_coef = self.ent_coef_schedule(update_step)
             
             total_loss = pg_loss + self.vf_coef * v_loss - ent_coef * mean_entropy
-            total_loss = pg_loss
             # Metrics
             approx_kl = jnp.mean((ratio - 1) - logratio)
             metrics = {"loss/loss": total_loss, "loss/loss_policy": pg_loss, "loss/loss_value": v_loss, "loss/loss_entropy": mean_entropy * ent_coef, "loss/kl_approx": approx_kl, "loss/ratio": jnp.mean(ratio), "loss/log_old": jnp.mean(logp_old_seq), "loss/log_new": jnp.mean(logp_new_seq), "loss/values_pred": jnp.mean(values_seq), "loss/target": jnp.mean(targets_seq), "loss/entropy_coefficient": ent_coef}
@@ -384,6 +390,8 @@ class NormPPOAgentJax:
         update_metrics["params_l2"] = l2_norm(final_agent_state.params)
         
         return final_agent_state, update_metrics
+    
+    
 
 
     # --- Evaluation Methods ---
@@ -476,6 +484,9 @@ class NormPPOAgentJax:
         keys_eval = jax.random.split(key, num_eval_episodes); eval_results_per_episode = _run_single_episode(keys_eval, batch_h_states, batch_obs, batch_env_states)
         eval_metrics_mean = jax.tree_map(jnp.mean, eval_results_per_episode)
         return eval_metrics_mean
+    
+    
+
 
     def evaluate(self, key: chex.PRNGKey, params: chex.ArrayTree, env_params_dict: dict, num_eval_episodes: int, action_dim: int, max_batches: int, max_steps_in_episode: int, eval_mode: str = 'ppo') -> dict:
         # ... (code is identical to the version in jax_agent_with_flow) ...
@@ -508,6 +519,163 @@ class NormPPOAgentJax:
             for metric_name, value in eval_metrics_single_type.items():
                 all_eval_metrics[f"eval_{env_name}/{metric_name}"] = value
         return all_eval_metrics
+    
+    
+    
+    
+    def run_episode_for_visualization(
+        self,
+        key: chex.PRNGKey,
+        agent_state_params: chex.ArrayTree, # Agent's current learnable parameters (agent_state.params)
+        env_params_to_visualize: EnvParams, # EnvParams for the specific function type
+        num_true_func_points: int = 200,
+        num_policy_points: int = 200
+    ) -> Dict:
+        """
+        Runs a single episode, collects detailed per-step data for visualization,
+        and prepares it for plotting. This function is NOT JITted.
+        Assumes action_dim = 1 for simple 1D plotting.
+        """
+        if self.action_dim != 1:
+            print(f"Warning: Visualization is best for 1D action space. Current: {self.action_dim}D.")
+            # For multi-D, plotting will need to select a dimension or use different techniques.
+
+        print(f"Running single episode for visualization with function: {env_params_to_visualize.function_type_indices}") # Example log
+
+        # --- Initialize Environment for this single run ---
+        # Ensure we are using a single environment instance for this
+        env = MultiFunctionGymnax() # Create a new env instance for this run
+        key_reset, key_episode_steps = jax.random.split(key)
+
+        # Reset the environment using the specific EnvParams provided
+        # Make sure action_dim and max_batches are correctly passed for this env_params_to_visualize
+        # These might come from env_params_to_visualize itself if it's fully configured,
+        # or from self.env_params as defaults if appropriate.
+        # For this example, let's assume env_params_to_visualize has necessary fields
+        # or we use some defaults from the agent's primary env_params.
+        action_dim_vis = env_params_to_visualize.action_dim
+        max_batches_vis = env_params_to_visualize.max_batches
+
+        obs, current_env_state = env.reset_env(
+            key_reset, env_params_to_visualize, action_dim_vis, max_batches_vis
+        )
+        current_h_state = self.seq_init() # Initial hidden state
+        # If seq_init returns a batched h_state, take the first one
+        # current_h_state = jax.tree_map(lambda x: x[0] if x.ndim > 1 and x.shape[0] > 1 else x, current_h_state)
+
+
+        # --- Prepare for data collection ---
+        episode_visualization_data = []
+        done = False
+        current_tick = 0
+
+        # --- Get True Function Data (once per episode) ---
+        x_true_np = np.linspace(
+            env_params_to_visualize.x_range[0],
+            env_params_to_visualize.x_range[1],
+            num_true_func_points
+        ).reshape(-1, action_dim_vis)
+        y_true_np = np.asarray(
+            compute_y_sampler_dispatch(
+                jnp.array(x_true_np),
+                current_env_state.params_for_compute, # From initial reset
+                env_params_to_visualize
+            )
+        ).squeeze()
+        x_true_np = x_true_np.squeeze()
+
+
+        # --- Reconstruct Flow Object (once, if params don't change during this vis run) ---
+        ac_params = agent_state_params['ac']
+        dynamic_flow_parts = agent_state_params.get('flow_dynamic', {})
+        current_policy_flow_object = None
+        if self.static_flow_structure is not None:
+            if dynamic_flow_parts:
+                current_policy_flow_object = eqx.combine(dynamic_flow_parts, self.static_flow_structure)
+            else:
+                current_policy_flow_object = self.static_flow_structure
+
+
+        # --- Run the episode step-by-step ---
+        while not done:
+
+            key_step, key_episode_steps = jax.random.split(key_episode_steps)
+            key_actor, key_sample, key_env_step = jax.random.split(key_step, 3)
+
+            # Get action from policy
+            # Note: current_env_state.done is from the *previous* step
+            act_logits, value_pred, next_h_state = self._actor_critic_step(
+                ac_params, key_actor, obs, current_env_state.done, current_h_state
+            )
+
+            # Use the agent's sampling implementation
+            # The mask for sampling_differ should correspond to current_env_state.batch_size
+            # For a single episode run, often batch_size is 1 or a small fixed number.
+            # get_obs(current_env_state, env_params_to_visualize)['mask'] gives current batch size
+            sampling_mask = get_obs(current_env_state, env_params_to_visualize)['mask']
+
+            action = self.sampling_impl.sampling_differ(
+                act_logits, current_policy_flow_object, key_sample, sampling_mask
+            )
+
+            # Store data for this step *before* stepping the environment
+            step_data_for_plot = {
+                "step": current_tick,
+                "x_true": x_true_np, # Repeated for each step, but generated once
+                "y_true": y_true_np,
+                "sampler_info": current_env_state.params_for_compute.get('common', {}).get('sampler_name', 'Unknown'),
+                "act_logits_numpy": np.asarray(act_logits),
+                # Store enough from env_state for policy PDF plotting context if needed,
+                # like x_range for mapping actions. env_params_to_visualize has this.
+            }
+
+            # Step the environment
+            next_obs, next_env_state, reward, done, info = env.step_env(
+                key_env_step, current_env_state, action, env_params_to_visualize,
+                max_batches_vis, action_dim_vis
+            )
+
+            # Store samples *after* stepping (these are the results of `action`)
+            # Use next_env_state as it contains last_action_mapped and last_raw_obs from this step
+            valid_samples_mask_after_step = jnp.arange(max_batches_vis) < next_env_state.batch_size
+            step_data_for_plot["samples_x_numpy"] = np.asarray(
+                next_env_state.last_action_mapped[valid_samples_mask_after_step]
+            ).squeeze()
+            step_data_for_plot["samples_y_numpy"] = np.asarray(
+                next_env_state.last_raw_obs[valid_samples_mask_after_step]
+            ).squeeze()
+
+
+            # --- Generate Policy PDF Data for this step ---
+            # x_values for PDF are in normalized action space [-1, 1]
+            x_policy_pdf_norm_np = np.linspace(-1.0 + 1e-5, 1.0 - 1e-5, num_policy_points).reshape(-1, action_dim_vis)
+            policy_pdf_values_np = np.asarray(
+                self.sampling_impl.get_pdf(
+                    act_logits, # From this step
+                    current_policy_flow_object,
+                    jnp.array(x_policy_pdf_norm_np)
+                )
+            ).squeeze()
+
+            x_policy_pdf_mapped_np = np.asarray(
+                map_to_bounds_jax(
+                    jnp.array(x_policy_pdf_norm_np),
+                    env_params_to_visualize.x_range
+                )
+            ).squeeze()
+
+            step_data_for_plot["x_policy_mapped_numpy"] = x_policy_pdf_mapped_np
+            step_data_for_plot["policy_pdf_numpy"] = policy_pdf_values_np
+
+            episode_visualization_data.append(step_data_for_plot)
+
+            # Update states for next iteration
+            obs = next_obs
+            current_env_state = next_env_state
+            current_h_state = next_h_state
+            current_tick += 1
+
+        return episode_visualization_data # List of dictionaries, one per step
 
 
 # --- Helper Functions ---
@@ -532,3 +700,64 @@ def l2_norm(pytree):
 #     advantages = jnp.flip(advantages_rev, axis=1)
 #     targets = advantages + values[:, :-1] 
 #     return advantages, targets
+
+
+
+
+def plot_policy_diagnostics(
+    x_true: np.ndarray,
+    y_true: np.ndarray,
+    samples_x: np.ndarray,
+    samples_y: np.ndarray,
+    x_policy_mapped: np.ndarray,
+    policy_pdf: np.ndarray,
+    sampler_info: str = "Unknown Function",
+    title_suffix: str = ""
+):
+    """
+    Plots the true function, agent samples, and policy distribution.
+
+    Args:
+        x_true: X-values for the true function.
+        y_true: Y-values for the true function.
+        samples_x: X-values of samples taken by the agent.
+        samples_y: Y-values of samples taken by the agent.
+        x_policy_mapped: X-values for the policy PDF, mapped to the function's domain.
+        policy_pdf: PDF values of the policy.
+        sampler_info: Name of the true function (e.g., Ackley).
+        title_suffix: Optional suffix for the plot title.
+    """
+    fig, ax1 = plt.subplots(figsize=(12, 7))
+
+    # Plot the true function
+    color_true_func = 'tab:blue'
+    ax1.set_xlabel('x')
+    ax1.set_ylabel('True Function Value', color=color_true_func)
+    ax1.plot(x_true, y_true, label=f'True Function ({sampler_info})', color=color_true_func, linestyle='--')
+    ax1.tick_params(axis='y', labelcolor=color_true_func)
+
+    # Plot the samples taken by the agent
+    ax1.scatter(samples_x, samples_y, label='Agent Samples', color='red', marker='o', s=50, alpha=0.7, zorder=5)
+
+    # Create a second y-axis for the policy PDF
+    ax2 = ax1.twinx()
+    color_policy_pdf = 'tab:green'
+    ax2.set_ylabel('Policy PDF', color=color_policy_pdf)
+    ax2.plot(x_policy_mapped, policy_pdf, label='Policy PDF', color=color_policy_pdf, linewidth=2)
+    ax2.fill_between(x_policy_mapped, policy_pdf, color=color_policy_pdf, alpha=0.2)
+    ax2.tick_params(axis='y', labelcolor=color_policy_pdf)
+
+    # Titles and legends
+    plt.title(f'RL Agent Diagnostics: {sampler_info}{title_suffix}')
+    fig.tight_layout() # Otherwise the right y-label is slightly clipped
+    
+    # Combine legends from both axes
+    lines, labels = ax1.get_legend_handles_labels()
+    lines2, labels2 = ax2.get_legend_handles_labels()
+    ax2.legend(lines + lines2, labels + labels2, loc='upper right')
+
+    plt.grid(True, linestyle=':', alpha=0.7)
+    plt.show()
+    
+    
+    

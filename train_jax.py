@@ -58,7 +58,7 @@ def main(config: DictConfig):
         mode = f"{config.task.pol_dist}"
     elif config.trainer.run_mode == "eval_bo":
         mode = "BO"
-    elif config.trainer.run_mode == "random":
+    elif config.trainer.run_mode == "eval_random":
         mode = "random"
         
     print("mode", mode)

@@ -216,4 +216,32 @@ class NormFlowAgent(SamplingImplBaseJax):
       
         
         return final_entropy
+    
+    
+    def get_pdf(self, act_logits_one_dist, flow_object: AbstractBijection | None, x_values: jnp.ndarray) -> jnp.ndarray:
+        """
+        Computes the probability density function (PDF) of the policy for given x_values.
+        x_values are assumed to be in the normalized space [-1, 1].
+
+        Args:
+            act_logits_one_dist: Parameters for the MVN base distribution for a single policy.
+            flow_object: The flow instance (e.g., BNAF) with current parameters, or None.
+            x_values: JAX array of shape (num_points, action_dim) at which to evaluate the PDF.
+                      These values should be in the range [-1, 1].
+
+        Returns:
+            JAX array of shape (num_points,) containing PDF values.
+        """
+        loc, cov = self.generate_mvn_params(act_logits_one_dist)
+        base_dist = MultivariateNormal(loc=loc, covariance=cov)
+        final_bijection = self._get_final_bijection(flow_object)
+        
+        final_dist = Transformed(base_dist, final_bijection)
+
+        # log_prob will compute log p(x) = log p_z(f^{-1}(x)) + log |det J_{f^{-1}}(x)|
+        # where f is final_bijection.
+        # x_values are in the target space of final_bijection (i.e., after Tanh, so in [-1, 1])
+        log_probs = final_dist.log_prob(x_values)
+        
+        return jnp.exp(log_probs)
 

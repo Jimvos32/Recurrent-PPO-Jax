@@ -57,7 +57,8 @@ from src.agents.ppo_dic_inherits.inh_agents.flow_jax import FlowMVNJax
 from src.agents.ppo_dic_inherits.inh_agents.norm_flow_agent import NormFlowAgent
 from src.agents.jax_agent import PPOAgentJax
 from src.agents.norm_jax_agent import NormPPOAgentJax
-from src.tasks.envs.jax_env_f.jax_function_samplers import create_env_params, EnvParams, initialize_sampler
+# from src.tasks.envs.jax_env_f.jax_function_samplers import create_env_params, EnvParams, initialize_sampler
+from src.tasks.envs.jax_env_f.jax_disp_samplers import create_env_params
 # from .jax_env import EnvParams # Example
 # from .env_utils import create_env_params # Example
 
@@ -79,6 +80,7 @@ class ControlTrainerJaxRefactored: # Renamed class
         self.env_config = env_config # Expects dict/OmegaConf container
         self.global_config = global_args
         self.wandb_run = wandb_run
+        self.plot_func = self.trainer_config.get('plot_func', False) # Optional plotting function
         self.key = key
         self.key, self.eval_key = jax.random.split(self.key)
 
@@ -109,14 +111,7 @@ class ControlTrainerJaxRefactored: # Renamed class
             f_conf["function_types"] = [func]
             self.test_environments[func] = create_env_params(f_conf)
             
-        # self.env_params_train = create_env_params(conf)
-        # conf["batches"] = b_test
-        # conf["function_types"] = conf.get("env_test", ["pol"])
-        
-        
-        
-        # self.env_params_test = create_env_params(conf)
-
+    
         # --- Agent Setup ---
         # Get model functions (adapt this part based on your config structure)
         if self.trainer_config.seq_model.name == 'lstm':
@@ -156,7 +151,6 @@ class ControlTrainerJaxRefactored: # Renamed class
         )
         
         extension = self.trainer_config["dist_model"]
-        print("Extension:", extension) # Debugging line
         if extension == "normal":
             samp_class = NormFlowAgent
             
@@ -384,6 +378,9 @@ class ControlTrainerJaxRefactored: # Renamed class
                     # logger.info(f"Evaluation Results: {eval_metrics_np}")
                     
                     
+                    
+                    
+                    
                     if self.wandb_run:
                         self.wandb_run.log(eval_metrics_np)
                     # Optionally add eval metrics to results_data too
@@ -391,6 +388,34 @@ class ControlTrainerJaxRefactored: # Renamed class
             # --- Checkpointing (Add logic if needed) ---
             # if self.checkpoint_dir and update_idx % self.checkpoint_interval == 0:
             #     save_checkpoint(self.agent_state, self.checkpoint_dir, update_idx)
+            
+        if update_idx == self.num_updates - 1 and self.plot_func:
+            
+            vis_data = self.agent.run_episode_for_visualization(
+                        self.eval_key,
+                        self.agent_state.params,
+                        self.test_environments['poly'],
+                        
+                    )
+                    
+                    
+            for i, step_plot_data in enumerate(vis_data):
+                print(f"Plotting visualization for {step_plot_data['sampler_info']} at step {step_plot_data['step']}")
+                plot_policy_diagnostics(
+                    step_plot_data["x_true"],
+                    step_plot_data["y_true"],
+                    step_plot_data["samples_x_numpy"],
+                    step_plot_data["samples_y_numpy"],
+                    step_plot_data["x_policy_mapped_numpy"],
+                    step_plot_data["policy_pdf_numpy"],
+                    sampler_info=step_plot_data["sampler_info"],
+                    title_suffix=f" - Step {step_plot_data['step']}"
+                )
+                # If you want to save figs instead of plt.show() in plot_policy_diagnostics:
+                plt.savefig(f"visualization_{step_plot_data['sampler_info']}_step_{step_plot_data['step']}.png")
+                print(f"Saved visualization for {step_plot_data['sampler_info']} at step {step_plot_data['step']}")
+                # plt.close() # Close the figure to free memory if generating many
+        
 
         logger.info("Training finished.")
 

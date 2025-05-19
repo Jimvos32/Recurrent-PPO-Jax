@@ -4,7 +4,8 @@ import chex
 from typing import Dict, Tuple
 from flax import linen as nn
 from flax.linen.initializers import constant, orthogonal
-from src.tasks.envs.jax_env_f.jax_function_samplers import EnvParams
+# from src.tasks.envs.jax_env_f.jax_function_samplers import EnvParams
+from src.tasks.envs.jax_env_f.jax_disp_samplers import EnvParams
 
 from typing import Callable
 from functools import partial
