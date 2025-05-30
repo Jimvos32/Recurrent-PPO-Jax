@@ -28,13 +28,14 @@ class EnvParams:
     batches: chex.Array = struct.field(default_factory=lambda: jnp.array([1, 1], dtype=jnp.int32))
     use_random_action_on_reset: bool = True
     use_random_action_on_step: bool = False
-    r_scale: float = 10.0
-    r_best: float = 0.8
-    r_impr: float = 0.1
+    r_scale: float = 5.0
+    r_best: float = 0.1
+    r_impr: float = 0.8
     r_new_best: float = 0.1
     r_obs: float = 0.0
     r_mse: float = 0.0
-    r_suc: float = 3.0
+    r_suc: float = 0.0
+    r_step_cost: float = -0.1  # Assuming this is a new field for step cost
     success_threshold: float = 0.95
 
 
@@ -56,6 +57,7 @@ from src.tasks.envs.jax_env_f.function_environments import rosenbrock as rosenbr
 from src.tasks.envs.jax_env_f.function_environments import eggholder as eggholder_sampler
 from src.tasks.envs.jax_env_f.function_environments import branin as branin_sampler
 from src.tasks.envs.jax_env_f.function_environments import hartmann as hartmann_sampler
+from src.tasks.envs.jax_env_f.function_environments import discrete_peaks as discrete_peaks_sampler
 # The new Generic GPJax Kernel Sampler
 from src.tasks.envs.jax_env_f.function_environments import kernel_sampler as gpjax_kernel_sampler
 
@@ -66,8 +68,17 @@ from src.tasks.envs.jax_env_f.function_environments import kernel_sampler as gpj
 GPJAX_KERNEL_FUNCTION_NAMES = [
     "matern52_kernel",
     "matern32_kernel",
+    "matern12_kernel",
     "RBF_kernel",
     "polynomial_kernel", # For this, ensure 'degree' is in config, e.g. "Polynomial_kernel_env": {"degree": 2}
+    "white_kernel",
+    "periodic_kernel",
+    "linear_kernel",
+    "exponential_kernel",
+    "rational_quadratic_kernel",
+    "arc_cosine_kernel",
+    "squared_exponential_kernel",
+    "RFF_kernel"
     # You could also have "Polynomial_deg1_kernel", "Polynomial_deg2_kernel" if you prefer distinct names
     # and handle the degree implicitly or via different config blocks.
 ]
@@ -84,9 +95,11 @@ ALL_FUNCTION_MODULES = {
     eggholder_sampler.FUNCTION_NAME: eggholder_sampler,
     branin_sampler.FUNCTION_NAME: branin_sampler,
     hartmann_sampler.FUNCTION_NAME: hartmann_sampler,
+    discrete_peaks_sampler.FUNCTION_NAME: discrete_peaks_sampler,
     
     # Add other imported modules here
 }
+
 
 # Add GPJax kernel samplers: each "kernel function name" maps to the same generic module
 for gp_func_name in GPJAX_KERNEL_FUNCTION_NAMES:
@@ -96,7 +109,7 @@ for gp_func_name in GPJAX_KERNEL_FUNCTION_NAMES:
 # Canonical ordered list of all function names. This order defines global indices.
 ALL_POSSIBLE_FUNCTION_NAMES = sorted(list(ALL_FUNCTION_MODULES.keys()))
 
-
+# print("All possible function names:", ALL_POSSIBLE_FUNCTION_NAMES)
 # --- Registries for initializers, computers, config templates ---
 ALL_FUNCTION_INITIALIZERS_REGISTRY: Dict[str, Callable] = {}
 ALL_FUNCTION_COMPUTERS_REGISTRY: Dict[str, Callable] = {}
@@ -210,8 +223,8 @@ def create_env_params(config: Dict) -> EnvParams:
     active_initializers_list = []
     active_computers_list = []
     active_global_indices_list = []
-
     for name in active_function_names:
+        
         if name not in ALL_FUNCTION_INITIALIZERS_REGISTRY or name not in ALL_FUNCTION_COMPUTERS_REGISTRY:
             raise ValueError(f"Function '{name}' not found in registered initializers/computers. "
                              f"Available: {list(ALL_FUNCTION_INITIALIZERS_REGISTRY.keys())}")
@@ -253,12 +266,14 @@ def create_env_params(config: Dict) -> EnvParams:
         'common': { # Common template structure, actual values filled by initializer
             'type_index': -1, # Placeholder, filled by initializer
             'optimum_point': jnp.zeros(action_dim_val, dtype=jnp.float64), # Placeholder
-            'max_y': 0.0, 'min_y': 0.0, # Placeholders
+            'max_y': 5.0, 'min_y': 0.0, # Placeholders
             'action_dim': action_dim_val, # Stored as int
             'bounds': tuple(config.get("bounds", (-5.0, 5.0))), # Default bounds from global config
         },
         'specific': specific_configs_template # Contains templates for all possible functions
     }
+    
+    env_params_sampler_configs_template['common']['type_index'] = tuple(ALL_POSSIBLE_FUNCTION_NAMES).index(active_function_names[0]) if active_function_names else -1
 
     # Populate ALL fields of EnvParams
     return EnvParams(
@@ -273,14 +288,15 @@ def create_env_params(config: Dict) -> EnvParams:
         batches=jnp.array(config.get("batches", [1,1]), dtype=jnp.int32),
         use_random_action_on_reset=config.get("use_random_action_on_reset", True),
         use_random_action_on_step=config.get("use_random_action_on_step", False),
-        r_scale=float(config.get("r_scale", 10.0)),
-        r_best=float(config.get("r_best", 0.8)),
-        r_impr=float(config.get("r_impr", 0.1)),
+        r_scale=float(config.get("r_scale", 5.0)),
+        r_best=float(config.get("r_best", 0.1)),
+        r_impr=float(config.get("r_impr", 0.8)),
         r_new_best=float(config.get("r_new_best", 0.1)),
         r_obs=float(config.get("r_obs", 0.0)),
         r_mse=float(config.get("r_mse", 0.0)),
         r_suc=float(config.get("r_suc", 3.0)),
-        success_threshold=float(config.get("success_threshold", 0.95))
+        r_step_cost=float(config.get("r_step_cost", -0.1)), # Assuming this is a new field
+        success_threshold=float(config.get("success_threshold", 0.90))
     )
 
 
@@ -303,7 +319,6 @@ def initialize_sampler_dispatch(key: chex.PRNGKey,
     # The callables in env_params.dispatch_config.initializers are jax.tree_util.Partial objects.
     # They expect (key, env_params_instance) as arguments.
     
-    print("save", safe_active_idx, env_params.dispatch_config.initializers)
     
     sampler_params_result = jax.lax.switch(
         safe_active_idx, # Must be scalar int

@@ -29,13 +29,13 @@ class EnvParams:
     batches: chex.Array = struct.field(default_factory=lambda: jnp.array([1, 1])) # Or your previous default
     use_random_action_on_reset: bool = True
     use_random_action_on_step: bool = False
-    r_scale: float = 10.0
-    r_best: float = 0.8
-    r_impr: float = 0.1
-    r_new_best: float = 0.1
+    r_scale: float = 5.0
+    r_best: float = 0.1
+    r_impr: float = 0.8
+    r_new_best: float = 0.2
     r_obs: float = 0.0
     r_mse: float = 0.0
-    r_suc: float = 3.0
+    r_suc: float = 0.0
     success_threshold: float = 0.95
 
 
@@ -55,10 +55,12 @@ from src.tasks.envs.jax_env_f.function_environments import eggholder as eggholde
 from src.tasks.envs.jax_env_f.function_environments import branin as branin_sampler
 from src.tasks.envs.jax_env_f.function_environments import hartmann as hartmann_sampler
 from src.tasks.envs.jax_env_f.function_environments import kernel_sampler as gpjax_base_sampler
+from src.tasks.envs.jax_env_f.function_environments import discrete_peaks as discrete_peaks_sampler
 
 # ... import others as you create them
 
-GPJAX_FUNCTION_NAMES = ["Matern52", "RBF"] # Example
+GPJAX_FUNCTION_NAMES = ["Matern52", "RBF", "Matern32", "Matern12", "Linear", "Polynominal", "Periodic", 
+                        "White", "ArcCosine", "Exponential", "RationalQuadratic", "RFF"] # Example
 
 
 ALL_FUNCTION_MODULES = {
@@ -73,6 +75,7 @@ ALL_FUNCTION_MODULES = {
     eggholder_sampler.FUNCTION_NAME: eggholder_sampler,
     branin_sampler.FUNCTION_NAME: branin_sampler,
     hartmann_sampler.FUNCTION_NAME: hartmann_sampler,
+    discrete_peaks_sampler.FUNCTION_NAME: discrete_peaks_sampler,
     
     # Add other imported modules here
 }
@@ -107,7 +110,7 @@ def get_specific_config_template_for_function(func_name: str, action_dim: int, r
 
 
 # --- _get_jitted_partial_initializer (modified to pass ALL_POSSIBLE_FUNCTION_NAMES) ---
-def _get_jitted_partial_initializer(func_name: str, static_action_dim: int) -> jax.tree_util.Partial:
+def _get_jitted_partial_initializer(func_name: str, static_action_dim: int, func_dict: Dict) -> jax.tree_util.Partial:
     base_func = ALL_FUNCTION_INITIALIZERS_REGISTRY[func_name]
     # The initialize_func in each module now expects `all_possible_names`
     # Signature: initialize_func(key, env_params_instance, action_dim, all_possible_names)
@@ -115,9 +118,34 @@ def _get_jitted_partial_initializer(func_name: str, static_action_dim: int) -> j
     # The switch branch receives (key, env_params_instance)
     # So, partial_func = partial(base_func, action_dim=static_action_dim, all_possible_names=ALL_POSSIBLE_FUNCTION_NAMES)
     # This assumes ALL_POSSIBLE_FUNCTION_NAMES is a Python list/tuple, static for JIT.
-    return jax.tree_util.Partial(
-        partial(base_func, action_dim=static_action_dim, all_possible_names=ALL_POSSIBLE_FUNCTION_NAMES)
-    )
+    if func_name == discrete_peaks_sampler.FUNCTION_NAME:
+        num_locs_static = int(func_dict.get("num_peak_locations_per_dim", 4)) # Default if not in config
+        
+        # Create a callable that has static_action_dim, all_names_tuple, and num_locs_static baked in.
+        # This callable will then be wrapped in jax.tree_util.Partial for the switch.
+        # It will be called with (key, env_params_instance) by the switch.
+        final_switch_branch_callable = partial(
+            base_func, # This is discrete_peaks.initialize_func (already @jit decorated)
+            action_dim=static_action_dim,
+            all_possible_names=ALL_POSSIBLE_FUNCTION_NAMES,
+            num_locs_per_dim_static=num_locs_static
+        )
+        
+    else:
+        # Default handling for other functions:
+        # Assumes their initialize_func expects (key, env_params, action_dim, all_possible_names)
+        # and handles its JITting / static args internally or action_dim/all_possible_names are sufficient.
+        final_switch_branch_callable = partial(
+            base_func,
+            action_dim=static_action_dim,
+            all_possible_names=ALL_POSSIBLE_FUNCTION_NAMES
+        )
+        
+    return jax.tree_util.Partial(final_switch_branch_callable)
+    
+    # return jax.tree_util.Partial(
+    #     partial(base_func, action_dim=static_action_dim, all_possible_names=ALL_POSSIBLE_FUNCTION_NAMES)
+    # )
 
 # _get_partial_computer remains the same as it doesn't need all_possible_names directly for its signature
 def _get_partial_computer(func_name: str) -> jax.tree_util.Partial:
@@ -140,6 +168,7 @@ def create_env_params(config: Dict) -> EnvParams:
         
         if name not in ALL_FUNCTION_MODULES:
             raise ValueError(f"Function {name} not found in registered modules.")
+        
         active_initializers_list.append(
             _get_jitted_partial_initializer(name, static_action_dim=action_dim_val)
         )

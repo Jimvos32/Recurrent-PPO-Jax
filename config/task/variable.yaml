@@ -17,6 +17,19 @@ matern52_kernel_env: ${function_params.${experiment.combos.${experiment.choice}.
 rbf_kernel_env: ${function_params.${experiment.combos.${experiment.choice}.rbf_kernel_params}}
 # michalewicz_env: ${function_params.${experiment.combos.${experiment.choice}.michalewicz_params}}
 rosenbrock_env: ${function_params.${experiment.combos.${experiment.choice}.rosenbrock_params}}
+discrete_peaks_env: ${function_params.${experiment.combos.${experiment.choice}.discrete_peaks_params}}
+
+matern32_env: ${function_params.${experiment.combos.${experiment.choice}.matern32_kernel_params}}
+matern12_env: ${function_params.${experiment.combos.${experiment.choice}.matern12_kernel_params}}
+rff_env: ${function_params.${experiment.combos.${experiment.choice}.rff_kernel_params}}
+linear_env: ${function_params.${experiment.combos.${experiment.choice}.linear_kernel_params}}
+polynomial_env: ${function_params.${experiment.combos.${experiment.choice}.polynomial_kernel_params}}
+periodic_env: ${function_params.${experiment.combos.${experiment.choice}.periodic_kernel_params}}
+white_env: ${function_params.${experiment.combos.${experiment.choice}.white_kernel_params}}
+arc_cosine_env: ${function_params.${experiment.combos.${experiment.choice}.arc_cosine_kernel_params}}
+exponential_env: ${function_params.${experiment.combos.${experiment.choice}.exponential_kernel_params}}
+rational_quadratic_env: ${function_params.${experiment.combos.${experiment.choice}.rational_quadratic_kernel_params}}
+
 
 function_types: []
 bounds: ${experiment.combos.${experiment.choice}.bounds}
@@ -30,8 +43,8 @@ degree: ${experiment.combos.${experiment.choice}.degree}
 rank: ${experiment.combos.${experiment.choice}.rank}
 num_oscillations: ${experiment.combos.${experiment.choice}.oscilations}
 random: ${experiment.combos.${experiment.choice}.random}
-batch_expand_hidden: [128, 256, 128]
-batch_combine_hidden: [128, 256, 128]
-step_expand_hidden: [128, 256, 128]
-input_combine_hidden: [128, 256, 128]
+batch_expand_hidden: [256, 512, 256]
+batch_combine_hidden: [256, 512, 256]
+step_expand_hidden: [256, 512, 256]
+input_combine_hidden: [256, 512, 256]
 tag: no_tag

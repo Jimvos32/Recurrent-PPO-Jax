@@ -1,317 +1,26 @@
 combos:
-  exp1:
-    batches: [1, 1]
-    max_episode_steps: 12
-  exp2:
-    batches: [2, 2]
-    max_episode_steps: 3
-  exp3:
-    batches: [4, 4]
-    max_episode_steps: 1
-  exp4:
-    batches: [1, 1]
-    max_episode_steps: 12
-  exp5:
-    batches: [3, 3]
-    max_episode_steps: 4
-  exp6:
-    batches: [12, 12]
-    max_episode_steps: 1
-  exp7:
-    batches: [1, 1]
-    max_episode_steps: 16
-  exp8:
-    batches: [4, 4]
-    max_episode_steps: 4
-  exp9:
-    batches: [16, 16]
-    max_episode_steps: 1
-  exp10:
-    batches: [1, 1]
-    dist_model: standard
-    project_name: "test"
-    name: "flow_jax"
-    task: "flow_jax"
-    env_train: ["poly", "cosine"]
-    env_test: ["ackley"]
-    steps: 200000
-    
-    bounds: [-5, 5]
-    total_episode_samples: 12
-    action_dim: 1
-    degree: 2
-    rank: 2
-    oscilations: 5
-    random: false
-    sample_distribution: 5
-
-  flow_test:
-    batches: [1, 1]
-    dist_model: standard
-    project_name: "flow_test"
-    name: "full_params"
-    task: "full_params"
-    env_train: ["poly"]
-    env_test: ["ackley"]
-    steps: 500000
-    
-    bounds: [-5, 5]
-    total_episode_samples: 25
-    action_dim: 3
-    degree: 2
-    rank: 2
-    oscilations: 5
-    random: false
-    sample_distribution: 5
-
-
-  test_1:
-    batches: [1, 1]
-    dist_model: standard
-    project_name: "t_2d"
-    name: "full_params"
-    task: "full_params"
-    env_train: ["poly"]
-    env_test: ["ackley", "eggholder", "michalewicz", "branin", "cosine"]
-    steps: 500000
-    
-    bounds: [-5, 5]
-    total_episode_samples: 25
-    action_dim: 2
-    degree: 2
-    rank: 2
-    oscilations: 5
-    random: false
-    sample_distribution: 5
-
-  test_2:
-    batches: [3, 3]
-    dist_model: standard
-    project_name: "t_2d"
-    name: "full_params"
-    task: "full_params"
-    env_train: ["poly"]
-    env_test: ["ackley", "eggholder", "michalewicz", "branin", "cosine"]
-    steps: 500000
-    
-    bounds: [-5, 5]
-    total_episode_samples: 25
-    action_dim: 2
-    degree: 2
-    rank: 2
-    oscilations: 5
-    random: false
-    sample_distribution: 5
-
-  test_3:
-    batches: [8, 8]
-    dist_model: standard
-    project_name: "t_2d"
-    name: "full_params"
-    task: "full_params"
-    env_train: ["poly"]
-    env_test: ["ackley", "eggholder", "michalewicz", "branin", "cosine"]
-    steps: 500000
-    
-    bounds: [-5, 5]
-    total_episode_samples: 24
-    action_dim: 2
-    degree: 2
-    rank: 2
-    oscilations: 5
-    random: false
-    sample_distribution: 5
-
-  test_4:
-    batches: [2, 1]
-    dist_model: standard
-    project_name: "t_2d"
-    name: "full_params"
-    task: "full_params"
-    env_train: ["poly"]
-    env_test: ["ackley", "eggholder", "michalewicz", "branin", "cosine"]
-    steps: 500000
-    
-    bounds: [-5, 5]
-    total_episode_samples: 24
-    action_dim: 2
-    degree: 2
-    rank: 2
-    oscilations: 5
-    random: false
-    sample_distribution: 5
-
-  test_5:
-    batches: [1,3,2,4]
-    dist_model: standard
-    project_name: "t_2d"
-    name: "full_params"
-    task: "full_params"
-    env_train: ["poly"]
-    env_test: ["ackley", "eggholder", "michalewicz", "branin", "cosine"]
-    steps: 500000
-    
-    bounds: [-5, 5]
-    total_episode_samples: 24
-    action_dim: 2
-    degree: 2
-    rank: 2
-    oscilations: 5
-    random: false
-    sample_distribution: 5
-
-  test_6:
-    batches: [3,4,3,4]
-    dist_model: standard
-    project_name: "t_2d"
-    name: "full_params"
-    task: "full_params"
-    env_train: ["poly"]
-    env_test: ["ackley", "eggholder", "michalewicz", "branin", "cosine"]
-    steps: 500000
-    
-    bounds: [-5, 5]
-    total_episode_samples: 24
-    action_dim: 2
-    degree: 2
-    rank: 2
-    oscilations: 5
-    random: false
-    sample_distribution: 5
-
-  test_7:
-    batches: [1,6,1,6]
-    dist_model: standard
-    project_name: "t_2d"
-    name: "full_params"
-    task: "full_params"
-    env_train: ["poly"]
-    env_test: ["ackley", "eggholder", "michalewicz", "branin", "cosine"]
-    steps: 500000
-    
-    bounds: [-5, 5]
-    total_episode_samples: 24
-    action_dim: 2
-    degree: 2
-    rank: 2
-    oscilations: 5
-    random: false
-    sample_distribution: 5
-
-  test_8:
-    batches: [1,6,3,4]
-    dist_model: standard
-    project_name: "t_2d"
-    name: "full_params"
-    task: "full_params"
-    env_train: ["poly"]
-    env_test: ["ackley", "eggholder", "michalewicz", "branin", "cosine"]
-    steps: 500000
-    
-    bounds: [-5, 5]
-    total_episode_samples: 24
-    action_dim: 2
-    degree: 2
-    rank: 2
-    oscilations: 5
-    random: false
-    sample_distribution: 5
-
-  simple:
-    batches: [1, 1]
-    dist_model: standard
-    project_name: "t_2d"
-    name: "full_params"
-    task: "full_params"
-    env_train: ["poly"]
-    env_test: ["cosine"]
-    steps: 500000
-
-    bounds: [-5, 5]
-    total_episode_samples: 6
-    action_dim: 1
-    degree: 2
-    rank: 2
-    oscilations: 0
-    random: false
-    sample_distribution: 5
-
-  simple_s:
-    batches: [1, 1]
-    dist_model: standard
-    project_name: "t_2d"
-    name: "full_params"
-    task: "full_params"
-    env_train: ["cosine"]
-    env_test: ["poly"]
-    steps: 500000
-
-    bounds: [-5, 5]
-    total_episode_samples: 6
-    action_dim: 1
-    degree: 2
-    rank: 2
-    oscilations: 0
-    random: false
-    sample_distribution: 5
-
-  # flow_test_old:
-  #   batches: [1, 1]
-  #   dist_model: standard
-  #   project_name: "flow_test"
-  #   name: "flow_jax"
-  #   task: "flow_jax"
-  #   env_train: ["poly"]
-  #   env_test: ["ackley"]
-  #   steps: 500000
-    
-  #   bounds: [-5, 5]
-  #   total_episode_samples: 25
-  #   action_dim: 3
-  #   degree: 2
-  #   rank: 2
-  #   oscilations: 5
-  #   random: false
-  #   sample_distribution: 5
-
-
-  jax_env:
-    batches: [1,3, 2,4]
-    dist_model: standard
-    project_name: "flow_test"
+  test_neg_abs:
+    batches: [1,1]
+    dist_model: normal
+    flow: standard
+    project_name: "seperate_loss_test"
     pol_dist: "full_params"
     task: "jax"
-    env_train: ["poly"]
-    env_test: ["ackley"]
-    steps: 500000
-    
-    bounds: [-5, 5]
-    total_episode_samples: 25
-    action_dim: 2
-    degree: 2
-    rank: 2
-    oscilations: 5
-    random: false
-    sample_distribution: 5
-
-  test_jax:
-    batches: [1,1]
-    dist_model: standard
-    project_name: "seperate_loss_test"
-    pol_dist: "flow_jax_mvn"
-    task: "jax"
     env_train: ["neg_abs"]
-    env_test: ["poly"]
+    env_test: ["neg_abs", "poly"]
     steps: 1000000
-    
+    # ["matern52_kernel", "matern32_kernel", "RBF_kernel", "polynomial_kernel", "linear_kernel", "periodic_kernel", "white_kernel", "arc_cosine_kernel", "exponential_kernel", "rational_quadratic_kernel"]
     bounds: [-1, 1]
-    total_episode_samples: 5
+    total_episode_samples: 20
     action_dim: 1
     degree: 2
     rank: 2
     oscilations: 5
     random: false
     sample_distribution: 5
+    reset_frequency: 3
+    f_prediction: true
+
 
     poly_params: poly_standard
     gaussian_params: gaussian_standard
@@ -326,26 +35,54 @@ combos:
     rbf_kernel_params: rbf_kernel
     michalewicz_params": michalewicz_standard
     rosenbrock_params: rosenbrock_standard
+    discrete_peaks_params: discrete_peaks_standard
 
+    matern32_kernel_params: matern32_kernel
+    matern12_kernel_params: matern12_kernel
+    rff_kernel_params: rff_kernel
+    linear_kernel_params: linear_kernel
+    polynomial_kernel_params: polynomial_kernel
+    periodic_kernel_params: periodic_kernel
+    white_kernel_params: white_kernel
+    arc_cosine_kernel_params: arc_cosine_kernel
+    exponential_kernel_params: exponential_kernel
+    rational_quadratic_kernel_params: rational_quadratic_kernel
 
-  test_standard:
+  test_neg_abs_mvn:
     batches: [1,1]
     dist_model: normal
-    project_name: "seperate_loss_test"
-    pol_dist: "flow_jax_mvn"
+    flow: standard
+
+    flow_pred: planar
+    project_name: "test_neg_abs_mvn"
+    pol_dist: "full_params"
     task: "jax"
     env_train: ["neg_abs"]
-    env_test: ["poly"]
-    steps: 1000000
-    
+    env_test: ["neg_abs"]
+    steps: 35
+    # ["matern52_kernel", "matern32_kernel", "RBF_kernel", "polynomial_kernel", "linear_kernel", "periodic_kernel", "white_kernel", "arc_cosine_kernel", "exponential_kernel", "rational_quadratic_kernel"]
     bounds: [-1, 1]
-    total_episode_samples: 5
+    total_episode_samples: 20
     action_dim: 1
     degree: 2
     rank: 2
     oscilations: 5
     random: false
     sample_distribution: 5
+    reset_frequency: 3
+    f_prediction: true
+    
+    entropy_start: 0.2
+    entropy_end: 0.2
+
+    value_start: 0.5
+    value_end: 0.5
+
+    policy_start: 1.0
+    policy_end: 1.0
+
+    pred_start: 0.2
+    pred_end: 0.2
 
     poly_params: poly_standard
     gaussian_params: gaussian_standard
@@ -360,121 +97,518 @@ combos:
     rbf_kernel_params: rbf_kernel
     michalewicz_params": michalewicz_standard
     rosenbrock_params: rosenbrock_standard
+    discrete_peaks_params: discrete_peaks_standard
 
+    matern32_kernel_params: matern32_kernel
+    matern12_kernel_params: matern12_kernel
+    rff_kernel_params: rff_kernel
+    linear_kernel_params: linear_kernel
+    polynomial_kernel_params: polynomial_kernel
+    periodic_kernel_params: periodic_kernel
+    white_kernel_params: white_kernel
+    arc_cosine_kernel_params: arc_cosine_kernel
+    exponential_kernel_params: exponential_kernel
+    rational_quadratic_kernel_params: rational_quadratic_kernel
 
-
-  matern:
+  test_neg_abs_mvn_1:
     batches: [1,1]
-    dist_model: standard
-    project_name: "seperate_loss_test"
-    pol_dist: "flow_jax_mvn"
+    dist_model: normal
+    flow: standard
+    flow_pred: planar
+    project_name: "test_neg_abs_mvn"
+    pol_dist: "full_params"
     task: "jax"
-    env_train: ["matern52"]
-    env_test: ["poly", "ackley", "gaussian", "matern52"]
-    steps: 10000000
-    
+    env_train: ["neg_abs"]
+    env_test: ["neg_abs"]
+    steps: 600
+    # ["matern52_kernel", "matern32_kernel", "RBF_kernel", "polynomial_kernel", "linear_kernel", "periodic_kernel", "white_kernel", "arc_cosine_kernel", "exponential_kernel", "rational_quadratic_kernel"]
     bounds: [-1, 1]
-    total_episode_samples: 5
+    total_episode_samples: 20
     action_dim: 1
     degree: 2
     rank: 2
     oscilations: 5
     random: false
     sample_distribution: 5
+    reset_frequency: 3
+    f_prediction: true
+    
+    entropy_start: 0.2
+    entropy_end: 0.2
+
+    value_start: 0.5
+    value_end: 0.5
+
+    policy_start: 1.0
+    policy_end: 1.0
+
+    pred_start: 0.2
+    pred_end: 0.2
 
     poly_params: poly_standard
     gaussian_params: gaussian_standard
     ackley_params: ackley_standard
     matern52_params: matern52_standard
     neg_abs_params: neg_abs_standard
+    branin_params: branin_standard
+    cosine_params: cosine_standard
+    egg_params: egg_standard
+    hartmann_params: hartmann_standard
+    matern52_kernel_params: matern52_kernel
+    rbf_kernel_params: rbf_kernel
+    michalewicz_params": michalewicz_standard
+    rosenbrock_params: rosenbrock_standard
+    discrete_peaks_params: discrete_peaks_standard
 
-  matern_long:
+    matern32_kernel_params: matern32_kernel
+    matern12_kernel_params: matern12_kernel
+    rff_kernel_params: rff_kernel
+    linear_kernel_params: linear_kernel
+    polynomial_kernel_params: polynomial_kernel
+    periodic_kernel_params: periodic_kernel
+    white_kernel_params: white_kernel
+    arc_cosine_kernel_params: arc_cosine_kernel
+    exponential_kernel_params: exponential_kernel
+    rational_quadratic_kernel_params: rational_quadratic_kernel
+
+
+
+  test_entropy:
     batches: [1,1]
-    dist_model: standard
-    project_name: "seperate_loss_test"
-    pol_dist: "flow_jax_mvn"
+    dist_model: normal
+    flow: standard
+    project_name: "test_neg_abs_mvn"
+    pol_dist: "full_params"
     task: "jax"
-    env_train: ["matern52"]
-    env_test: ["poly", "ackley", "gaussian", "matern52"]
-    steps: 10000000
-    
+    env_train: ["neg_abs"]
+    env_test: ["neg_abs"]
+    steps: 600000
+    # ["matern52_kernel", "matern32_kernel", "RBF_kernel", "polynomial_kernel", "linear_kernel", "periodic_kernel", "white_kernel", "arc_cosine_kernel", "exponential_kernel", "rational_quadratic_kernel"]
     bounds: [-1, 1]
-    total_episode_samples: 15
+    total_episode_samples: 20
     action_dim: 1
     degree: 2
     rank: 2
     oscilations: 5
     random: false
     sample_distribution: 5
+    reset_frequency: 3
+    f_prediction: true
+    
+    entropy_start: 1.0
+    entropy_end: 1.0
+
+    value_start: 0.0
+    value_end: 0.0
+
+    policy_start: 0.0
+    policy_end: 0.0
+
+    pred_start: 0.0
+    pred_end: 0.0
 
     poly_params: poly_standard
     gaussian_params: gaussian_standard
     ackley_params: ackley_standard
     matern52_params: matern52_standard
     neg_abs_params: neg_abs_standard
+    branin_params: branin_standard
+    cosine_params: cosine_standard
+    egg_params: egg_standard
+    hartmann_params: hartmann_standard
+    matern52_kernel_params: matern52_kernel
+    rbf_kernel_params: rbf_kernel
+    michalewicz_params": michalewicz_standard
+    rosenbrock_params: rosenbrock_standard
+    discrete_peaks_params: discrete_peaks_standard
 
-  matern_batch:
-    batches: [3,3]
-    dist_model: standard
-    project_name: "seperate_loss_test"
-    pol_dist: "flow_jax_mvn"
+    matern32_kernel_params: matern32_kernel
+    matern12_kernel_params: matern12_kernel
+    rff_kernel_params: rff_kernel
+    linear_kernel_params: linear_kernel
+    polynomial_kernel_params: polynomial_kernel
+    periodic_kernel_params: periodic_kernel
+    white_kernel_params: white_kernel
+    arc_cosine_kernel_params: arc_cosine_kernel
+    exponential_kernel_params: exponential_kernel
+    rational_quadratic_kernel_params: rational_quadratic_kernel
+
+  test_entropy_neg:
+    batches: [1,1]
+    dist_model: normal
+    flow: standard
+    project_name: "test_neg_abs_mvn"
+    pol_dist: "full_params"
     task: "jax"
-    env_train: ["matern52"]
-    env_test: ["poly", "ackley", "gaussian", "matern52"]
-    steps: 10000000
-    
+    env_train: ["neg_abs"]
+    env_test: ["neg_abs"]
+    steps: 600000
+    # ["matern52_kernel", "matern32_kernel", "RBF_kernel", "polynomial_kernel", "linear_kernel", "periodic_kernel", "white_kernel", "arc_cosine_kernel", "exponential_kernel", "rational_quadratic_kernel"]
     bounds: [-1, 1]
-    total_episode_samples: 15
+    total_episode_samples: 20
     action_dim: 1
     degree: 2
     rank: 2
     oscilations: 5
     random: false
     sample_distribution: 5
+    reset_frequency: 3
+    f_prediction: true
+    
+    entropy_start: -1.0
+    entropy_end: -1.0
+
+    value_start: 0.0
+    value_end: 0.0
+
+    policy_start: 0.0
+    policy_end: 0.0
+
+    pred_start: 0.0
+    pred_end: 0.0
 
     poly_params: poly_standard
     gaussian_params: gaussian_standard
     ackley_params: ackley_standard
     matern52_params: matern52_standard
     neg_abs_params: neg_abs_standard
+    branin_params: branin_standard
+    cosine_params: cosine_standard
+    egg_params: egg_standard
+    hartmann_params: hartmann_standard
+    matern52_kernel_params: matern52_kernel
+    rbf_kernel_params: rbf_kernel
+    michalewicz_params": michalewicz_standard
+    rosenbrock_params: rosenbrock_standard
+    discrete_peaks_params: discrete_peaks_standard
+
+    matern32_kernel_params: matern32_kernel
+    matern12_kernel_params: matern12_kernel
+    rff_kernel_params: rff_kernel
+    linear_kernel_params: linear_kernel
+    polynomial_kernel_params: polynomial_kernel
+    periodic_kernel_params: periodic_kernel
+    white_kernel_params: white_kernel
+    arc_cosine_kernel_params: arc_cosine_kernel
+    exponential_kernel_params: exponential_kernel
+    rational_quadratic_kernel_params: rational_quadratic_kernel
+
+
+  test_entropy_mvn:
+    batches: [1,1]
+    dist_model: normal
+    flow: standard
+    project_name: "test_neg_abs_mvn"
+    pol_dist: "flow_jax_mvn"
+    task: "jax"
+    env_train: ["neg_abs"]
+    env_test: ["neg_abs"]
+    steps: 600000
+    # ["matern52_kernel", "matern32_kernel", "RBF_kernel", "polynomial_kernel", "linear_kernel", "periodic_kernel", "white_kernel", "arc_cosine_kernel", "exponential_kernel", "rational_quadratic_kernel"]
+    bounds: [-1, 1]
+    total_episode_samples: 20
+    action_dim: 1
+    degree: 2
+    rank: 2
+    oscilations: 5
+    random: false
+    sample_distribution: 5
+    reset_frequency: 3
+    f_prediction: true
+    
+    entropy_start: 1.0
+    entropy_end: 1.0
+
+    value_start: 0.0
+    value_end: 0.0
+
+    policy_start: 0.0
+    policy_end: 0.0
+
+    pred_start: 0.0
+    pred_end: 0.0
+
+
+
+
+
+
+
+
+    poly_params: poly_standard
+    gaussian_params: gaussian_standard
+    ackley_params: ackley_standard
+    matern52_params: matern52_standard
+    neg_abs_params: neg_abs_standard
+    branin_params: branin_standard
+    cosine_params: cosine_standard
+    egg_params: egg_standard
+    hartmann_params: hartmann_standard
+    matern52_kernel_params: matern52_kernel
+    rbf_kernel_params: rbf_kernel
+    michalewicz_params": michalewicz_standard
+    rosenbrock_params: rosenbrock_standard
+    discrete_peaks_params: discrete_peaks_standard
+
+    matern32_kernel_params: matern32_kernel
+    matern12_kernel_params: matern12_kernel
+    rff_kernel_params: rff_kernel
+    linear_kernel_params: linear_kernel
+    polynomial_kernel_params: polynomial_kernel
+    periodic_kernel_params: periodic_kernel
+    white_kernel_params: white_kernel
+    arc_cosine_kernel_params: arc_cosine_kernel
+    exponential_kernel_params: exponential_kernel
+    rational_quadratic_kernel_params: rational_quadratic_kernel
+
+  test_entropy_neg_mvn:
+    batches: [1,1]
+    dist_model: normal
+    flow: standard
+    project_name: "test_neg_abs_mvn"
+    pol_dist: "flow_jax_mvn"
+    task: "jax"
+    env_train: ["neg_abs"]
+    env_test: ["neg_abs"]
+    steps: 600000
+    # ["matern52_kernel", "matern32_kernel", "RBF_kernel", "polynomial_kernel", "linear_kernel", "periodic_kernel", "white_kernel", "arc_cosine_kernel", "exponential_kernel", "rational_quadratic_kernel"]
+    bounds: [-1, 1]
+    total_episode_samples: 20
+    action_dim: 1
+    degree: 2
+    rank: 2
+    oscilations: 5
+    random: false
+    sample_distribution: 5
+    reset_frequency: 3
+    f_prediction: true
+    
+    entropy_start: -1.0
+    entropy_end: -1.0
+
+    value_start: 0.0
+    value_end: 0.0
+
+    policy_start: 0.0
+    policy_end: 0.0
+
+    pred_start: 0.0
+    pred_end: 0.0
+
+    poly_params: poly_standard
+    gaussian_params: gaussian_standard
+    ackley_params: ackley_standard
+    matern52_params: matern52_standard
+    neg_abs_params: neg_abs_standard
+    branin_params: branin_standard
+    cosine_params: cosine_standard
+    egg_params: egg_standard
+    hartmann_params: hartmann_standard
+    matern52_kernel_params: matern52_kernel
+    rbf_kernel_params: rbf_kernel
+    michalewicz_params": michalewicz_standard
+    rosenbrock_params: rosenbrock_standard
+    discrete_peaks_params: discrete_peaks_standard
+
+    matern32_kernel_params: matern32_kernel
+    matern12_kernel_params: matern12_kernel
+    rff_kernel_params: rff_kernel
+    linear_kernel_params: linear_kernel
+    polynomial_kernel_params: polynomial_kernel
+    periodic_kernel_params: periodic_kernel
+    white_kernel_params: white_kernel
+    arc_cosine_kernel_params: arc_cosine_kernel
+    exponential_kernel_params: exponential_kernel
+    rational_quadratic_kernel_params: rational_quadratic_kernel
+
+
+
+  test_pred_peaks:
+    batches: [1,1]
+    dist_model: normal
+    flow: standard
+    project_name: "seperate_loss_test"
+    pol_dist: "flow_jax_mvn"
+    task: "jax"
+    env_train: ["discrete_peaks"]
+    env_test: ["discrete_peaks", "gaussian"]
+    steps: 10000000
+    # ["matern52_kernel", "matern32_kernel", "RBF_kernel", "polynomial_kernel", "linear_kernel", "periodic_kernel", "white_kernel", "arc_cosine_kernel", "exponential_kernel", "rational_quadratic_kernel"]
+    bounds: [-1, 1]
+    total_episode_samples: 10
+    action_dim: 1
+    degree: 2
+    rank: 2
+    oscilations: 5
+    random: false
+    sample_distribution: 5
+    reset_frequency: 3
+    f_prediction: true
+
+    entropy_start: 0.0
+    entropy_end: 0.0
+
+    value_start: 0.0
+    value_end: 0.0
+
+    policy_start: 0.0
+    policy_end: 0.0
+
+    pred_start: 1.0
+    pred_end: 1.0
+
+    poly_params: poly_standard
+    gaussian_params: gaussian_standard
+    ackley_params: ackley_standard
+    matern52_params: matern52_standard
+    neg_abs_params: neg_abs_standard
+    branin_params: branin_standard
+    cosine_params: cosine_standard
+    egg_params: egg_standard
+    hartmann_params: hartmann_standard
+    matern52_kernel_params: matern52_kernel
+    rbf_kernel_params: rbf_kernel
+    michalewicz_params": michalewicz_standard
+    rosenbrock_params: rosenbrock_standard
+    discrete_peaks_params: discrete_peaks_standard
+
+    matern32_kernel_params: matern32_kernel
+    matern12_kernel_params: matern12_kernel
+    rff_kernel_params: rff_kernel
+    linear_kernel_params: linear_kernel
+    polynomial_kernel_params: polynomial_kernel
+    periodic_kernel_params: periodic_kernel
+    white_kernel_params: white_kernel
+    arc_cosine_kernel_params: arc_cosine_kernel
+    exponential_kernel_params: exponential_kernel
+    rational_quadratic_kernel_params: rational_quadratic_kernel
+
+  test_pred_mat:
+    batches: [1,1]
+    dist_model: normal
+    flow: standard
+    project_name: "seperate_loss_test"
+    pol_dist: "flow_jax_mvn"
+    task: "jax"
+    env_train: ["matern52_kernel"]
+    env_test: ["matern52_kernel", "RBF_kernel"]
+    steps: 10000000
+    # ["matern52_kernel", "matern32_kernel", "RBF_kernel", "polynomial_kernel", "linear_kernel", "periodic_kernel", "white_kernel", "arc_cosine_kernel", "exponential_kernel", "rational_quadratic_kernel"]
+    bounds: [-1, 1]
+    total_episode_samples: 10
+    action_dim: 1
+    degree: 2
+    rank: 2
+    oscilations: 5
+    random: false
+    sample_distribution: 5
+    reset_frequency: 3
+    f_prediction: true
+
+    entropy_start: 0.0
+    entropy_end: 0.0
+
+    value_start: 0.0
+    value_end: 0.0
+
+    policy_start: 0.0
+    policy_end: 0.0
+
+    pred_start: 1.0
+    pred_end: 1.0
+
+
+    poly_params: poly_standard
+    gaussian_params: gaussian_standard
+    ackley_params: ackley_standard
+    matern52_params: matern52_standard
+    neg_abs_params: neg_abs_standard
+    branin_params: branin_standard
+    cosine_params: cosine_standard
+    egg_params: egg_standard
+    hartmann_params: hartmann_standard
+    matern52_kernel_params: matern52_kernel
+    rbf_kernel_params: rbf_kernel
+    michalewicz_params": michalewicz_standard
+    rosenbrock_params: rosenbrock_standard
+    discrete_peaks_params: discrete_peaks_standard
+
+    matern32_kernel_params: matern32_kernel
+    matern12_kernel_params: matern12_kernel
+    rff_kernel_params: rff_kernel
+    linear_kernel_params: linear_kernel
+    polynomial_kernel_params: polynomial_kernel
+    periodic_kernel_params: periodic_kernel
+    white_kernel_params: white_kernel
+    arc_cosine_kernel_params: arc_cosine_kernel
+    exponential_kernel_params: exponential_kernel
+    rational_quadratic_kernel_params: rational_quadratic_kernel
+
 
   
 
-  matern_normal:
+
+  test_full_flow:
     batches: [1,1]
     dist_model: normal
+    flow: standard
     project_name: "seperate_loss_test"
-    pol_dist: "flow_jax_mvn"
+    pol_dist: "full_params"
     task: "jax"
-    env_train: ["matern52"]
-    env_test: ["poly", "ackley", "gaussian", "matern52"]
-    steps: 10000000
-    
+    env_train: ["discrete_peaks"]
+    env_test: ["matern52_kernel", "gaussian", "ackley", "RBF_kernel", "arc_cosine_kernel", "poly", "polynomial_kernel"]
+    steps: 20000000
+    # ["matern52_kernel", "matern32_kernel", "RBF_kernel", "polynomial_kernel", "linear_kernel", "periodic_kernel", "white_kernel", "arc_cosine_kernel", "exponential_kernel", "rational_quadratic_kernel"]
     bounds: [-1, 1]
-    total_episode_samples: 5
+    total_episode_samples: 50
     action_dim: 1
     degree: 2
     rank: 2
     oscilations: 5
     random: false
     sample_distribution: 5
+    reset_frequency: 3
+    f_prediction: true
+
 
     poly_params: poly_standard
     gaussian_params: gaussian_standard
     ackley_params: ackley_standard
     matern52_params: matern52_standard
     neg_abs_params: neg_abs_standard
+    branin_params: branin_standard
+    cosine_params: cosine_standard
+    egg_params: egg_standard
+    hartmann_params: hartmann_standard
+    matern52_kernel_params: matern52_kernel
+    rbf_kernel_params: rbf_kernel
+    michalewicz_params": michalewicz_standard
+    rosenbrock_params: rosenbrock_standard
+    discrete_peaks_params: discrete_peaks_standard
 
-  matern_long_normal:
+    matern32_kernel_params: matern32_kernel
+    matern12_kernel_params: matern12_kernel
+    rff_kernel_params: rff_kernel
+    linear_kernel_params: linear_kernel
+    polynomial_kernel_params: polynomial_kernel
+    periodic_kernel_params: periodic_kernel
+    white_kernel_params: white_kernel
+    arc_cosine_kernel_params: arc_cosine_kernel
+    exponential_kernel_params: exponential_kernel
+    rational_quadratic_kernel_params: rational_quadratic_kernel
+
+
+  test_aa:
     batches: [1,1]
     dist_model: normal
+    flow: standard
     project_name: "seperate_loss_test"
-    pol_dist: "flow_jax_mvn"
+    pol_dist: "full_params"
     task: "jax"
-    env_train: ["matern52"]
-    env_test: ["poly", "ackley", "gaussian", "matern52"]
-    steps: 10000000
-    
+    env_train: ["neg_abs"]
+    env_test: ["neg_abs", "poly"]
+    steps: 1000000
+    # ["matern52_kernel", "matern32_kernel", "RBF_kernel", "polynomial_kernel", "linear_kernel", "periodic_kernel", "white_kernel", "arc_cosine_kernel", "exponential_kernel", "rational_quadratic_kernel"]
     bounds: [-1, 1]
     total_episode_samples: 15
     action_dim: 1
@@ -483,25 +617,208 @@ combos:
     oscilations: 5
     random: false
     sample_distribution: 5
+    reset_frequency: 12
+    f_prediction: true
+
 
     poly_params: poly_standard
     gaussian_params: gaussian_standard
     ackley_params: ackley_standard
     matern52_params: matern52_standard
     neg_abs_params: neg_abs_standard
+    branin_params: branin_standard
+    cosine_params: cosine_standard
+    egg_params: egg_standard
+    hartmann_params: hartmann_standard
+    matern52_kernel_params: matern52_kernel
+    rbf_kernel_params: rbf_kernel
+    michalewicz_params": michalewicz_standard
+    rosenbrock_params: rosenbrock_standard
+    discrete_peaks_params: discrete_peaks_standard
+
+    matern32_kernel_params: matern32_kernel
+    matern12_kernel_params: matern12_kernel
+    rff_kernel_params: rff_kernel
+    linear_kernel_params: linear_kernel
+    polynomial_kernel_params: polynomial_kernel
+    periodic_kernel_params: periodic_kernel
+    white_kernel_params: white_kernel
+    arc_cosine_kernel_params: arc_cosine_kernel
+    exponential_kernel_params: exponential_kernel
+    rational_quadratic_kernel_params: rational_quadratic_kernel
 
 
+  test_base:
+    batches: [1,1]
+    dist_model: normal
+    flow: standard
+    project_name: "seperate_loss_test"
+    pol_dist: "full_params"
+    task: "jax"
+    env_train: ["matern52_kernel"]
+    env_test: ["matern52_kernel", "gaussian", "ackley", "RBF_kernel", "arc_cosine_kernel", "poly", "polynomial_kernel"]
+    steps: 20000000
+    # ["matern52_kernel", "matern32_kernel", "RBF_kernel", "polynomial_kernel", "linear_kernel", "periodic_kernel", "white_kernel", "arc_cosine_kernel", "exponential_kernel", "rational_quadratic_kernel"]
+    bounds: [-1, 1]
+    total_episode_samples: 50
+    action_dim: 1
+    degree: 2
+    rank: 2
+    oscilations: 5
+    random: false
+    sample_distribution: 5
+    reset_frequency: 3
+    f_prediction: true
 
-  matern_batch_normal:
+    poly_params: poly_standard
+    gaussian_params: gaussian_standard
+    ackley_params: ackley_standard
+    matern52_params: matern52_standard
+    neg_abs_params: neg_abs_standard
+    branin_params: branin_standard
+    cosine_params: cosine_standard
+    egg_params: egg_standard
+    hartmann_params: hartmann_standard
+    matern52_kernel_params: matern52_kernel
+    rbf_kernel_params: rbf_kernel
+    michalewicz_params": michalewicz_standard
+    rosenbrock_params: rosenbrock_standard
+    discrete_peaks_params: discrete_peaks_standard
+
+    matern32_kernel_params: matern32_kernel
+    matern12_kernel_params: matern12_kernel
+    rff_kernel_params: rff_kernel
+    linear_kernel_params: linear_kernel
+    polynomial_kernel_params: polynomial_kernel
+    periodic_kernel_params: periodic_kernel
+    white_kernel_params: white_kernel
+    arc_cosine_kernel_params: arc_cosine_kernel
+    exponential_kernel_params: exponential_kernel
+    rational_quadratic_kernel_params: rational_quadratic_kernel
+
+  test_base_normal:
+    batches: [1,1]
+    dist_model: normal
+    flow: planar
+    project_name: "seperate_loss_test"
+    pol_dist: "full_params"
+    task: "jax"
+    env_train: ["matern52_kernel"]
+    env_test: ["matern52_kernel", "gaussian", "ackley", "RBF_kernel", "arc_cosine_kernel", "poly", "polynomial_kernel"]
+    steps: 20000000
+    # ["matern52_kernel", "matern32_kernel", "RBF_kernel", "polynomial_kernel", "linear_kernel", "periodic_kernel", "white_kernel", "arc_cosine_kernel", "exponential_kernel", "rational_quadratic_kernel"]
+    bounds: [-1, 1]
+    total_episode_samples: 15
+    action_dim: 1
+    degree: 2
+    rank: 2
+    oscilations: 5
+    random: false
+    sample_distribution: 5
+    reset_frequency: 12
+    f_prediction: true
+
+
+    poly_params: poly_standard
+    gaussian_params: gaussian_standard
+    ackley_params: ackley_standard
+    matern52_params: matern52_standard
+    neg_abs_params: neg_abs_standard
+    branin_params: branin_standard
+    cosine_params: cosine_standard
+    egg_params: egg_standard
+    hartmann_params: hartmann_standard
+    matern52_kernel_params: matern52_kernel
+    rbf_kernel_params: rbf_kernel
+    michalewicz_params": michalewicz_standard
+    rosenbrock_params: rosenbrock_standard
+    discrete_peaks_params: discrete_peaks_standard
+
+    matern32_kernel_params: matern32_kernel
+    matern12_kernel_params: matern12_kernel
+    rff_kernel_params: rff_kernel
+    linear_kernel_params: linear_kernel
+    polynomial_kernel_params: polynomial_kernel
+    periodic_kernel_params: periodic_kernel
+    white_kernel_params: white_kernel
+    arc_cosine_kernel_params: arc_cosine_kernel
+    exponential_kernel_params: exponential_kernel
+    rational_quadratic_kernel_params: rational_quadratic_kernel
+
+
+  test_base_mvn:
+    batches: [1,1]
+    dist_model: normal
+    flow: standard
+    project_name: "seperate_loss_test"
+    pol_dist: "flow_jax_mvn"
+    task: "jax"
+    env_train: ["matern52_kernel"]
+    env_test: ["matern52_kernel", "gaussian", "ackley", "RBF_kernel", "arc_cosine_kernel", "poly", "polynomial_kernel"]
+    steps: 20000000
+    # ["matern52_kernel", "matern32_kernel", "RBF_kernel", "polynomial_kernel", "linear_kernel", "periodic_kernel", "white_kernel", "arc_cosine_kernel", "exponential_kernel", "rational_quadratic_kernel"]
+    bounds: [-1, 1]
+    total_episode_samples: 15
+    action_dim: 1
+    degree: 2
+    rank: 2
+    oscilations: 5
+    random: false
+    sample_distribution: 5
+    reset_frequency: 12
+    f_prediction: true
+
+    entropy_start: 0.0
+    entropy_end: 0.0
+
+    value_start: 0.2
+    value_end: 0.2
+
+    policy_start: 1.0
+    policy_end: 1.0
+
+    pred_start: 0.3
+    pred_end: 0.3
+
+
+    poly_params: poly_standard
+    gaussian_params: gaussian_standard
+    ackley_params: ackley_standard
+    matern52_params: matern52_standard
+    neg_abs_params: neg_abs_standard
+    branin_params: branin_standard
+    cosine_params: cosine_standard
+    egg_params: egg_standard
+    hartmann_params: hartmann_standard
+    matern52_kernel_params: matern52_kernel
+    rbf_kernel_params: rbf_kernel
+    michalewicz_params": michalewicz_standard
+    rosenbrock_params: rosenbrock_standard
+    discrete_peaks_params: discrete_peaks_standard
+
+    matern32_kernel_params: matern32_kernel
+    matern12_kernel_params: matern12_kernel
+    rff_kernel_params: rff_kernel
+    linear_kernel_params: linear_kernel
+    polynomial_kernel_params: polynomial_kernel
+    periodic_kernel_params: periodic_kernel
+    white_kernel_params: white_kernel
+    arc_cosine_kernel_params: arc_cosine_kernel
+    exponential_kernel_params: exponential_kernel
+    rational_quadratic_kernel_params: rational_quadratic_kernel
+
+
+  test_batch_normal:
     batches: [3,3]
     dist_model: normal
+    flow: planar
     project_name: "seperate_loss_test"
-    pol_dist: "flow_jax_mvn"
+    pol_dist: "full_params"
     task: "jax"
-    env_train: ["matern52"]
-    env_test: ["poly", "ackley", "gaussian", "matern52"]
+    env_train: ["matern52_kernel"]
+    env_test: ["matern52_kernel", "gaussian", "ackley", "RBF_kernel", "arc_cosine_kernel", "poly", "polynomial_kernel"]
     steps: 10000000
-    
+    # ["matern52_kernel", "matern32_kernel", "RBF_kernel", "polynomial_kernel", "linear_kernel", "periodic_kernel", "white_kernel", "arc_cosine_kernel", "exponential_kernel", "rational_quadratic_kernel"]
     bounds: [-1, 1]
     total_episode_samples: 15
     action_dim: 1
@@ -510,14 +827,362 @@ combos:
     oscilations: 5
     random: false
     sample_distribution: 5
+    reset_frequency: 12
+    f_prediction: true
+
 
     poly_params: poly_standard
     gaussian_params: gaussian_standard
     ackley_params: ackley_standard
     matern52_params: matern52_standard
     neg_abs_params: neg_abs_standard
+    branin_params: branin_standard
+    cosine_params: cosine_standard
+    egg_params: egg_standard
+    hartmann_params: hartmann_standard
+    matern52_kernel_params: matern52_kernel
+    rbf_kernel_params: rbf_kernel
+    michalewicz_params": michalewicz_standard
+    rosenbrock_params: rosenbrock_standard
+    discrete_peaks_params: discrete_peaks_standard
+
+    matern32_kernel_params: matern32_kernel
+    matern12_kernel_params: matern12_kernel
+    rff_kernel_params: rff_kernel
+    linear_kernel_params: linear_kernel
+    polynomial_kernel_params: polynomial_kernel
+    periodic_kernel_params: periodic_kernel
+    white_kernel_params: white_kernel
+    arc_cosine_kernel_params: arc_cosine_kernel
+    exponential_kernel_params: exponential_kernel
+    rational_quadratic_kernel_params: rational_quadratic_kernel
+
+
+  test_batch:
+    batches: [3,3]
+    dist_model: normal
+    flow: planar
+    project_name: "seperate_loss_test"
+    pol_dist: "full_params"
+    task: "jax"
+    env_train: ["matern52_kernel"]
+    env_test: ["matern52_kernel", "gaussian", "ackley", "RBF_kernel", "arc_cosine_kernel", "poly", "polynomial_kernel"]
+    steps: 20000000
+    # ["matern52_kernel", "matern32_kernel", "RBF_kernel", "polynomial_kernel", "linear_kernel", "periodic_kernel", "white_kernel", "arc_cosine_kernel", "exponential_kernel", "rational_quadratic_kernel"]
+    bounds: [-1, 1]
+    total_episode_samples: 50
+    action_dim: 1
+    degree: 2
+    rank: 2
+    oscilations: 5
+    random: false
+    sample_distribution: 5
+    reset_frequency: 3
+    f_prediction: true
+
+
+    poly_params: poly_standard
+    gaussian_params: gaussian_standard
+    ackley_params: ackley_standard
+    matern52_params: matern52_standard
+    neg_abs_params: neg_abs_standard
+    branin_params: branin_standard
+    cosine_params: cosine_standard
+    egg_params: egg_standard
+    hartmann_params: hartmann_standard
+    matern52_kernel_params: matern52_kernel
+    rbf_kernel_params: rbf_kernel
+    michalewicz_params": michalewicz_standard
+    rosenbrock_params: rosenbrock_standard
+    discrete_peaks_params: discrete_peaks_standard
+
+    matern32_kernel_params: matern32_kernel
+    matern12_kernel_params: matern12_kernel
+    rff_kernel_params: rff_kernel
+    linear_kernel_params: linear_kernel
+    polynomial_kernel_params: polynomial_kernel
+    periodic_kernel_params: periodic_kernel
+    white_kernel_params: white_kernel
+    arc_cosine_kernel_params: arc_cosine_kernel
+    exponential_kernel_params: exponential_kernel
+    rational_quadratic_kernel_params: rational_quadratic_kernel
+
+  test_batch_mvn:
+    batches: [3,3]
+    dist_model: normal
+    flow: standard
+    project_name: "seperate_loss_test"
+    pol_dist: "flow_jax_mvn"
+    task: "jax"
+    env_train: ["matern52_kernel"]
+    env_test: ["matern52_kernel", "gaussian", "ackley", "RBF_kernel", "arc_cosine_kernel", "poly", "polynomial_kernel"]
+    steps: 20000000
+    # ["matern52_kernel", "matern32_kernel", "RBF_kernel", "polynomial_kernel", "linear_kernel", "periodic_kernel", "white_kernel", "arc_cosine_kernel", "exponential_kernel", "rational_quadratic_kernel"]
+    bounds: [-1, 1]
+    total_episode_samples: 50
+    action_dim: 1
+    degree: 2
+    rank: 2
+    oscilations: 5
+    random: false
+    sample_distribution: 5
+    reset_frequency: 3
+    f_prediction: true
+
+
+    poly_params: poly_standard
+    gaussian_params: gaussian_standard
+    ackley_params: ackley_standard
+    matern52_params: matern52_standard
+    neg_abs_params: neg_abs_standard
+    branin_params: branin_standard
+    cosine_params: cosine_standard
+    egg_params: egg_standard
+    hartmann_params: hartmann_standard
+    matern52_kernel_params: matern52_kernel
+    rbf_kernel_params: rbf_kernel
+    michalewicz_params": michalewicz_standard
+    rosenbrock_params: rosenbrock_standard
+    discrete_peaks_params: discrete_peaks_standard
+
+    matern32_kernel_params: matern32_kernel
+    matern12_kernel_params: matern12_kernel
+    rff_kernel_params: rff_kernel
+    linear_kernel_params: linear_kernel
+    polynomial_kernel_params: polynomial_kernel
+    periodic_kernel_params: periodic_kernel
+    white_kernel_params: white_kernel
+    arc_cosine_kernel_params: arc_cosine_kernel
+    exponential_kernel_params: exponential_kernel
+    rational_quadratic_kernel_params: rational_quadratic_kernel
+
+
+  test_poly:
+    batches: [1,1]
+    dist_model: normal
+    flow: planar
+    project_name: "seperate_loss_test"
+    pol_dist: "full_params"
+    task: "jax"
+    env_train: ["polynomial_kernel"]
+    env_test: ["poly", "polynomial_kernel"]
+    steps: 20000000
+    # ["matern52_kernel", "matern32_kernel", "RBF_kernel", "polynomial_kernel", "linear_kernel", "periodic_kernel", "white_kernel", "arc_cosine_kernel", "exponential_kernel", "rational_quadratic_kernel"]
+    bounds: [-1, 1]
+    total_episode_samples: 50
+    action_dim: 1
+    degree: 2
+    rank: 2
+    oscilations: 5
+    random: false
+    sample_distribution: 5
+    reset_frequency: 3
+    f_prediction: true
+
+
+    poly_params: poly_standard
+    gaussian_params: gaussian_standard
+    ackley_params: ackley_standard
+    matern52_params: matern52_standard
+    neg_abs_params: neg_abs_standard
+    branin_params: branin_standard
+    cosine_params: cosine_standard
+    egg_params: egg_standard
+    hartmann_params: hartmann_standard
+    matern52_kernel_params: matern52_kernel
+    rbf_kernel_params: rbf_kernel
+    michalewicz_params": michalewicz_standard
+    rosenbrock_params: rosenbrock_standard
+    discrete_peaks_params: discrete_peaks_standard
+
+    matern32_kernel_params: matern32_kernel
+    matern12_kernel_params: matern12_kernel
+    rff_kernel_params: rff_kernel
+    linear_kernel_params: linear_kernel
+    polynomial_kernel_params: polynomial_kernel
+    periodic_kernel_params: periodic_kernel
+    white_kernel_params: white_kernel
+    arc_cosine_kernel_params: arc_cosine_kernel
+    exponential_kernel_params: exponential_kernel
+    rational_quadratic_kernel_params: rational_quadratic_kernel
+
+
+  test_poly_mvn:
+    batches: [1,1]
+    dist_model: normal
+    flow: standard
+    project_name: "seperate_loss_test"
+    pol_dist: "flow_jax_mvn"
+    task: "jax"
+    env_train: ["polynomial_kernel"]
+    env_test: ["poly", "polynomial_kernel"]
+    steps: 20000000
+    # ["matern52_kernel", "matern32_kernel", "RBF_kernel", "polynomial_kernel", "linear_kernel", "periodic_kernel", "white_kernel", "arc_cosine_kernel", "exponential_kernel", "rational_quadratic_kernel"]
+    bounds: [-1, 1]
+    total_episode_samples: 50
+    action_dim: 1
+    degree: 2
+    rank: 2
+    oscilations: 5
+    random: false
+    sample_distribution: 5
+    reset_frequency: 3
+    f_prediction: true
+
+    entropy_start: 0.3
+    entropy_end: 0.1
+
+    value_start: 0.2
+    value_end: 0.2
+
+    policy_start: 1.0
+    policy_end: 1.0
+
+    pred_start: 0.3
+    pred_end: 0.3
+
+    
+
+
+    poly_params: poly_standard
+    gaussian_params: gaussian_standard
+    ackley_params: ackley_standard
+    matern52_params: matern52_standard
+    neg_abs_params: neg_abs_standard
+    branin_params: branin_standard
+    cosine_params: cosine_standard
+    egg_params: egg_standard
+    hartmann_params: hartmann_standard
+    matern52_kernel_params: matern52_kernel
+    rbf_kernel_params: rbf_kernel
+    michalewicz_params": michalewicz_standard
+    rosenbrock_params: rosenbrock_standard
+    discrete_peaks_params: discrete_peaks_standard
+
+    matern32_kernel_params: matern32_kernel
+    matern12_kernel_params: matern12_kernel
+    rff_kernel_params: rff_kernel
+    linear_kernel_params: linear_kernel
+    polynomial_kernel_params: polynomial_kernel
+    periodic_kernel_params: periodic_kernel
+    white_kernel_params: white_kernel
+    arc_cosine_kernel_params: arc_cosine_kernel
+    exponential_kernel_params: exponential_kernel
+    rational_quadratic_kernel_params: rational_quadratic_kernel
+
+
+  test_peaks:
+    batches: [1,1]
+    dist_model: normal
+    flow: planar
+    project_name: "seperate_loss_test"
+    pol_dist: "full_params"
+    task: "jax"
+    env_train: ["discrete_peaks"]
+    env_test: ["discrete_peaks", "gaussian"]
+    steps: 20000000
+    # ["matern52_kernel", "matern32_kernel", "RBF_kernel", "polynomial_kernel", "linear_kernel", "periodic_kernel", "white_kernel", "arc_cosine_kernel", "exponential_kernel", "rational_quadratic_kernel"]
+    bounds: [-1, 1]
+    total_episode_samples: 50
+    action_dim: 1
+    degree: 2
+    rank: 2
+    oscilations: 5
+    random: false
+    sample_distribution: 5
+    reset_frequency: 3
+    f_prediction: true
+
+
+    poly_params: poly_standard
+    gaussian_params: gaussian_standard
+    ackley_params: ackley_standard
+    matern52_params: matern52_standard
+    neg_abs_params: neg_abs_standard
+    branin_params: branin_standard
+    cosine_params: cosine_standard
+    egg_params: egg_standard
+    hartmann_params: hartmann_standard
+    matern52_kernel_params: matern52_kernel
+    rbf_kernel_params: rbf_kernel
+    michalewicz_params": michalewicz_standard
+    rosenbrock_params: rosenbrock_standard
+    discrete_peaks_params: discrete_peaks_standard
+
+    matern32_kernel_params: matern32_kernel
+    matern12_kernel_params: matern12_kernel
+    rff_kernel_params: rff_kernel
+    linear_kernel_params: linear_kernel
+    polynomial_kernel_params: polynomial_kernel
+    periodic_kernel_params: periodic_kernel
+    white_kernel_params: white_kernel
+    arc_cosine_kernel_params: arc_cosine_kernel
+    exponential_kernel_params: exponential_kernel
+    rational_quadratic_kernel_params: rational_quadratic_kernel
+
+
+  test_peaks_mvn:
+    batches: [1,1]
+    dist_model: normal
+    flow: standard
+    project_name: "seperate_loss_test"
+    pol_dist: "flow_jax_mvn"
+    task: "jax"
+    env_train: ["discrete_peaks"]
+    env_test: ["discrete_peaks", "gaussian"]
+    steps: 20000000
+    # ["matern52_kernel", "matern32_kernel", "RBF_kernel", "polynomial_kernel", "linear_kernel", "periodic_kernel", "white_kernel", "arc_cosine_kernel", "exponential_kernel", "rational_quadratic_kernel"]
+    bounds: [-1, 1]
+    total_episode_samples: 10
+    action_dim: 1
+    degree: 2
+    rank: 2
+    oscilations: 5
+    random: false
+    sample_distribution: 5
+    reset_frequency: 3
+    f_prediction: true
+
+    entropy_start: 0.1
+    entropy_end: 0.1
+
+    value_start: 0.3
+    value_end: 0.3
+
+    policy_start: 1.0
+    policy_end: 1.0
+
+    pred_start: 0.3
+    pred_end: 0.3
+
+
+    poly_params: poly_standard
+    gaussian_params: gaussian_standard
+    ackley_params: ackley_standard
+    matern52_params: matern52_standard
+    neg_abs_params: neg_abs_standard
+    branin_params: branin_standard
+    cosine_params: cosine_standard
+    egg_params: egg_standard
+    hartmann_params: hartmann_standard
+    matern52_kernel_params: matern52_kernel
+    rbf_kernel_params: rbf_kernel
+    michalewicz_params": michalewicz_standard
+    rosenbrock_params: rosenbrock_standard
+    discrete_peaks_params: discrete_peaks_standard
+
+    matern32_kernel_params: matern32_kernel
+    matern12_kernel_params: matern12_kernel
+    rff_kernel_params: rff_kernel
+    linear_kernel_params: linear_kernel
+    polynomial_kernel_params: polynomial_kernel
+    periodic_kernel_params: periodic_kernel
+    white_kernel_params: white_kernel
+    arc_cosine_kernel_params: arc_cosine_kernel
+    exponential_kernel_params: exponential_kernel
+    rational_quadratic_kernel_params: rational_quadratic_kernel
+
+
 
  
-  
-
 

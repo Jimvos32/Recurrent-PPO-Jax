@@ -45,6 +45,8 @@ task_to_trainer={
 
 @hydra.main(version_base=None, config_path="config", config_name="sweep_test")
 def main(config: DictConfig):
+    
+    
 
     # --- Configuration & Setup ---
     # logger.info("Starting Job for Config:\n"+str(OmegaConf.to_yaml(config)))
@@ -61,12 +63,10 @@ def main(config: DictConfig):
     elif config.trainer.run_mode == "eval_random":
         mode = "random"
         
-    print("mode", mode)
         
     run_name = f"method {mode}-batch {batch_str}-samples {config.task.total_episode_samples}{norm}-seed {config.seed}- {config.run_name}"
-    print("run_name", run_name)
 
-    env_str = "train" + str(config.task.env_train) + "-test" + str(config.task.env_test)
+    env_str = "train" + str(config.task.env_train) #+ "-test" + str(config.task.env_test)
     project_name = f"env {env_str}-dim {config.task.action_dim}-{config.project_name}"
     tags = config.tags.split(',') if config.tags is not None else []
     # Example tag: tags = [f"m{config.task.task}b{batch_str}s{config.task.total_episode_samples}"]
@@ -92,6 +92,14 @@ def main(config: DictConfig):
 
     trainer_config = config.trainer
     env_config = config.task # This should be the DictConfig object for env parameters
+    
+    
+    if sys.platform=='win32':
+        root_dir = r"C:\Users\jimvo\Documents\Policy_Distribution_Plots\\"
+    else:
+        root_dir = r"/tudelft.net/staff-umbrella/mscjimvos//Policy_Distribution_Plots/"
+        
+    config["root_dir"] = root_dir
 
     # --- Instantiate Trainer ---
     kwargs={'trainer_config': trainer_config,

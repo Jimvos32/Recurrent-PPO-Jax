@@ -6,8 +6,8 @@ actor_params_hidden: [128, 256, 128]
 decoder_params_hidden: [128, 256, 128]
 latent_dim: 6
 d_critic: 128
-num_envs: 4
-rollout_len: 128
+num_envs: 2
+rollout_len: 16
 sequence_length: null
 gamma: 0.99
 gae_lambda: 0.95
@@ -16,23 +16,40 @@ update_epochs: 4
 norm_adv: false
 clip_coef: 0.1
 dist_model: ${experiment.combos.${experiment.choice}.dist_model}
+reset_frequency:  ${experiment.combos.${experiment.choice}.reset_frequency}
+
 run_mode: train
 
 sample_distribution: ${experiment.combos.${experiment.choice}.sample_distribution}
+flow: ${norm_flow.${experiment.combos.${experiment.choice}.flow}}
+pred_flow: ${norm_flow.${experiment.combos.${experiment.choice}.flow_pred}}
+f_prediction: ${experiment.combos.${experiment.choice}.f_prediction}
 
 plot_func: true
 
 ent_coef: 
-  init_value: 0.3
-  end_value: 0.1
-  transition_steps: 1000
+  init_value: ${experiment.combos.${experiment.choice}.entropy_start}
+  end_value: ${experiment.combos.${experiment.choice}.entropy_end}
+  transition_steps: 10000
   power: 1
 
-stability_coef: 
-  init_value: 0.06
-  end_value: 0
-  transition_steps: 1000
-  power: 2
+value_coef: 
+  init_value: ${experiment.combos.${experiment.choice}.value_start}
+  end_value: ${experiment.combos.${experiment.choice}.value_end}
+  transition_steps: 10000
+  power: 1
+
+pred_coef: 
+  init_value: ${experiment.combos.${experiment.choice}.pred_start}
+  end_value: ${experiment.combos.${experiment.choice}.pred_end}
+  transition_steps: 10000
+  power: 1
+
+pol_coef:
+  init_value: ${experiment.combos.${experiment.choice}.policy_start}
+  end_value: ${experiment.combos.${experiment.choice}.policy_end}
+  transition_steps: 10000
+  power: 1
 
 vf_coef: 0.4
 max_grad_norm: 0.5

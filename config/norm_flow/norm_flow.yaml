@@ -1,0 +1,73 @@
+planar:
+  layers: [
+    {
+      type: Planar,
+      params: 
+        {negative_slope: 0.01}
+    },
+    {
+      type: Planar,
+      params: 
+        {negative_slope: 0.01}
+    },
+    {
+      type: Planar,
+      params: 
+        {negative_slope: 0.01}
+    },
+    {
+      type: Planar,
+      params: 
+        {negative_slope: 0.01}
+    },
+    {
+      type: Planar,
+      params: 
+        {negative_slope: 0.01}
+    },
+    {
+      type: Planar,
+      params: 
+        {negative_slope: 0.01}
+    },
+    
+  ]
+
+affine:
+  layers: [
+    {
+      type: Affine,
+      params: {}
+    },
+    {
+      type: Affine,
+      params: {}
+    },
+    {
+      type: Affine,
+      params: {}
+    },
+    
+  ]
+
+
+blockautoregressive:
+  layers: [
+    {
+      type: BlockAutoregressive,
+      params: {dim: 128, depth: 2, block_dim: 3}
+    },
+    {
+      type: BlockAutoregressive,
+      params: {dim: 128, depth: 2, block_dim: 3}
+    },
+    {
+      type: BlockAutoregressive,
+      params: {dim: 128, depth: 2, block_dim: 3}
+    },
+    
+  ]
+
+
+standard:
+  layers: []

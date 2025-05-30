@@ -18,7 +18,7 @@ from flowjax.bijections import AbstractBijection, Chain # Import Chain
 
 # Assume ActorCriticModel, model_fns, sampling_impl are imported correctly
 from src.tasks.envs.jax_env_f.jax_env import MultiFunctionGymnax, EnvParams, EnvState
-from src.models.actor_critic import ActorCriticModel
+from src.models.actor_critic import ActorCriticPredictor # Import the updated ActorCriticModelPrediction
 # Assume FlowMVNJax is defined as in the previous response (ID: flowjax_updated_sampler_v2)
 # from .flow_jax import FlowMVNJax 
 
@@ -30,6 +30,7 @@ import numpy as np
 from src.tasks.envs.jax_env_f.jax_disp_samplers import compute_y_sampler_dispatch
 from src.tasks.envs.jax_env_f.jax_env import get_obs, map_to_bounds_jax, get_info
 import matplotlib.pyplot as plt
+from src.model_fns.pred_fns import PredictorModel
 
 
 
@@ -55,10 +56,12 @@ class RolloutData:
     best_actions: chex.Array 
     last_step: chex.Array 
     episode_length: chex.Array 
+   
     masks: Optional[chex.Array] = None 
+    
 
 
-class NormPPOAgentJax:
+class NormPPOAgentJaxPred:
     def __init__(self,
                  env_params: EnvParams,
                  env_params_test: EnvParams,
@@ -66,11 +69,13 @@ class NormPPOAgentJax:
                  seq_model_fn: tuple[Callable, Callable],
                  actor_fn: Callable,
                  critic_fn: Callable,
+                 predictor_fn: PredictorModel,
                  optimizer: optax.GradientTransformation,
                  sampling_impl_class, # e.g., FlowMVNJax
                  # --- Flow Configuration (List of Layers) ---
                  # List of tuples: [(LayerClass1, layer_kwargs1), (LayerClass2, layer_kwargs2), ...]
                  flow_layer_configs: List[Tuple[Type[AbstractBijection], Dict[str, Any]]] | None = None,
+                 pred_flow_layer_configs: List[Tuple[Type[AbstractBijection], Dict[str, Any]]] | None = None,
                  # --- PPO Hyperparameters ---
                  rollout_len: int = 128,
                  gamma: float = 0.99,
@@ -87,6 +92,7 @@ class NormPPOAgentJax:
                  max_grad_norm: float = 0.5,
                  target_kl: Optional[float] = None,
                  reset_frequency: int = 5,
+                 lstm_hidden_size: int = 64, # Size of the LSTM hidden state
                  # Add other relevant config...
                  ):
 
@@ -101,12 +107,15 @@ class NormPPOAgentJax:
         self.clip_coef = clip_coef
         self.ent_coef_schedule = ent_coef_schedule
         self.value_coef_schedule = value_coef_schedule  # Use a schedule for vf_coef
+        self.pred_coef_schedule = pred_coef_schedule  # Use a schedule for pred_coef
+        self.pol_coef_schedule = pol_coef_schedule  # Use a schedule for pol_coef
         self.vf_coef = vf_coef
         self.max_grad_norm = max_grad_norm
         self.target_kl = target_kl
         # ... (rest of hyperparameter initializations) ...
         self.optimizer = optimizer
         self.reset_frequency = reset_frequency
+        self.lstm_hidden_size = lstm_hidden_size
         
         self.action_dim = env_params.action_dim 
 
@@ -116,12 +125,22 @@ class NormPPOAgentJax:
             max_batch=env_params.max_batches,
         )
         
+        self.prediction_sampler = sampling_impl_class(
+            action_dim=1,
+            max_batch=1,
+        )
+        
+        self.predictor_model = predictor_fn
+        self.predictor_apply = self.predictor_model.apply
+        
 
         self.seq_fn, self.seq_init = seq_model_fn
 
         # --- Build Actor-Critic Model (Flax) ---
-        self.ac_model = ActorCriticModel(repr_model_fn, self.seq_fn, actor_fn, critic_fn)
+        self.ac_model = ActorCriticPredictor(repr_model_fn, self.seq_fn, actor_fn, critic_fn)
         self.ac_apply = self.ac_model.apply 
+        
+        
 
         # --- Flow Module Configuration ---
         self.flow_layer_configs = flow_layer_configs if flow_layer_configs else []
@@ -140,6 +159,22 @@ class NormPPOAgentJax:
         else:
             self.static_flow_structure = None
             print("AGENT INIT: No flow configured, static_flow_structure is None.")
+            
+        self.flow_layer_configs_pred = pred_flow_layer_configs if pred_flow_layer_configs else []
+        self.static_flow_structure_pred: Optional[AbstractBijection] = None # Initialize attribute
+            
+            
+        temp_flow_obj_pred = create_flow_chain( 
+            key=init_key_for_structure_only, # Key here might not matter if layers are deterministic in structure
+            action_dim=1, 
+            layer_configs=self.flow_layer_configs_pred
+        )
+        if temp_flow_obj_pred is not None:
+            _, self.static_flow_structure_pred = eqx.partition(temp_flow_obj_pred, eqx.is_array)
+            print(f"AGENT INIT: Stored static_flow_structure with shape: {self.static_flow_structure_pred.shape}")
+        else:
+            self.static_flow_structure_pred = None
+            print("AGENT INIT: No flow configured, static_flow_structure is None.")
  
         # Flow chain instance will be created and stored in parameters during init
 
@@ -149,15 +184,33 @@ class NormPPOAgentJax:
             obs_b = jax.tree_map(lambda x: jnp.expand_dims(x, 0), obs)
             done_b = jnp.expand_dims(done, 0)
             h_prev_b = jax.tree_map(lambda x: x, h_prev) 
-            act_logits_b, value_b, h_next_b = self.ac_apply({'params': ac_params}, obs_b, done_b, h_prev_b)
+            act_logits_b, value_b, h_next_b, hidden = self.ac_apply({'params': ac_params}, obs_b, done_b, h_prev_b)
             act_logits = act_logits_b.squeeze(0)
             value = value_b.squeeze(0)
-            return act_logits, value, h_next_b 
+            return act_logits, value, h_next_b, hidden
         self._actor_critic_step = _actor_critic_step
+        
+        
+        def pred_sampler_integration(ac_params, obs, done, h_prev, dyn_params, mask, key):
+            act_logits, value, memory, _ = self._actor_critic_step(ac_params, jax.random.PRNGKey(0), obs, done, h_prev)
+            action = self.sampling_impl.sampling_differ(act_logits, dyn_params, key, mask)
+            log_prob = self.sampling_impl.gaussian_log_prob(jnp.expand_dims(action, axis=0), jnp.expand_dims(act_logits, axis=0), dyn_params)
+            
+            # #Here I need to call it
+            # # print("hidden shape", hidden.shape, "action shape", action.shape)
+
+            # pred_output = self.predictor_apply( # Use self.predictor_apply here
+            #     {'params': pred_params}, # Pass the predictor's own parameters
+            #     hidden,                                # First argument to PredictorModel.__call__
+            #     action                                 # Second argument to PredictorModel.__call__
+            # )
+            return act_logits, action, log_prob, value, memory#, pred_output
+        
+        self.pred_sampler_integration = pred_sampler_integration
 
     def init(self, key: chex.PRNGKey) -> AgentTrainState:
         """Initializes agent parameters (AC and Flow Chain) and optimizer state."""
-        key, ac_key, flow_init_key = jax.random.split(key, 3)
+        key, ac_key, flow_init_key, pred_key = jax.random.split(key, 4)
 
         # --- Initialize Actor-Critic (Flax) ---
         # (Same as before)
@@ -173,7 +226,20 @@ class NormPPOAgentJax:
         dummy_h_b = jax.tree_map(lambda x: x, dummy_h) 
         ac_params = self.ac_model.init({'params': ac_key}, dummy_obs_b, dummy_done, dummy_h_b)['params']
         
-        dynamic_params_for_state = {'ac': ac_params}
+      
+        
+        
+        dummy_hidden_for_pred = jnp.zeros((1, self.lstm_hidden_size)) #This was (1,257) now (1,256)
+        dummy_action_for_pred = jnp.zeros((1, self.env_params.action_dim))     
+        
+        # print("dummy_hidden_for_pred shape:", dummy_hidden_for_pred.shape, "dummy_action_for_pred shape:", dummy_action_for_pred.shape)
+        
+        predictor_params = self.predictor_model.init(
+            {'params': pred_key}, dummy_hidden_for_pred, dummy_action_for_pred
+        )['params']
+        
+        dynamic_params_for_state = {'ac': ac_params, 'predictor': predictor_params}
+        
 
         if self.static_flow_structure is not None: # Check if flow is configured
             # Create the initial flow object with actual parameters using flow_init_key
@@ -189,6 +255,22 @@ class NormPPOAgentJax:
                 dynamic_params_for_state['flow_dynamic'] = {} 
         else:
             dynamic_params_for_state['flow_dynamic'] = {} # Placeholder if no flow
+            
+            
+        if self.static_flow_structure_pred is not None: # Check if flow is configured
+            # Create the initial flow object with actual parameters using flow_init_key
+            actual_flow_obj = create_flow_chain( 
+                key=flow_init_key, 
+                action_dim=int(1),
+                layer_configs=self.flow_layer_configs_pred
+            )
+            if actual_flow_obj is not None:
+                dynamic_flow_parts, _ = eqx.partition(actual_flow_obj, eqx.is_array)
+                dynamic_params_for_state['pred_flow_dynamic'] = dynamic_flow_parts
+            else: # Should not happen if self.static_flow_structure is not None
+                dynamic_params_for_state['pred_flow_dynamic'] = {} 
+        else:
+            dynamic_params_for_state['pred_flow_dynamic'] = {} # Placeholder if no flow
             
             
 
@@ -216,7 +298,14 @@ class NormPPOAgentJax:
         chex.ArrayTree, initial_obs: chex.ArrayTree, initial_env_states: chex.ArrayTree, 
         env_params: EnvParams, max_batches: int, action_dim: int) -> tuple[tuple[chex.ArrayTree, chex.ArrayTree, chex.ArrayTree], RolloutData]:
         # ... (code is identical to the version in jax_agent_with_flow) ...
+        
+        # print("Rollout called with keys shape:", dynamic_params["predictor"]['MLP_0'].keys())
         ac_params_rollout = dynamic_params['ac']
+        predictor_params_rollout = dynamic_params['predictor']
+        
+        
+        # jax.debug.print("does this even change {}", predictor_params_rollout['MLP_0']['Dense_0']['kernel'][0,0])
+        
         dynamic_flow_parts_rollout = dynamic_params.get('flow_dynamic', {})
 
         def _env_step_scan(carry, key_t):
@@ -228,16 +317,28 @@ class NormPPOAgentJax:
                 current_flow_obj_rollout = eqx.combine(dynamic_flow_parts_rollout, self.static_flow_structure)
                 
             h_reset = self.seq_init() 
-            # jax.debug.print("start sequence reset {}", last_done)
             h_processed = jax.tree_map(lambda reset_h, prev_h: jax.lax.select(last_done, reset_h, prev_h), h_reset, h_prev)
-            act_logits, value, h_next = self._actor_critic_step(ac_params_rollout, key_model, obs, last_done, h_processed) 
+            # act_logits, value, h_next = self._actor_critic_step(ac_params_rollout, key_model, obs, last_done, h_processed) 
             mask = obs.get("mask", None)
-            # Pass the Chain object here
-            action = self.sampling_impl.sampling_differ(act_logits, current_flow_obj_rollout, key_sample, mask)
-            log_prob = self.sampling_impl.gaussian_log_prob(jnp.expand_dims(action, axis=0), jnp.expand_dims(act_logits, axis=0), current_flow_obj_rollout)
+            
+            #  # Pass the Chain object here
+            # action = self.sampling_impl.sampling_differ(act_logits, current_flow_obj_rollout, key_sample, mask)
+            # log_prob = self.sampling_impl.gaussian_log_prob(jnp.expand_dims(action, axis=0), jnp.expand_dims(act_logits, axis=0), current_flow_obj_rollout)
+            
+            act_logits, action, log_prob, value, h_next = self.pred_sampler_integration(
+                ac_params_rollout, obs, last_done, h_processed, current_flow_obj_rollout, mask, key_sample)
+            
+            
+            # print("you must not forget !!!!!!!!")
+            # pred = action
+            
             # log_prob = log_prob.squeeze(0) 
             # ... (rest of _env_step_scan logic) ...
             current_obs, current_env_state, reward, done, info = MultiFunctionGymnax.step_env(key_env_step, env_state, action, env_params, max_batches, action_dim)
+            
+            # jax.debug.print("action {}, obs {}\nact3 {} obs3 {}\n", action, obs["observations"], current_obs["actions"], current_obs["observations"]) # Debug print to check action and observation shapes
+
+            
             def reset_same_fn(_): return MultiFunctionGymnax.reset_env_keep(key_env_reset, env_params, action_dim, max_batches, current_env_state)
             def reset_new_fn(_): return MultiFunctionGymnax.reset_env(key_env_reset, env_params, action_dim, max_batches)
             def no_reset_fn(_): return current_obs, current_env_state
@@ -247,7 +348,11 @@ class NormPPOAgentJax:
             # reset_mode = jnp.where(was_successful, 2, reset_mode)
             final_mode = jax.lax.select(done, reset_mode, 0)
             next_obs_carry, next_env_state_carry = jax.lax.switch(final_mode, [no_reset_fn, reset_same_fn, reset_new_fn], operand=None)
-            step_data = {"obs": obs, "action": action, "reward": reward, "done": done, "value": value, "log_prob": log_prob, "actor_pred": act_logits, "mask": mask, "next_obs": current_obs, "hidden_state": h_processed, "start_dones": last_done, "success": info["success"], "regret": info["scaled_diff"], "best_rewards": info["best_rewards"], "last_yes": info["episode_length"], "tick": info["episode_length"]}
+            step_data = {"obs": obs, "action": action, "reward": reward, "done": done, "value": value, "log_prob": log_prob, 
+                         "actor_pred": act_logits, "mask": mask, "next_obs": current_obs, "hidden_state": h_processed, 
+                         "start_dones": last_done, "success": info["success"], "regret": info["scaled_diff"], 
+                         "best_rewards": info["best_rewards"], "last_yes": info["episode_length"], 
+                         "tick": info["episode_length"]}
             next_carry = (h_next, next_obs_carry, next_env_state_carry, done)
             return next_carry, step_data
 
@@ -258,12 +363,16 @@ class NormPPOAgentJax:
             key_final_model, _ = jax.random.split(key_env)
             h_reset_final = self.seq_init()
             final_h_processed = jax.tree_map(lambda reset_h, prev_h: jax.lax.select(final_done, reset_h, prev_h), h_reset_final, final_h)
-            _, final_value, _ = self._actor_critic_step(ac_params_rollout, key_final_model, final_obs, final_done, final_h_processed)
+            _, final_value, _, _ = self._actor_critic_step(ac_params_rollout, key_final_model, final_obs, final_done, final_h_processed)
             all_obs = jax.tree_map(lambda init, seq_next: jnp.concatenate([jnp.expand_dims(init, 0), seq_next], axis=0), obs_init, step_data_sequence["next_obs"])
             all_values = jnp.concatenate([step_data_sequence["value"], jnp.expand_dims(final_value,0)], axis=0)
-            rollout = RolloutData(observations=all_obs, actions=step_data_sequence["action"], rewards=step_data_sequence["reward"], dones=step_data_sequence["done"], 
-                                  log_probs=step_data_sequence["log_prob"], values=all_values, actor_preds=step_data_sequence["actor_pred"], masks=step_data_sequence["mask"], hidden_states=step_data_sequence["hidden_state"], start_dones=step_data_sequence["start_dones"], success=step_data_sequence["success"], 
-                                  regret=step_data_sequence["regret"], best_actions=step_data_sequence["best_rewards"], last_step=step_data_sequence["last_yes"], episode_length=step_data_sequence["tick"])
+            rollout = RolloutData(observations=all_obs, actions=step_data_sequence["action"], rewards=step_data_sequence["reward"], 
+                                  dones=step_data_sequence["done"], log_probs=step_data_sequence["log_prob"], values=all_values,
+                                  actor_preds=step_data_sequence["actor_pred"], masks=step_data_sequence["mask"], 
+                                  hidden_states=step_data_sequence["hidden_state"], start_dones=step_data_sequence["start_dones"],
+                                  success=step_data_sequence["success"], regret=step_data_sequence["regret"], 
+                                  best_actions=step_data_sequence["best_rewards"], last_step=step_data_sequence["last_yes"], 
+                                  episode_length=step_data_sequence["tick"])
             return (final_h, final_obs, final_env_state), rollout
 
         vmapped_rollout = jax.vmap(_rollout_single_env, in_axes=(0, 0, 0, 0))
@@ -294,10 +403,13 @@ class NormPPOAgentJax:
         
         hidden_states_T = rollout_data.hidden_states # h_0 to h_{T-1}
         start_dones_T = rollout_data.start_dones # d_0 to d_{T-1}
+        
+        
+        # jax.debug.print("actions {} \nobs {}", actions_T[0, :5], obs_T["observations"][0, :5]) # Debug print to check actions and observations
 
        
-        # print("why is this not used??!!!!!!", log_probs_T.shape)
         
+        # jax.debug.print("preds {}\nacts {}\noobs {}\nloss {}\n", predictions_T[0,:5].squeeze(), actions_T[0, :5].squeeze(), obs_T["observations"][0, :5].squeeze(), pred_loss[0,:5].squeeze())
        
         
         discounts_T = self.gamma * (1.0 - dones_T)
@@ -319,17 +431,24 @@ class NormPPOAgentJax:
         advantages = targets - values_T[:, :-1]
         
         num_envs = rewards_T.shape[0]
+        
+        #Why is this done?? Maybe not do this?? and slice in the loss function instead?
         # Observations s_0 to s_{T-1} needed for loss calc
-        observations_loss = jax.tree_map(lambda x: x[:, :-1], obs_T) # Shape (B, T, *)
+        # observations_loss = jax.tree_map(lambda x: x[:, :-1], obs_T) # Shape (B, T, *)
+        
+        # print("obs", observations_loss["observations"].shape, obs_T["observations"].shape)
+        
         # Initial hidden state h_0 for each sequence
         hidden_states_init = jax.tree_map(lambda x: x[:, 0], hidden_states_T) # Shape (B, *h)
         
         actions_T = rollout_data.actions; log_probs_T = rollout_data.log_probs; masks_T = rollout_data.masks
         if self.norm_adv: advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
 
-        def _ppo_loss_fn_single(params_for_loss_calc: chex.ArrayTree, random_key, obs_seq, actions_seq, logp_old_seq, adv_seq, targets_seq, masks_seq, start_dones_seq, h_init):
+        def _ppo_loss_fn_single(params_for_loss_calc: chex.ArrayTree, random_key, obs_seq, actions_seq, logp_old_seq, 
+                                adv_seq, targets_seq, masks_seq, start_dones_seq, h_init):
             key_model, key_entropy = jax.random.split(random_key)
             ac_params_loss = params_for_loss_calc['ac']
+            pred_params_loss = params_for_loss_calc['predictor']
         
             reconstructed_flow_obj_loss = None
             if self.static_flow_structure is not None: # From agent instance
@@ -340,9 +459,16 @@ class NormPPOAgentJax:
                     self.static_flow_structure
                 )
             
+            
+            obs_seq_b = jax.tree_map(lambda x: x[:-1], obs_seq) # Shape (B, T, *)
+            
+            
+            # jax.debug.print("obs_seq_b shape: {}\nactions_seq shape: {}",
+            #                 jnp.sqrt(obs_seq_b["observations"][-5:]), jnp.squeeze(obs_seq["observations"][-5:]))
           
             # Recompute AC outputs
-            act_logits_seq, values_seq, _ = self.ac_apply({'params': ac_params_loss}, obs_seq, start_dones_seq, h_init)
+            ##Potentially slice here??
+            act_logits_seq, values_seq, _, hidden = self.ac_apply({'params': ac_params_loss}, obs_seq_b, start_dones_seq, h_init, seq_grad=False)
             # values_seq = values_seq.squeeze(-1) 
             # Recompute log probs and entropy, passing the Chain object
             logp_new_seq = self.sampling_impl.gaussian_log_prob(actions_seq, act_logits_seq, reconstructed_flow_obj_loss) 
@@ -351,6 +477,60 @@ class NormPPOAgentJax:
             
             entropy_seq = self.sampling_impl.entropy(act_logits_seq, masks_seq, reconstructed_flow_obj_loss, key=key_entropy) 
             mean_entropy = entropy_seq.mean() 
+            
+
+            print("action", actions_seq.shape, "hidden", hidden.shape)
+            
+            # batch_prediction = jax.vmap(
+            #     lambda single_action: self.predictor_apply(
+            #         {'params': pred_params_loss},
+            #         hidden,
+            #         single_action # Reshape (D,) to (1, D)
+            #     ),
+            #     in_axes=1 # We are mapping over the rows of x_policy_pdf_norm_jax
+            # )
+
+            # # 3. Get all predictions in one go
+            # pred_output = batch_prediction(actions_seq)
+            
+            # print("act_s shape", act_s.shape, "hidden shape", hidden.shape, pred_output.shape)
+            
+            
+            # act_s = jnp.squeeze(actions_seq, axis=-1) 
+       
+            # print("act_s shape", act_s.shape, "hidden shape", hidden.shape, pred_output.shape)
+            
+            
+                
+            # pred_output = self.predictor_apply( # Use self.predictor_apply here
+            #     {'params': pred_params_loss}, # Pass the predictor's own parameters
+            #     hidden,                                # First argument to PredictorModel.__call__
+            #     act_s                                 # Second argument to PredictorModel.__call__
+            # )
+            
+            # print("act_s shape", act_s.shape, "hidden shape", hidden.shape, pred_output.shape)
+            print("2act_s shape", actions_seq.shape)
+            batch_prediction = jax.vmap(
+                lambda single_action: self.predictor_apply(
+                    {'params': pred_params_loss},
+                    hidden,
+                    single_action # Reshape (D,) to (1, D)
+                ),
+                in_axes=1 # We are mapping over the rows of x_policy_pdf_norm_jax
+            )
+           
+            # 3. Get all predictions in one go
+            pred_output = batch_prediction(actions_seq)
+            
+            print("2act_s shape", actions_seq.shape, "h2idden shape", hidden.shape, pred_output.shape)
+            
+            
+            pred_output = jnp.transpose(pred_output, (1, 0, 2))  # Transpose to match the expected shape
+            
+            
+            
+            
+            
             # Policy Loss
             logratio = logp_new_seq - logp_old_seq
             ratio = jnp.exp(jnp.clip(logratio, -20, 20))
@@ -361,21 +541,83 @@ class NormPPOAgentJax:
             v_loss =  v_coeff * jnp.square(values_seq - targets_seq).mean()
             # Total Loss
             ent_coef = self.ent_coef_schedule(update_step)
+        
             
             # jax.debug.print("ent_coef {}", ent_coef)
             ent_loss = ent_coef * mean_entropy
             
-            total_loss = pg_loss + v_loss - ent_loss
+            
+            # jax.debug.print("pg_loss {}, v_loss {}, ent_loss {}, ent_coef {}", pg_loss, v_loss, ent_loss, ent_coef)
+            
+            pred_coeff = self.pred_coef_schedule(update_step)
+            # print("predicitons_seq shape", pred_loss_seq.shape, "obs_seq shape", obs_seq["observations"].shape, actions_seq.shape)
+            
+            # print("pred_loss_seq shape", pred_output.shape, "actions_seq shape", obs_seq["observations"].shape)
+            
+            ####This is the part where I have to cut data from both sides of the sequence, which seems to be wasting data
+            
+            pred_flow_object = None
+            if self.static_flow_structure_pred is not None: # From agent instance
+                # params_for_loss_calc['flow_dynamic'] has the current dynamic flow params
+                # jax.debug.print("flow_dynamic params shape: {} {} {}", params_for_loss_calc['flow_dynamic'][0].params,  params_for_loss_calc['flow_dynamic'][-1].params, ac_params_loss['actor']['MLP_1']['Dense_0'])
+                pred_flow_object = eqx.combine(
+                    params_for_loss_calc.get('pred_flow_dynamic', {}), # Default to empty if not present
+                    self.static_flow_structure_pred
+                )
+            
+            # prediction = self.prediction_sampler.sampling_differ(
+            #     pred_output, pred_flow_object, key_model, masks_seq)
+            
+            # pred_logprob = self.sampling_impl.gaussian_log_prob(actions_seq, act_logits_seq, reconstructed_flow_obj_loss) 
+            
+            
+            prediction_loss = jax.vmap(
+                lambda true_obs, dist_params: self.prediction_sampler.gaussian_log_prob(
+                    jnp.expand_dims(true_obs, 1),
+                    jnp.expand_dims(dist_params, 1),
+                    pred_flow_object # Reshape (D,) to (1, D)
+                ),
+                in_axes=(1,1) # We are mapping over the rows of x_policy_pdf_norm_jax
+            )
+           
+            # 3. Get all predictions in one go
+            pred_losses = prediction_loss(obs_seq["observations"][1:], pred_output)
+            # pred = obs_seq["observations"][1:]
+            # print("pred shape", pred.shape, "pred_output shape", pred_output.shape, "obs_seq shape", obs_seq["observations"].shape)
+            # gaussian_log_prob_pred = self.prediction_sampler.gaussian_log_prob(
+            #     obs_seq["observations"][1:], pred_output, pred_flow_object)
+            
+            # print("pred shape", pred.shape, "pred_output shape", pred_output.shape, "obs_seq shape", obs_seq["observations"].shape, "gaussian_log_prob_pred shape", gaussian_log_prob_pred.shape)
+            
+            
+            
+            # pred_diff = pred_output - jnp.squeeze(obs_seq["observations"][1:], -1)  # Predictions minus observations
+            print("pred_losses shape", pred_losses.shape, "pred_output shape", pred_output.shape, "obs_seq shape", obs_seq["observations"].shape)
+         
+            pred_loss = pred_coeff * jnp.mean(jnp.square(pred_losses))  # Mean squared error for predictions
+            
+            # print("pred_act", actions_seq[:5].shape, "pred_obs", obs_seq["observations"][:5].shape, predicitons_seq[:5].shape)  # Debug print to check actions and observations
+            
+            # jax.debug.print("pred_act {}\npred_obs {}\nnons_obs {}\npred_pre {}\naa {}\nbb {}\n", jnp.squeeze(actions_seq[-5:,:,:]), jnp.squeeze(obs_seq["observations"][-5:])
+            #                 ,jnp.squeeze(seq_oobs["observations"][-5:]), jnp.squeeze(pred_output[-5:]), pred_loss_seq[-5:], pred_loss_ll[-5:])  # Debug print to check actions and observations
+            pol_coeff = self.pol_coef_schedule(update_step)  # Use the schedule for pol_coef
+            pg_loss = pol_coeff * pg_loss  # Scale policy loss by pol_coef
+            
+            # jax.debug.print("v_coef {}, ent_coef {}, pred_coeff {}, pol_coeff {}", v_coeff, ent_coef, pred_coeff, pol_coeff)
+            
+            total_loss = pg_loss + v_loss - ent_loss + pred_loss
+            # total_loss = pred_loss
             # Metrics
             approx_kl = jnp.mean((ratio - 1) - logratio)
-            metrics = {"loss/loss": total_loss, "loss/loss_policy": pg_loss, "loss/loss_value": v_loss, "loss/loss_entropy": ent_loss, "loss/kl_approx": approx_kl, "loss/ratio": jnp.mean(ratio), "loss/log_old": jnp.mean(logp_old_seq), "loss/log_new": jnp.mean(logp_new_seq), "loss/values_pred": jnp.mean(values_seq), "loss/target": jnp.mean(targets_seq), "loss/entropy_coefficient": ent_coef}
+            metrics = {"loss/loss": total_loss, "loss/loss_policy": pg_loss, "loss/loss_value": v_loss, "loss/loss_entropy": ent_loss, "loss/kl_approx": approx_kl, "loss/ratio": jnp.mean(ratio), "loss/log_old": jnp.mean(logp_old_seq), "loss/log_new": jnp.mean(logp_new_seq), "loss/values_pred": jnp.mean(values_seq), 
+                       "loss/target": jnp.mean(targets_seq), "loss/entropy_coefficient": ent_coef, "loss/pred_loss": pred_loss}
             return total_loss, metrics
 
         def _update_epoch(carry, _):
             agent_state_epoch, key_epoch = carry
             key_epoch, key_perm = jax.random.split(key_epoch); perms = jax.random.permutation(key_perm, num_envs)
             def shuffle_env_dim(x): return None if x is None else jax.tree_map(lambda leaf: leaf[perms], x)
-            observations_shuffled = shuffle_env_dim(observations_loss); actions_shuffled = shuffle_env_dim(actions_T)
+            observations_shuffled = shuffle_env_dim(obs_T); actions_shuffled = shuffle_env_dim(actions_T)
             log_probs_shuffled = shuffle_env_dim(log_probs_T); advantages_shuffled = shuffle_env_dim(advantages)
             targets_shuffled = shuffle_env_dim(targets); masks_shuffled = shuffle_env_dim(masks_T)
             start_dones_shuffled = shuffle_env_dim(start_dones_T); hidden_init_shuffled = shuffle_env_dim(hidden_states_init)
@@ -394,7 +636,9 @@ class NormPPOAgentJax:
                     batch_loss, batch_metrics = vmapped_loss_fn(params, key, obs, act, logp, adv, targ, mask, dones, h_init)
                     return batch_loss.mean(), batch_metrics
                 grad_target_fn = jax.value_and_grad(batch_loss_for_grad, has_aux=True)
-                (mean_loss, batch_metrics), grads = grad_target_fn(agent_state_mb.params, key_loss, mb_obs_seq, mb_actions_seq, mb_logp_old_seq, mb_adv_seq, mb_targets_seq, mb_masks_seq, mb_start_dones_seq, mb_h_init)
+                (mean_loss, batch_metrics), grads = grad_target_fn(agent_state_mb.params, key_loss, mb_obs_seq, mb_actions_seq, 
+                                                                   mb_logp_old_seq, mb_adv_seq, mb_targets_seq, mb_masks_seq, 
+                                                                   mb_start_dones_seq, mb_h_init)
                 agent_state_new = agent_state_mb.apply_gradients(grads=grads) 
                 final_mb_metrics = jax.tree_map(jnp.mean, batch_metrics)
                 return (agent_state_new, key_mb), final_mb_metrics
@@ -449,7 +693,7 @@ class NormPPOAgentJax:
             h_prev, obs, env_state, done, key_carry = carry
             key_carry, key_model, key_sample, key_env, key_rand_act = jax.random.split(key_carry, 5)
             def ppo_action_fn():
-                act_logits, _, h_next = self._actor_critic_step(ac_params_eval, key_model, obs, done, h_prev)
+                act_logits, _, h_next, hidden = self._actor_critic_step(ac_params_eval, key_model, obs, done, h_prev)
                 mask = obs.get("mask", None)
                 # print("outer_call", flow_params_obj_eval.shape)
                 # jax.debug.print("flow_params_obj_eval shape: {}", flow_params_obj_eval.shape)
@@ -594,8 +838,8 @@ class NormPPOAgentJax:
         all_samples_y_history_list = []
         
 
-        # print("env_params_to_visualize", env_params_to_visualize.sampler_configs['specific'].keys())
-        # print("env_params_to_visualize", env_params_to_visualize.sampler_configs['specific'][f_name]['bounds'])
+        # print("env_params_to_visualize", current_env_state.params_for_compute['specific'].keys())
+        # print("env_params_to_visualize", current_env_state.params_for_compute['specific'][f_name]['bounds'])
         bounds = env_params_to_visualize.sampler_configs['specific'][f_name]['bounds']
         
         # --- Get True Function Data (once per episode) ---
@@ -617,13 +861,23 @@ class NormPPOAgentJax:
 
         # --- Reconstruct Flow Object (once, if params don't change during this vis run) ---
         ac_params = agent_state_params['ac']
+        pred_params = agent_state_params['predictor']
         dynamic_flow_parts = agent_state_params.get('flow_dynamic', {})
+        dynamic_pred_flow_parts = agent_state_params.get('pred_flow_dynamic', {})
         current_policy_flow_object = None
         if self.static_flow_structure is not None:
             if dynamic_flow_parts:
                 current_policy_flow_object = eqx.combine(dynamic_flow_parts, self.static_flow_structure)
             else:
                 current_policy_flow_object = self.static_flow_structure
+                
+        pred_flow_obj = None
+        if self.static_flow_structure_pred is not None:
+            if dynamic_pred_flow_parts:
+                pred_flow_obj = eqx.combine(dynamic_pred_flow_parts, self.static_flow_structure_pred)
+            else:
+                pred_flow_obj = self.static_flow_structure
+
 
 
         # --- Run the episode step-by-step ---
@@ -634,9 +888,24 @@ class NormPPOAgentJax:
 
             # Get action from policy
             # Note: current_env_state.done is from the *previous* step
-            act_logits, value_pred, next_h_state = self._actor_critic_step(
+            act_logits, value_pred, next_h_state, hidden = self._actor_critic_step(
                 ac_params, key_actor, obs, current_env_state.done, current_h_state
             )
+            
+            #  def pred_sampler_integration(ac_params, obs, done, h_prev, dyn_params, mask, key):
+            # act_logits, value, memory, hidden = self._actor_critic_step(ac_params, jax.random.PRNGKey(0), obs, done, h_prev)
+            # action = self.sampling_impl.sampling_differ(act_logits, dyn_params, key, mask)
+            # log_prob = self.sampling_impl.gaussian_log_prob(jnp.expand_dims(action, axis=0), jnp.expand_dims(act_logits, axis=0), dyn_params)
+            # pred = self.ac_model.predction(hidden, action)  # Call the prediction method
+            # return action, log_prob, value, memory, pred
+        
+            # self.pred_sampler_integration = pred_sampler_integration
+            
+            
+            
+            
+            
+            
 
             # Use the agent's sampling implementation
             # The mask for sampling_differ should correspond to current_env_state.batch_size
@@ -698,6 +967,88 @@ class NormPPOAgentJax:
                     jnp.array(x_policy_pdf_norm_np)
                 )
             ).squeeze()
+            
+            # x_policy_pdf_norm_np = np.linspace(-1.0 + 1e-5, 1.0 - 1e-5, num_policy_points).reshape(-1, action_dim_vis)
+            
+            # 1. Convert to JAX array
+            jnp_base = jnp.array(x_policy_pdf_norm_np)
+            # Current shape: (num_policy_points, action_dim_vis)
+
+            # 2. Define and apply the vectorized prediction function
+            # This lambda takes a single action row (shape (action_dim_vis,))
+            # and reshapes it to (1, action_dim_vis) for the predictor model.
+            # `pred_params` and `hidden` are closed over from the surrounding scope.
+            # vectorized_predictor_call = jax.vmap(
+            #     lambda single_action_row: self.predictor_apply(
+            #         {'params': pred_params},
+            #         hidden,
+            #         single_action_row.reshape(1, -1) # Reshape (D,) to (1, D)
+            #     ),
+            #     in_axes=0 # We are mapping over the rows of x_policy_pdf_norm_jax
+            # )
+
+            # # 3. Get all predictions in one go
+            # function_estimate_jax = vectorized_predictor_call(jnp_base)
+            
+           
+            
+            def predictor_mapping(action, key_env):
+                
+                print("action shape", action.shape, "hidden shape", key_env.shape, hidden.shape)
+                pred_logits = self.predictor_apply(
+                    {'params': pred_params},  # Pass the predictor's own parameters
+                    hidden,
+                    jnp.expand_dims(action, 0))
+                pred_samples = self.prediction_sampler.sampling_differ(
+                    pred_logits,
+                    pred_flow_obj,
+                    key_env,
+                    sampling_mask)
+                return pred_samples
+                
+            
+
+            predictor_mapping = jax.vmap(predictor_mapping, in_axes=(0, 0))
+            
+            
+
+            keys_for_vmap = jax.random.split(key_env_step, num_policy_points)
+
+            
+            print("predictor_mapping shape", jnp_base.shape, "jnp_base shape", jnp_base.shape, "key_env_step shape", key_env_step.shape)
+            
+            function_estimate_jax = predictor_mapping(jnp_base, keys_for_vmap)
+            
+            
+            print("function_estimate_jax shape", function_estimate_jax.shape, "x_policy_pdf_norm_np shape", x_policy_pdf_norm_np.shape, "policy_pdf_values_np shape", policy_pdf_values_np.shape)
+            
+            function_estimate_jax = np.asarray(function_estimate_jax)
+            
+            
+            # min_y = env_params_to_visualize.sampler_configs['specific'][f_name]['min_y']
+            # max_y = env_params_to_visualize.sampler_configs['specific'][f_name]['max_y']
+            
+            min_y = current_env_state.params_for_compute['common']['min_y']
+            max_y = current_env_state.params_for_compute['common']['max_y']
+            
+            
+            
+            
+            function_estimate_jax = function_estimate_jax * (max_y - min_y) + min_y  # Map back to original bounds
+            
+            function_estimate_jax = function_estimate_jax.squeeze()  # Remove any extra dimensions
+            
+            # print("function_estimate_jax shape", function_estimate_jax.shape)
+            
+            # function_estimate = []
+            # for i in x_policy_pdf_norm_np:
+            #     pred_output = self.predictor_apply( # Use self.predictor_apply here
+            #         {'params': pred_params}, # Pass the predictor's own parameters
+            #         hidden,                                # First argument to PredictorModel.__call__
+            #         i                                 # Second argument to PredictorModel.__call__
+            #     )
+            #     function_estimate.append(pred_output)
+                
 
             x_policy_pdf_mapped_np = np.asarray(
                 map_to_bounds_jax(
@@ -708,6 +1059,7 @@ class NormPPOAgentJax:
 
             step_data_for_plot["x_policy_mapped_numpy"] = x_policy_pdf_mapped_np
             step_data_for_plot["policy_pdf_numpy"] = policy_pdf_values_np
+            step_data_for_plot["function_estimate_numpy"] = function_estimate_jax
 
             episode_visualization_data.append(step_data_for_plot)
 

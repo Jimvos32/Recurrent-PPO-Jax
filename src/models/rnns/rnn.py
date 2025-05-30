@@ -66,7 +66,8 @@ class LSTMMultiLayer(nn.Module):
         return y_t, new_memory
     
     @staticmethod
-    def initialize_state(d_model,n_layers):
+    def initialize_state(d_model,n_layers): 
+        # jax.debug.print("We are actually resetting")       
         return [(jnp.zeros((d_model,)),jnp.zeros((d_model,))) for _ in range(n_layers)]
 
 

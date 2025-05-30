@@ -8,8 +8,12 @@ from flax.training.train_state import TrainState
 from functools import partial
 import chex # Use chex.dataclass if available, otherwise flax.struct
 import flax.struct as struct
-from typing import Callable,Tuple, Optional, Any
+from typing import Callable,Tuple, Optional, Any, Dict
 import jax.experimental.checkify as checkify # Make sure checkify is imported
+import numpy as np
+
+from src.tasks.envs.jax_env_f.jax_disp_samplers import compute_y_sampler_dispatch
+from src.tasks.envs.jax_env_f.jax_env import get_obs, map_to_bounds_jax, get_info
 
 
 # Assume ActorCriticModel, model_fns, sampling_impl are imported correctly
@@ -69,9 +73,11 @@ class PPOAgentJax:
                  norm_adv: bool = True,
                  clip_coef: float = 0.1,
                  ent_coef_schedule: optax.Schedule = lambda _: 0.01, # Example schedule
+                 value_coef_schedule: optax.Schedule = lambda _: 0.5, # Example schedule
                  vf_coef: float = 0.5,
                  max_grad_norm: float = 0.5,
                  target_kl: Optional[float] = None,
+                 reset_frequency: int = 5,
                  # Add other relevant config...
                  ):
 
@@ -85,10 +91,12 @@ class PPOAgentJax:
         self.norm_adv = norm_adv
         self.clip_coef = clip_coef
         self.ent_coef_schedule = ent_coef_schedule # Use the schedule directly
+        self.value_coef_schedule = value_coef_schedule
         self.vf_coef = vf_coef
         self.max_grad_norm = max_grad_norm
         self.target_kl = target_kl
         self.optimizer = optimizer
+        self.reset_frequency = reset_frequency
 
         self.sampling_impl = sampling_impl_class(
             action_dim=env_params.action_dim,
@@ -260,8 +268,8 @@ class PPOAgentJax:
             # reset_mode = jnp.where(was_successful, 2, reset_mode)
 
             # Criterion B: Every N episodes
-            reset_frequency = 5
-            reset_mode = jnp.where(env_state.episode_counter >= reset_frequency - 1, 2, reset_mode)
+            
+            reset_mode = jnp.where(env_state.episode_counter >= self.reset_frequency - 1, 2, reset_mode)
 
             # # Criterion C: Random
             # key_reset_decision, _ = jax.random.split(key_env_reset)
@@ -394,7 +402,7 @@ class PPOAgentJax:
         start_dones_T = rollout_data.start_dones # d_0 to d_{T-1}
 
        
-        print("why is this not used??!!!!!!", log_probs_T.shape)
+        # print("why is this not used??!!!!!!", log_probs_T.shape)
         
        
         
@@ -472,7 +480,7 @@ class PPOAgentJax:
             # These sampling_impl methods must work on (T, *) inputs
             logp_new_seq = self.sampling_impl.gaussian_log_prob(actions_seq, act_logits_seq) # Shape (T, *)
             
-            print("logp_new_seq", logp_new_seq.shape, actions_seq.shape, act_logits_seq.shape)
+            # print("logp_new_seq", logp_new_seq.shape, actions_seq.shape, act_logits_seq.shape)
             # Entropy might return (T,) or scalar mean. Assume (T,) for now.
             entropy_seq = self.sampling_impl.entropy(act_logits_seq, masks_seq, key=key_entropy) # Shape (T,)
             # We need the mean entropy for the loss term
@@ -484,7 +492,7 @@ class PPOAgentJax:
             logratio = jnp.clip(logratio, -20, 20) # Clip logratio to avoid numerical issues
             ratio = jnp.exp(logratio)
             
-            print("logratio", logratio.shape, logp_new_seq.shape, logp_old_seq.shape, ratio.shape, adv_seq.shape)
+            # print("logratio", logratio.shape, logp_new_seq.shape, logp_old_seq.shape, ratio.shape, adv_seq.shape)
             
             pg_loss1 = -adv_seq * ratio
             pg_loss2 = -adv_seq * jnp.clip(ratio, 1 - self.clip_coef, 1 + self.clip_coef)
@@ -493,22 +501,28 @@ class PPOAgentJax:
 
             # --- 4. Calculate Value Loss for the sequence ---
             # Mean over T for the value loss of this sequence
-            v_loss = 0.5 * jnp.square(values_seq - targets_seq).mean()
+            v_coeff = self.value_coef_schedule(update_step) # Get value coefficient from schedule
+            
+            v_loss = v_coeff * jnp.square(values_seq - targets_seq).mean()
+            
+            
 
             # --- 5. Total Loss for the sequence ---
             # Need update_step if schedule is used. Pass it into this function.
-            # ent_coef = self.ent_coef_schedule(update_step)
-            ent_coef = -0.01 # Placeholder - pass update_step if schedule is needed
-            total_loss = pg_loss + self.vf_coef * v_loss - ent_coef * mean_entropy
-            total_loss = pg_loss
-
+            ent_coef = self.ent_coef_schedule(update_step)
+            # ent_coef = 0.001 # Placeholder - pass update_step if schedule is needed
+            ent_loss = ent_coef * mean_entropy # Entropy loss term
+            
+            
+            
+            total_loss = pg_loss + v_loss - ent_loss
             # --- 6. Metrics for the sequence ---
             approx_kl = jnp.mean((ratio - 1) - logratio) # Mean over T
             
             # print("sag", logp_new_seq.shape, logp_old_seq.shape, adv_seq.shape, targets_seq.shape, masks_seq.shape, start_dones_seq.shape)
             metrics = {
                 "loss/loss": total_loss, "loss/loss_policy": pg_loss, "loss/loss_value": v_loss,
-                "loss/loss_entropy": mean_entropy * ent_coef, "loss/kl_approx": approx_kl,
+                "loss/loss_entropy": ent_loss, "loss/kl_approx": approx_kl,
                 "loss/ratio": jnp.mean(ratio), "loss/log_old": jnp.mean(logp_old_seq), "loss/log_new": jnp.mean(logp_new_seq),
                 "loss/values_pred": jnp.mean(values_seq), "loss/target": jnp.mean(targets_seq)# Use actual coef if passed
             }
@@ -647,7 +661,6 @@ class PPOAgentJax:
         all_eval_metrics = {}
         env_names = list(env_params_dict.keys())
         
-        print("env_names", params.keys())
         
         
         for i, env_name in enumerate(env_names):
@@ -696,7 +709,6 @@ class PPOAgentJax:
                  eval_mode: str,
                  ) -> dict:
         """Runs evaluation episodes in parallel."""
-        print("evaluate_func_type", params.keys())
         # --- Reset environments ---
         keys_reset = jax.random.split(key, num_eval_episodes)
         vmapped_reset = jax.vmap(MultiFunctionGymnax.reset_env, in_axes=(0, None, None, None))
@@ -837,6 +849,184 @@ class PPOAgentJax:
 
         return eval_metrics_mean
     
+    def run_episode_for_visualization(
+        self,
+        key: chex.PRNGKey,
+        f_name: str,
+        agent_state_params: chex.ArrayTree, # Agent's current learnable parameters (agent_state.params)
+        env_params_to_visualize: EnvParams, # EnvParams for the specific function type
+        num_true_func_points: int = 200,
+        num_policy_points: int = 200, 
+        
+    ) -> Dict:
+        """
+        Runs a single episode, collects detailed per-step data for visualization,
+        and prepares it for plotting. This function is NOT JITted.
+        Assumes action_dim = 1 for simple 1D plotting.
+        """
+        # if self.action_dim != 1:
+        #     print(f"Warning: Visualization is best for 1D action space. Current: {self.action_dim}D.")
+        #     # For multi-D, plotting will need to select a dimension or use different techniques.
+
+        # print(f"Running single episode for visualization with function: {env_params_to_visualize.function_type_indices}") # Example log
+
+        # --- Initialize Environment for this single run ---
+        # Ensure we are using a single environment instance for this
+        env = MultiFunctionGymnax() # Create a new env instance for this run
+        key_reset, key_episode_steps = jax.random.split(key)
+
+        # Reset the environment using the specific EnvParams provided
+        # Make sure action_dim and max_batches are correctly passed for this env_params_to_visualize
+        # These might come from env_params_to_visualize itself if it's fully configured,
+        # or from self.env_params as defaults if appropriate.
+        # For this example, let's assume env_params_to_visualize has necessary fields
+        # or we use some defaults from the agent's primary env_params.
+        action_dim_vis = env_params_to_visualize.action_dim
+        max_batches_vis = env_params_to_visualize.max_batches
+
+        obs, current_env_state = env.reset_env(
+            key_reset, env_params_to_visualize, action_dim_vis, max_batches_vis
+        )
+        current_h_state = self.seq_init() # Initial hidden state
+        # If seq_init returns a batched h_state, take the first one
+        # current_h_state = jax.tree_map(lambda x: x[0] if x.ndim > 1 and x.shape[0] > 1 else x, current_h_state)
+
+
+        # --- Prepare for data collection ---
+        episode_visualization_data = []
+        done = False
+        current_tick = 0
+        
+        all_samples_x_history_list = []
+        all_samples_y_history_list = []
+        
+
+        # print("env_params_to_visualize", env_params_to_visualize.sampler_configs['specific'].keys())
+        # print("env_params_to_visualize", env_params_to_visualize.sampler_configs['specific'][f_name]['bounds'])
+        bounds = env_params_to_visualize.sampler_configs['specific'][f_name]['bounds']
+        
+        # --- Get True Function Data (once per episode) ---
+        x_true_np = np.linspace(
+            bounds[0],
+            bounds[1],
+            num_true_func_points
+        ).reshape(-1, action_dim_vis)
+        y_true_np = np.asarray(
+            compute_y_sampler_dispatch(
+                jnp.array(x_true_np),
+                current_env_state.params_for_compute, # From initial reset
+                env_params_to_visualize
+            )
+        ).squeeze()
+   
+        x_true_np = x_true_np.squeeze()
+
+
+        # --- Reconstruct Flow Object (once, if params don't change during this vis run) ---
+        # ac_params = agent_state_params['ac']
+        # dynamic_flow_parts = agent_state_params.get('flow_dynamic', {})
+        # current_policy_flow_object = None
+        # if self.static_flow_structure is not None:
+        #     if dynamic_flow_parts:
+        #         current_policy_flow_object = eqx.combine(dynamic_flow_parts, self.static_flow_structure)
+        #     else:
+        #         current_policy_flow_object = self.static_flow_structure
+        
+        ac_params = agent_state_params
+
+
+        # --- Run the episode step-by-step ---
+        while not done:
+
+            key_step, key_episode_steps = jax.random.split(key_episode_steps)
+            key_actor, key_sample, key_env_step = jax.random.split(key_step, 3)
+
+            # Get action from policy
+            # Note: current_env_state.done is from the *previous* step
+            act_logits, value_pred, next_h_state = self._actor_critic_step(
+                ac_params, key_actor, obs, current_env_state.done, current_h_state
+            )
+
+            # Use the agent's sampling implementation
+            # The mask for sampling_differ should correspond to current_env_state.batch_size
+            # For a single episode run, often batch_size is 1 or a small fixed number.
+            # get_obs(current_env_state, env_params_to_visualize)['mask'] gives current batch size
+            sampling_mask = get_obs(current_env_state, env_params_to_visualize)['mask']
+
+            action = self.sampling_impl.sampling_differ(
+                act_logits, key_sample, sampling_mask
+            )
+            
+            current_hist_x = np.concatenate(all_samples_x_history_list) if all_samples_x_history_list else np.array([])
+            current_hist_y = np.concatenate(all_samples_y_history_list) if all_samples_y_history_list else np.array([])
+
+            # Store data for this step *before* stepping the environment
+            step_data_for_plot = {
+                "step": current_tick,
+                "x_true": x_true_np,
+                "y_true": y_true_np,
+                "sampler_info": current_env_state.params_for_compute.get('common', {}).get('sampler_type_index', -1),
+                "act_logits_numpy": np.asarray(act_logits),
+                "all_previous_samples_x_numpy": current_hist_x, # Store history so far
+                "all_previous_samples_y_numpy": current_hist_y,
+            }
+            # Step the environment
+            next_obs, next_env_state, reward, done, info = env.step_env(
+                key_env_step, current_env_state, action, env_params_to_visualize,
+                max_batches_vis, action_dim_vis
+            )
+
+            # Store samples *after* stepping (these are the results of `action`)
+            # Use next_env_state as it contains last_action_mapped and last_raw_obs from this step
+            valid_samples_mask_after_step = jnp.arange(max_batches_vis) < next_env_state.batch_size
+        
+            current_step_samples_x_np = np.asarray(
+                next_env_state.last_action_mapped[valid_samples_mask_after_step]
+            ).squeeze()
+            current_step_samples_y_np = np.asarray(
+                next_env_state.last_raw_obs[valid_samples_mask_after_step]
+            ).squeeze()
+            
+            step_data_for_plot["current_samples_x_numpy"] = current_step_samples_x_np
+            step_data_for_plot["current_samples_y_numpy"] = current_step_samples_y_np
+            
+            # Add current step's samples to history *after* storing for this step's plot
+            if current_step_samples_x_np.size > 0:
+                # Ensure they are 1D arrays before appending for consistent concatenation
+                all_samples_x_history_list.append(current_step_samples_x_np.flatten())
+                all_samples_y_history_list.append(current_step_samples_y_np.flatten())
+
+
+            # --- Generate Policy PDF Data for this step ---
+            # x_values for PDF are in normalized action space [-1, 1]
+            x_policy_pdf_norm_np = np.linspace(-1.0 + 1e-5, 1.0 - 1e-5, num_policy_points).reshape(-1, action_dim_vis)
+            policy_pdf_values_np = np.asarray(
+                self.sampling_impl.get_pdf(
+                    act_logits, # From this step
+                    jnp.array(x_policy_pdf_norm_np)
+                )
+            ).squeeze()
+
+            x_policy_pdf_mapped_np = np.asarray(
+                map_to_bounds_jax(
+                    jnp.array(x_policy_pdf_norm_np),
+                    bounds,
+                )
+            ).squeeze()
+
+            step_data_for_plot["x_policy_mapped_numpy"] = x_policy_pdf_mapped_np
+            step_data_for_plot["policy_pdf_numpy"] = policy_pdf_values_np
+
+            episode_visualization_data.append(step_data_for_plot)
+
+            # Update states for next iteration
+            obs = next_obs
+            current_env_state = next_env_state
+            current_h_state = next_h_state
+            current_tick += 1
+
+        return episode_visualization_data # List of dictionaries, one per step
+    
 
 
 # --- Helper Functions ---
@@ -844,3 +1034,61 @@ def l2_norm(pytree):
     """Computes the L2 norm of a pytree of arrays."""
     return jnp.sqrt(sum([jnp.sum(jnp.square(x)) for x in jax.tree_util.tree_leaves(pytree)]))
 
+def plot_policy_diagnostics(
+    x_true: np.ndarray,
+    y_true: np.ndarray,
+    samples_x: np.ndarray,
+    samples_y: np.ndarray,
+    x_policy_mapped: np.ndarray,
+    policy_pdf: np.ndarray,
+    sampler_info: str = "Unknown Function",
+    title_suffix: str = ""
+):
+    """
+    Plots the true function, agent samples, and policy distribution.
+
+    Args:
+        x_true: X-values for the true function.
+        y_true: Y-values for the true function.
+        samples_x: X-values of samples taken by the agent.
+        samples_y: Y-values of samples taken by the agent.
+        x_policy_mapped: X-values for the policy PDF, mapped to the function's domain.
+        policy_pdf: PDF values of the policy.
+        sampler_info: Name of the true function (e.g., Ackley).
+        title_suffix: Optional suffix for the plot title.
+    """
+    fig, ax1 = plt.subplots(figsize=(12, 7))
+
+    # Plot the true function
+    color_true_func = 'tab:blue'
+    ax1.set_xlabel('x')
+    ax1.set_ylabel('True Function Value', color=color_true_func)
+    ax1.plot(x_true, y_true, label=f'True Function ({sampler_info})', color=color_true_func, linestyle='--')
+    ax1.tick_params(axis='y', labelcolor=color_true_func)
+
+    # Plot the samples taken by the agent
+    ax1.scatter(samples_x, samples_y, label='Agent Samples', color='red', marker='o', s=50, alpha=0.7, zorder=5)
+
+    # Create a second y-axis for the policy PDF
+    ax2 = ax1.twinx()
+    color_policy_pdf = 'tab:green'
+    ax2.set_ylabel('Policy PDF', color=color_policy_pdf)
+    ax2.plot(x_policy_mapped, policy_pdf, label='Policy PDF', color=color_policy_pdf, linewidth=2)
+    ax2.fill_between(x_policy_mapped, policy_pdf, color=color_policy_pdf, alpha=0.2)
+    ax2.tick_params(axis='y', labelcolor=color_policy_pdf)
+
+    # Titles and legends
+    plt.title(f'RL Agent Diagnostics: {sampler_info}{title_suffix}')
+    fig.tight_layout() # Otherwise the right y-label is slightly clipped
+    
+    # Combine legends from both axes
+    lines, labels = ax1.get_legend_handles_labels()
+    lines2, labels2 = ax2.get_legend_handles_labels()
+    ax2.legend(lines + lines2, labels + labels2, loc='upper right')
+
+    plt.grid(True, linestyle=':', alpha=0.7)
+    # plt.show()
+    return plt
+    
+    
+    

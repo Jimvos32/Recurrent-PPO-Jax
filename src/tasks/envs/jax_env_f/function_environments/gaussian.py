@@ -75,7 +75,7 @@ def initialize_func(key: chex.PRNGKey,
         'max_y': max_y_val,
         'min_y': min_y_val,
         'action_dim': dim,
-        'bounds': tuple((float(lower), float(upper))), # Store actual bounds used
+        'bounds': tuple((lower, upper)), # Store actual bounds used
     }
 
     # Start with a copy of the full specific_configs template

@@ -4,9 +4,10 @@ defaults:
   - trainer: variable_ppo
   - experiment: combos   # loads config/experiment/combos.yaml
   - function_params: funcs  # loads config/function_params/variable.yaml
+  - norm_flow: norm_flow # loads config/norm_flow/standard_bijections.yaml
 # Default experiment selection (can be overridden on the CLI)
 experiment:
-  choice: test_jax
+  choice: test_neg_abs
 
 
 # Global settings
@@ -15,8 +16,9 @@ project_name: ${experiment.combos.${experiment.choice}.project_name}
 run_name: ""
 seed: 77
 steps: ${experiment.combos.${experiment.choice}.steps}
-log_interval: 6000
+log_interval: 8000
 eval_episodes: 20
-eval_interval: 2000
+eval_interval: 20000
 use_wandb: false
+root_dir: your_path
 

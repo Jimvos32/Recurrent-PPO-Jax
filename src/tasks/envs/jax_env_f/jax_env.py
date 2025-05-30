@@ -154,38 +154,58 @@ class MultiFunctionGymnax(environment.Environment):
         # Scaled difference for regret calculation
         scaled_difference = scale_observation_jax(difference_from_max + state.min_y, state.min_y, state.max_y)
 
-        # --- Termination and Truncation ---
-        tick = state.tick + 1
-        terminated = False # Usually false
-        truncated = tick >= state.max_steps_in_episode # Check if max steps reached
+        
         
         
         # Success threshold achievement
         success_achieved_this_step = current_best_scaled_y >= params.success_threshold
         achieved_success_updated = state.achieved_success | success_achieved_this_step
+        
+        
+        # --- Termination and Truncation ---
+        tick = state.tick + 1
+        terminated = False # Usually false
+        # truncated = tick >= state.max_steps_in_episode # Check if max steps reached
+        truncated = success_achieved_this_step | tick >= state.max_steps_in_episode# Check if max steps reached
 
         # Success bonus (only if truncated and threshold met this step or previously)
         # Original logic adds bonus if truncated AND success_achieved_this_step. Let's stick to that.
         success_bonus = jax.lax.select(
-            truncated & success_achieved_this_step,
+            success_achieved_this_step,
             params.r_suc,
             0.0
         )
+        
+        reward = (
+            params.r_step_cost +
+            params.r_impr * avg_improvement +
+            success_bonus
+        )
+        
+        # jax.debug.print("reward {} step_cost {} impr {} bonus {} tick {} trunc {}\n obs {} imp {} scale {} end {}",
+        #                 reward, params.r_step_cost, params.r_impr * avg_improvement, success_bonus, tick, truncated,
+        #                 scaled_observation, avg_improvement, params.r_impr, params.r_impr * avg_improvement)
+        
 
         # Combine reward components
-        reward = (
-            params.r_best * current_best_scaled_y +
-            params.r_impr * avg_improvement +
-            params.r_new_best * new_best_bonus +
-            params.r_obs * avg_scaled_obs +
-            -params.r_mse * mse +
-            success_bonus
-        ) * params.r_scale
+        # reward = (
+        #     params.r_best * current_best_scaled_y +
+        #     params.r_impr * avg_improvement +
+        #     params.r_new_best * new_best_bonus +
+        #     params.r_obs * avg_scaled_obs +
+        #     -params.r_mse * mse +
+        #     success_bonus
+        # ) * params.r_scale
         
         
+        # jax.debug.print("reward {} best_y {} avg_obs {} new_best {} mse {} success_bonus {} impr {}\n",
+        #                 reward, current_best_scaled_y, avg_scaled_obs, new_best_bonus, mse, success_bonus, avg_improvement)
         
+        # jax.debug.print("reward =  {} best {} + impr {} + new best {} + obs {} + mse {} + {}bonuses \nscaled {} curr_best {} sr {}\n",
+        #                 reward, params.r_best * current_best_scaled_y, params.r_impr * avg_improvement, params.r_new_best * new_best_bonus,
+        #     params.r_obs * avg_scaled_obs, -params.r_mse * mse, success_bonus, scaled_observation, current_best_scaled_y, params.r_best)
 
-
+        # print("reward", params)
         # --- Update State ---
         # Update overall best y and corresponding x
         best_scaled_y_updated = jnp.maximum(state.best_scaled_y_so_far, current_best_scaled_y)
@@ -417,6 +437,7 @@ class MultiFunctionGymnax(environment.Environment):
 
         obs = get_obs(state, params)
         
+        
         # jax.debug.print("initial_actions_mapped {}", obs)
         # print("osb", obs["actions"].shape, obs["observations"].shape, obs["reward"].shape, obs["mask"].shape, obs["step"].shape)
         return obs, state
@@ -526,6 +547,7 @@ class MultiFunctionGymnax(environment.Environment):
             episode_counter=state.episode_counter + 1, # Initialize episode counter
             key=key # Pass updated key if state carries it
         )
+        
 
         obs = get_obs(state, params)
         

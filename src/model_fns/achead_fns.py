@@ -817,7 +817,7 @@ class PolicyParameterClipping(nn.Module):
 
         stddev = jnp.clip(
             jax.nn.softplus(self.scale_init + stddev),
-            a_min=1e-4, a_max=2.0
+            a_min=1e-2, a_max=2.0
         )
         
         mean = jnp.clip(mean, a_min=self.bounds[0], a_max=self.bounds[1])

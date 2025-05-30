@@ -3,7 +3,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, Callable
 import chex
 from src.tasks.envs.jax_env_f.jax_env import MultiFunctionGymnax
 # from src.tasks.envs.jax_env_f.jax_function_samplers import compute_y_sampler
@@ -12,6 +12,23 @@ from src.tasks.envs.jax_env_f.jax_env import MultiFunctionGymnax
 import gpjax as gpx
 from tqdm import tqdm
 
+
+SUPPORTED_GPJAX_KERNELS: Dict[str, Callable[..., gpx.kernels.AbstractKernel]] = {
+    "matern52": gpx.kernels.Matern52,
+    "matern32": gpx.kernels.Matern32,
+    "RBF": gpx.kernels.RBF,
+    "polynomial": gpx.kernels.Polynomial,
+    "linear": gpx.kernels.Linear,
+    "periodic": gpx.kernels.Periodic,
+    "white": gpx.kernels.White,
+    "arc_cosine": gpx.kernels.ArcCosine,
+    "matern12": gpx.kernels.Matern12,
+    "exponential": gpx.kernels.PoweredExponential,
+    "eigen_comp": gpx.kernels.EigenKernelComputation,
+    "rational_quadratic": gpx.kernels.RationalQuadratic,
+    "RFF": gpx.kernels.RFF,
+    
+}
 
 def run_bo_evaluation(
                           key: chex.PRNGKey,
@@ -37,6 +54,7 @@ def run_bo_evaluation(
             episode_successes = []
             episode_final_regrets = []
             epsiode_best_actions = []
+            
 
             # Loop over episodes for this env type
             for episode_idx in tqdm(range(num_eval_episodes)):
@@ -53,10 +71,15 @@ def run_bo_evaluation(
                 
                 bounds = (jnp.full(env_params.action_dim, current_env_state.params_for_compute['common']['bounds'][0]),
                           jnp.full(env_params.action_dim,current_env_state.params_for_compute['common']['bounds'][1]))
+                
+                kernel_type = env_name.split('_kernel')[0]
+                
+                kern_func = SUPPORTED_GPJAX_KERNELS.get(kernel_type, gpx.kernels.Matern52)
+                
                 bo_optimizer = BayesianOptimizer(
                     search_space_bounds=bounds,
                     # kernel=gpx.kernels.Matern52(active_dims=list(range(env_params.action_dim))),
-                    kernel=gpx.kernels.Matern52(active_dims=list(range(env_params.action_dim))),
+                    kernel=kern_func(active_dims=list(range(env_params.action_dim))),
                     key=bo_key
                     
                     # Add other BO params: kernel, kappa etc. if configurable
@@ -64,6 +87,7 @@ def run_bo_evaluation(
                 
                 initial_X = current_env_state.last_action_mapped
                 initial_Y = current_env_state.last_raw_obs
+                
                 
                 bo_optimizer.update(initial_X, initial_Y)
 
@@ -118,6 +142,9 @@ def run_bo_evaluation(
 
                     # Get suggestion from BO
                     action = bo_optimizer.suggest(n_restarts=bo_restarts, batch_size=current_env_state.batch_size)
+                    
+                    squashed_action = 2 * (action - bounds[0]) / (bounds[1] - bounds[0]) - 1
+                    
 
                     # Step the JAX environment (use state with correct function params)
                     # Need to pass state, action, env_params. Key may not be needed by step_env.
@@ -125,7 +152,7 @@ def run_bo_evaluation(
                     obs, current_env_state, reward, done, info = MultiFunctionGymnax.step_env(
                         step_key, # Pass key if step_env uses it
                         current_env_state,
-                        action, # Pass JAX array if step_env expects it
+                        squashed_action, # Pass JAX array if step_env expects it
                         env_params,
                         env_params.max_batches, # Pass necessary static args
                         env_params.action_dim
@@ -137,12 +164,17 @@ def run_bo_evaluation(
                     # BO typically optimizes f(x), so reward IS the observation y
                     # jax.debug.print("BO update with action: {} and reward: {}", reward_val, ep_done)
                     
+                    
                     bo_optimizer.update(current_env_state.last_action_mapped, current_env_state.last_raw_obs)
 
                     ep_return += reward_val
                     ep_step = step + 1
                     if ep_done:
                         final_info = info # Store info from the step where done became true
+                        
+                del bo_optimizer
+                
+                jax.clear_caches()
 
                 # End of episode loop
                 episode_returns.append(ep_return)

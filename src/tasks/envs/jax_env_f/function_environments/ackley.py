@@ -65,7 +65,7 @@ def initialize_func(key: chex.PRNGKey, env_params_instance: 'EnvParams', action_
         'max_y': max_y_val,
         'min_y': min_y_val,
         'action_dim': dim,
-        'bounds': tuple((float(lower_bound_scalar), float(upper_bound_scalar))),
+        'bounds': tuple((lower_bound_scalar, upper_bound_scalar)),
     }
 
     output_specific_params = jax.tree_util.tree_map(lambda x: x, env_params_instance.sampler_configs['specific'])

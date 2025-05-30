@@ -9,12 +9,12 @@ if TYPE_CHECKING:
 FUNCTION_NAME = "branin"
 
 # Standard Branin parameters (as JAX arrays for consistency)
-_A_STD = jnp.array(1.0, dtype=jnp.float64)
-_B_STD = jnp.array(5.1 / (4.0 * jnp.pi**2), dtype=jnp.float64)
-_C_STD = jnp.array(5.0 / jnp.pi, dtype=jnp.float64)
-_R_STD = jnp.array(6.0, dtype=jnp.float64)
-_S_STD = jnp.array(10.0, dtype=jnp.float64)
-_T_STD = jnp.array(1.0 / (8.0 * jnp.pi), dtype=jnp.float64)
+_A_STD = jnp.array(1.0)
+_B_STD = jnp.array(5.1 / (4.0 * jnp.pi**2))
+_C_STD = jnp.array(5.0 / jnp.pi)
+_R_STD = jnp.array(6.0)
+_S_STD = jnp.array(10.0)
+_T_STD = jnp.array(1.0 / (8.0 * jnp.pi))
 
 _OPTIMUM_VALUE_ORIGINAL_BRANIN = 0.397887 # Approx min value of original Branin
 _MAX_Y_FLIPPED_BRANIN = -_OPTIMUM_VALUE_ORIGINAL_BRANIN
@@ -24,7 +24,7 @@ _OPTIMA_LOCATIONS_ORIGINAL_BRANIN = jnp.array([
     [-jnp.pi, 12.275],
     [jnp.pi, 2.275],
     [3 * jnp.pi, 2.475] # Approx 9.42478
-], dtype=jnp.float64)
+])
 
 
 def get_specific_config_template(action_dim: int, run_config: Dict, func_name: str) -> Dict[str, Any]:
@@ -38,21 +38,21 @@ def get_specific_config_template(action_dim: int, run_config: Dict, func_name: s
     func_specific_run_config = run_config.get(f_env_config_key, {})
 
     template = {
-        'a': jnp.array(func_specific_run_config.get("a", _A_STD), dtype=jnp.float64),
-        'b': jnp.array(func_specific_run_config.get("b", _B_STD), dtype=jnp.float64),
-        'c': jnp.array(func_specific_run_config.get("c", _C_STD), dtype=jnp.float64),
-        'r': jnp.array(func_specific_run_config.get("r", _R_STD), dtype=jnp.float64),
-        's': jnp.array(func_specific_run_config.get("s", _S_STD), dtype=jnp.float64),
-        't': jnp.array(func_specific_run_config.get("t", _T_STD), dtype=jnp.float64),
+        'a': jnp.array(func_specific_run_config.get("a", _A_STD)),
+        'b': jnp.array(func_specific_run_config.get("b", _B_STD)),
+        'c': jnp.array(func_specific_run_config.get("c", _C_STD)),
+        'r': jnp.array(func_specific_run_config.get("r", _R_STD)),
+        's': jnp.array(func_specific_run_config.get("s", _S_STD)),
+        't': jnp.array(func_specific_run_config.get("t", _T_STD)),
         'bounds': [ # List of two tuples for x1 and x2 bounds
             tuple(func_specific_run_config.get("bounds_x1", _DEFAULT_X_RANGES_BRANIN[0])),
             tuple(func_specific_run_config.get("bounds_x2", _DEFAULT_X_RANGES_BRANIN[1]))
         ],
-        'fixed_max_y': jnp.array(func_specific_run_config.get("fixed_max_y", _MAX_Y_FLIPPED_BRANIN), dtype=jnp.float64),
+        'fixed_max_y': jnp.array(func_specific_run_config.get("fixed_max_y", _MAX_Y_FLIPPED_BRANIN)),
         'fixed_min_y': func_specific_run_config.get("fixed_min_y", None) # Estimate if None
     }
     if template['fixed_min_y'] is not None:
-        template['fixed_min_y'] = jnp.array(template['fixed_min_y'], dtype=jnp.float64)
+        template['fixed_min_y'] = jnp.array(template['fixed_min_y'])
     return template
 
 def initialize_func(key: chex.PRNGKey,
@@ -70,62 +70,73 @@ def initialize_func(key: chex.PRNGKey,
     bounds_x2_tuple = branin_base_config['bounds'][1]
 
     max_y_val = branin_base_config.get('fixed_max_y', _MAX_Y_FLIPPED_BRANIN)
-    min_y_val = branin_base_config.get('fixed_min_y')
+    min_y_val = branin_base_config.get('fixed_min_y', )
     
     # Determine optimum point: one of the known optima if within current bounds
     optimum_point_val = None
     best_opt_y_in_bounds = -jnp.inf # For flipped function, higher is better
 
-    for loc in _OPTIMA_LOCATIONS_ORIGINAL_BRANIN:
-        # Check if loc is within [bounds_x1_tuple, bounds_x2_tuple]
-        if (bounds_x1_tuple[0] <= loc[0] <= bounds_x1_tuple[1]) and \
-           (bounds_x2_tuple[0] <= loc[1] <= bounds_x2_tuple[1]):
-            # If this known optimum is within bounds, its value is _MAX_Y_FLIPPED_BRANIN
-            # (assuming standard a,b,c... params)
-            # This logic assumes standard params are used if we pick a standard optimum point.
-            # If params a,b,c.. are changed, the optima locations and values also change.
-            # For simplicity, if using standard optima, assume standard params.
-            if _MAX_Y_FLIPPED_BRANIN > best_opt_y_in_bounds: # Should only happen once if fixed_max_y is used
-                 best_opt_y_in_bounds = _MAX_Y_FLIPPED_BRANIN
-                 optimum_point_val = loc
+    # for loc in _OPTIMA_LOCATIONS_ORIGINAL_BRANIN:
+    #     # Check if loc is within [bounds_x1_tuple, bounds_x2_tuple]
+    #     if (bounds_x1_tuple[0] <= loc[0] <= bounds_x1_tuple[1]) and \
+    #        (bounds_x2_tuple[0] <= loc[1] <= bounds_x2_tuple[1]):
+    #         # If this known optimum is within bounds, its value is _MAX_Y_FLIPPED_BRANIN
+    #         # (assuming standard a,b,c... params)
+    #         # This logic assumes standard params are used if we pick a standard optimum point.
+    #         # If params a,b,c.. are changed, the optima locations and values also change.
+    #         # For simplicity, if using standard optima, assume standard params.
+    #         if _MAX_Y_FLIPPED_BRANIN > best_opt_y_in_bounds: # Should only happen once if fixed_max_y is used
+    #              best_opt_y_in_bounds = _MAX_Y_FLIPPED_BRANIN
+    #              optimum_point_val = loc
 
-    # If no standard optimum is in bounds, or if params are non-standard, estimate.
-    if optimum_point_val is None or not jnp.isclose(max_y_val, _MAX_Y_FLIPPED_BRANIN):
-        num_grid_samples = 40 # Per dimension for estimation (40x40 grid)
-        x1_samples = jnp.linspace(bounds_x1_tuple[0], bounds_x1_tuple[1], num_grid_samples, dtype=jnp.float64)
-        x2_samples = jnp.linspace(bounds_x2_tuple[0], bounds_x2_tuple[1], num_grid_samples, dtype=jnp.float64)
-        grid_x1, grid_x2 = jnp.meshgrid(x1_samples, x2_samples)
-        test_points = jnp.stack([grid_x1.ravel(), grid_x2.ravel()], axis=-1)
+    # print("optimum_point_val ", optimum_point_val, max_y_val, _MAX_Y_FLIPPED_BRANIN,  jnp.isclose(max_y_val, _MAX_Y_FLIPPED_BRANIN))
 
-        temp_sampler_params = {
-            'common': {'action_dim': dim},
-            'specific': {FUNCTION_NAME: branin_base_config} # Pass fixed a,b,c...
-        }
-        y_on_grid = compute_y_func(test_points, temp_sampler_params, env_params_instance)
+    # # If no standard optimum is in bounds, or if params are non-standard, estimate.
+    # if optimum_point_val is None or not jnp.isclose(max_y_val, _MAX_Y_FLIPPED_BRANIN):
         
-        current_max_y_on_grid = jnp.max(y_on_grid)
-        opt_idx_on_grid = jnp.argmax(y_on_grid)
+    #     print("this does not bother me at all")
+    #     num_grid_samples = 40 # Per dimension for estimation (40x40 grid)
+    #     x1_samples = jnp.linspace(bounds_x1_tuple[0], bounds_x1_tuple[1], num_grid_samples, dtype=jnp.float64)
+    #     x2_samples = jnp.linspace(bounds_x2_tuple[0], bounds_x2_tuple[1], num_grid_samples, dtype=jnp.float64)
+    #     grid_x1, grid_x2 = jnp.meshgrid(x1_samples, x2_samples)
+    #     test_points = jnp.stack([grid_x1.ravel(), grid_x2.ravel()], axis=-1)
+
+    #     temp_sampler_params = {
+    #         'common': {'action_dim': dim},
+    #         'specific': {FUNCTION_NAME: branin_base_config} # Pass fixed a,b,c...
+    #     }
+    #     y_on_grid = compute_y_func(test_points, temp_sampler_params, env_params_instance)
         
-        if current_max_y_on_grid > best_opt_y_in_bounds : # If grid found better than known optima in bounds
-            max_y_val = current_max_y_on_grid
-            optimum_point_val = test_points[opt_idx_on_grid]
-        elif optimum_point_val is None: # If no known optima were in bounds at all
-            max_y_val = current_max_y_on_grid
-            optimum_point_val = test_points[opt_idx_on_grid]
-        # else, optimum_point_val is already set to a known good one, and max_y_val is its value.
+    #     current_max_y_on_grid = jnp.max(y_on_grid)
+    #     opt_idx_on_grid = jnp.argmax(y_on_grid)
+        
+    #     if current_max_y_on_grid > best_opt_y_in_bounds : # If grid found better than known optima in bounds
+    #         max_y_val = current_max_y_on_grid
+    #         optimum_point_val = test_points[opt_idx_on_grid]
+    #     elif optimum_point_val is None: # If no known optima were in bounds at all
+    #         max_y_val = current_max_y_on_grid
+    #         optimum_point_val = test_points[opt_idx_on_grid]
+    #     # else, optimum_point_val is already set to a known good one, and max_y_val is its value.
+        
+    #     print("why ", min_y_val)
 
-        if min_y_val is None:
-            min_y_val = jnp.min(y_on_grid)
-        else:
-            min_y_val = jnp.minimum(min_y_val, jnp.min(y_on_grid))
+    #     if min_y_val is None:
+    #         min_y_val = jnp.min(y_on_grid)
+            
+            
+    #     else:
+    #         min_y_val = jnp.minimum(min_y_val, jnp.min(y_on_grid))
 
-    if optimum_point_val is None: # Fallback if all else fails (e.g. very narrow bounds)
-        optimum_point_val = jnp.array([(bounds_x1_tuple[0]+bounds_x1_tuple[1])/2, (bounds_x2_tuple[0]+bounds_x2_tuple[1])/2], dtype=jnp.float64)
-        temp_sampler_params = {'common': {'action_dim': dim}, 'specific': {FUNCTION_NAME: branin_base_config}}
-        max_y_val = compute_y_func(optimum_point_val.reshape(1,-1), temp_sampler_params, env_params_instance).squeeze()
-        if min_y_val is None: min_y_val = max_y_val - 1.0 # Arbitrary if no other info
+    # if optimum_point_val is None: # Fallback if all else fails (e.g. very narrow bounds)
+    #     optimum_point_val = jnp.array([(bounds_x1_tuple[0]+bounds_x1_tuple[1])/2, (bounds_x2_tuple[0]+bounds_x2_tuple[1])/2], dtype=jnp.float64)
+    #     temp_sampler_params = {'common': {'action_dim': dim}, 'specific': {FUNCTION_NAME: branin_base_config}}
+    #     max_y_val = compute_y_func(optimum_point_val.reshape(1,-1), temp_sampler_params, env_params_instance).squeeze()
+    #     if min_y_val is None: min_y_val = max_y_val - 1.0 # Arbitrary if no other info
 
-    min_y_val = jnp.minimum(min_y_val, max_y_val - 1e-9)
+    # print(f"Branin function initialized with optimum point: {optimum_point_val}, max_y: {max_y_val}, min_y: {min_y_val}")
+    # min_y_val = jnp.minimum(min_y_val, max_y_val - 1e-9)
+    
+    optimum_point_val = _OPTIMA_LOCATIONS_ORIGINAL_BRANIN[0] # Use first known optimum for now
 
     output_common_params = {
         'type_index': all_possible_names.index(FUNCTION_NAME),
@@ -133,7 +144,7 @@ def initialize_func(key: chex.PRNGKey,
         'max_y': jnp.array(max_y_val, dtype=jnp.float64),
         'min_y': jnp.array(min_y_val, dtype=jnp.float64),
         'action_dim': dim,
-        'bounds': [tuple(map(float,b)) for b in branin_base_config['bounds']], # List of Python float tuples
+        'bounds': bounds_x2_tuple, # List of Python float tuples
     }
     output_specific_params = jax.tree_util.tree_map(lambda x: x, env_params_instance.sampler_configs['specific'])
     # Branin's a,b,c.. are fixed from config.
@@ -155,9 +166,8 @@ def compute_y_func(x: chex.Array, sampler_params: Dict, env_params_instance: 'En
     t = branin_specific_params['t']
 
     x_eval = x[jnp.newaxis, :] if x.ndim == 1 else x
-    chex.assert_shape(x_eval, (None, 2))
 
-    x1 = x_eval[:, 0]
+    x1 = x_eval[:, 0] - 5.0 # Shift x1 to be in the range [-5, 10]
     x2 = x_eval[:, 1]
 
     term_in_paren = x2 - b * x1**2 + c * x1 - r

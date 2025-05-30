@@ -12,7 +12,7 @@ _DEFAULT_X_RANGE = (-512.0, 512.0)
 # Original Eggholder min is approx -959.6407 at (512, 404.2319) for 2D.
 # Flipped max_y for 2D is approx 959.6407.
 _FIXED_MAX_Y_FLIPPED_2D_STD_BOUNDS = 959.6407
-_OPTIMUM_POINT_2D_STD_BOUNDS = jnp.array([512.0, 404.2319], dtype=jnp.float64)
+_OPTIMUM_POINT_2D_STD_BOUNDS = jnp.array([512.0, 404.2319])
 # Min_y for N-D is harder; your previous code used a general -1049.0.
 
 def get_specific_config_template(action_dim: int, run_config: Dict, func_name: str) -> Dict[str, Any]:
@@ -114,7 +114,7 @@ def initialize_func(key: chex.PRNGKey,
         'max_y': jnp.array(max_y_val, dtype=jnp.float64),
         'min_y': jnp.array(min_y_val, dtype=jnp.float64),
         'action_dim': dim,
-        'bounds': tuple((float(lower), float(upper))),
+        'bounds': tuple((lower, upper)),
     }
     output_specific_params = jax.tree_util.tree_map(lambda x: x, env_params_instance.sampler_configs['specific'])
     # Eggholder has no specific *sampled* parameters to store.

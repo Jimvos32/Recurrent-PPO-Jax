@@ -101,6 +101,13 @@ class NormFlowAgent(SamplingImplBaseJax):
         Returns:
             JAX array of shape (self.batch_size, action_dim) containing samples, padded.
         """
+        
+        #Act logist of shape (dim + dim*(dim+1)//2,)
+        #Mask threshold array of shape (1,)
+        # print("sampling_differ", act_logits_one_dist.shape, flow_object, key.shape, mask_threshold_array.shape)
+        # Example output for act_dim =2, batch size = 3
+        # sampling_differ (5,) None () (1,)
+        
         loc, cov = self.generate_mvn_params(act_logits_one_dist)
         base_dist = MultivariateNormal(loc=loc, covariance=cov)
         final_bijection = self._get_final_bijection(flow_object)
@@ -113,6 +120,13 @@ class NormFlowAgent(SamplingImplBaseJax):
         
         # Apply padding mask
         masked_samples = self.apply_padding_mask(samples, mask_threshold_array)
+        
+        
+        # print("sample out", masked_samples.shape)
+        # Example output for act_dim =2, batch size = 3
+        #sample out (3, 2)
+        
+        
         return masked_samples
 
 
@@ -120,9 +134,13 @@ class NormFlowAgent(SamplingImplBaseJax):
     def gaussian_log_prob(self, actions, act_logits, flow_object: AbstractBijection | None):
         epsilon = 1e-6
         
+        # print("gaussian_log_prob", actions.shape, act_logits.shape)
+        # Example output for act_dim =2, batch size = 3
+        # sampling_differ (64,3,2) (64,5)
+        
         N = act_logits.shape[0]
        
-       
+        # print("act_logits shape", act_logits.shape, "actions shape", actions.shape)
         get_params = jax.vmap(self.generate_mvn_params)
         
         locs, covs = get_params(act_logits)  # locs: (N, T, A), covs: (N, T, A, A)
@@ -148,19 +166,25 @@ class NormFlowAgent(SamplingImplBaseJax):
         
         
         
-        # jax.debug.print("Log probability shape: {}, std {}", log_prob[0,0], act_logits[0,0])
+        # print("log_prob shape", log_prob.shape)
+        # Example output for act_dim =2, batch size = 3, rollout length = 64
+        #gaussian_log_prob (64, 3, 2) (64, 5)
+        
 
         return log_prob
         
-        # jax.debug.print("acts shape: {} {}", actions[0,0], act_logits[0,0])
 
         
 
     
     
     def entropy(self, logits, mask, flow_object: AbstractBijection | None, key, num_samples=20):
+        # print("entropy", logits.shape, mask.shape, key.shape)
+        #Example output for act_dim =2, batch size = 3, rollout length = 64
+        #entropy (64, 5) (64, 1) ()
         epsilon = 1e-6
       
+        # print("entropy", logits.shape, mask.shape, key.shape)
         
         N, D = logits.shape
     
@@ -170,6 +194,8 @@ class NormFlowAgent(SamplingImplBaseJax):
             base_dist = MultivariateNormal(loc, cov)
             final_bijection = self._get_final_bijection(flow_object)
             final_dist = Transformed(base_dist, final_bijection)
+            
+            
 
             # Generate samples and compute log-probabilities
             sample_keys = jax.random.split(subkey, num_samples)
@@ -177,9 +203,7 @@ class NormFlowAgent(SamplingImplBaseJax):
             u = jnp.clip(samples, -1 + epsilon, 1 - epsilon)
             log_probs = jax.vmap(final_dist.log_prob)(u)
             
-            # jax.debug.print("sample shape: {} {} {}", u[0], log_probs[0], cov)
-
-            # Estimate entropy
+          
             
             return -jnp.mean(log_probs)
         
@@ -192,14 +216,7 @@ class NormFlowAgent(SamplingImplBaseJax):
         # Vectorized entropy computation
         summed_entropy = jax.vmap(compute_entropy_single)(logits_flat, keys)
         
-        # jax.debug.print("summed_entropy shape: {}", summed_entropy.shape)
-        
-        # Reshape back to (N, T)
-        # return entropy_estimates.reshape(N, T)
-        
-       
-        # summed_entropy = jnp.sum(entropy_estimates, axis=-1) # Shape: (N, T, batch_size)
-        
+      
         og_mask = jnp.reshape(mask, (mask.shape[0], mask.shape[1]))  # Remove last dimension if it's 1
         B = summed_entropy.shape[-1]
         batch_idx = jnp.arange(B)  # (B,)
@@ -210,15 +227,54 @@ class NormFlowAgent(SamplingImplBaseJax):
         
        
         final_entropy = jnp.sum(masked_entropy, axis=-1) / og_mask
-        # jax.debug.print("correction shape: {} base {} final {}", correction[0,0], base_entropy[0,0], final_entropy[0,0])
         
         
-      
+        # print("final_entropy shape", final_entropy.shape)
+        #Example output for act_dim =2, batch size = 3, rollout length = 64
+        #final_entropy shape (64, 1)
+        
         
         return final_entropy
     
     
+    # def get_pdf(self, act_logits_one_dist, flow_object: AbstractBijection | None, x_values: jnp.ndarray) -> jnp.ndarray:
+    #     print("get_pdf", act_logits_one_dist.shape, flow_object, x_values.shape)
+    #     # Example output for act_dim =1, amount of points = 200
+    #     #get_pdf (2,) None (200, 1)
+    #     """
+    #     Computes the probability density function (PDF) of the policy for given x_values.
+    #     x_values are assumed to be in the normalized space [-1, 1].
+
+    #     Args:
+    #         act_logits_one_dist: Parameters for the MVN base distribution for a single policy.
+    #         flow_object: The flow instance (e.g., BNAF) with current parameters, or None.
+    #         x_values: JAX array of shape (num_points, action_dim) at which to evaluate the PDF.
+    #                   These values should be in the range [-1, 1].
+
+    #     Returns:
+    #         JAX array of shape (num_points,) containing PDF values.
+    #     """
+    #     loc, cov = self.generate_mvn_params(act_logits_one_dist)
+    #     base_dist = MultivariateNormal(loc=loc, covariance=cov)
+    #     final_bijection = self._get_final_bijection(flow_object)
+        
+    #     final_dist = Transformed(base_dist, final_bijection)
+
+    #     # log_prob will compute log p(x) = log p_z(f^{-1}(x)) + log |det J_{f^{-1}}(x)|
+    #     # where f is final_bijection.
+    #     # x_values are in the target space of final_bijection (i.e., after Tanh, so in [-1, 1])
+    #     log_probs = final_dist.log_prob(x_values)
+        
+    #     print("pdf shape", log_probs.shape)
+    #     # Example output for act_dim =1, amount of points = 200
+    #     #pdf shape (200,)
+        
+    #     return jnp.exp(log_probs)
+    
     def get_pdf(self, act_logits_one_dist, flow_object: AbstractBijection | None, x_values: jnp.ndarray) -> jnp.ndarray:
+        # print("get_pdf", act_logits_one_dist.shape, flow_object, x_values.shape)
+        # Example output for act_dim =1, amount of points = 200
+        #get_pdf (2,) None (200, 1)
         """
         Computes the probability density function (PDF) of the policy for given x_values.
         x_values are assumed to be in the normalized space [-1, 1].
@@ -242,6 +298,10 @@ class NormFlowAgent(SamplingImplBaseJax):
         # where f is final_bijection.
         # x_values are in the target space of final_bijection (i.e., after Tanh, so in [-1, 1])
         log_probs = final_dist.log_prob(x_values)
+        
+        # print("pdf shape", log_probs.shape)
+        # Example output for act_dim =1, amount of points = 200
+        #pdf shape (200,)
         
         return jnp.exp(log_probs)
 

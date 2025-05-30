@@ -1,0 +1,14 @@
+planar:
+  type: Planar,
+  params: 
+      {negative_slope: 0.01}
+
+affine:
+  type: Affine,
+  params: 
+      {scale: 1.0, shift: 0.0}
+
+blockautoregressive:
+  type: BlockAutoregressive,
+  params: 
+      {dim: 128, depth: 2, block_dim: 3}

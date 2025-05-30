@@ -9,22 +9,22 @@ if TYPE_CHECKING:
 FUNCTION_NAME = "hartmann6" # This module is specifically for Hartmann6
 
 # Standard parameters for Hartmann 6D
-_ALPHA_STD_H6 = jnp.array([1.0, 1.2, 3.0, 3.2], dtype=jnp.float64)
+_ALPHA_STD_H6 = jnp.array([1.0, 1.2, 3.0, 3.2])
 _A_MATRIX_STD_H6 = jnp.array([
     [10, 3, 17, 3.5, 1.7, 8],
     [0.05, 10, 17, 0.1, 8, 14],
     [3, 3.5, 1.7, 10, 17, 8],
     [17, 8, 0.05, 10, 0.1, 14]
-], dtype=jnp.float64)
+])
 _P_MATRIX_STD_H6 = 1e-4 * jnp.array([
     [1312, 1696, 5569, 124, 8283, 5886],
     [2329, 4135, 8307, 3736, 1004, 9991],
     [2348, 1451, 3522, 2883, 3047, 6650],
     [4047, 8828, 8732, 5743, 1091, 381]
-], dtype=jnp.float64)
+])
 
 _DEFAULT_X_RANGE_H6 = (0.0, 1.0)
-_OPTIMUM_LOC_H6 = jnp.array([0.20169, 0.150011, 0.476874, 0.275332, 0.311652, 0.6573], dtype=jnp.float64)
+_OPTIMUM_LOC_H6 = jnp.array([0.20169, 0.150011, 0.476874, 0.275332, 0.311652, 0.6573])
 _OPTIMUM_VALUE_ORIGINAL_H6 = -3.322368 # Min value of original Hartmann6
 _MAX_Y_FLIPPED_H6 = -_OPTIMUM_VALUE_ORIGINAL_H6 # Approx 3.322368 for maximization
 
@@ -47,14 +47,14 @@ def get_specific_config_template(action_dim: int, run_config: Dict, func_name: s
         'fixed_min_y': func_specific_run_config.get("fixed_min_y", None) # Estimate if None
     }
     # Ensure JAX arrays with correct dtype
-    template['alpha'] = jnp.array(template['alpha'], dtype=jnp.float64)
-    template['A_matrix'] = jnp.array(template['A_matrix'], dtype=jnp.float64)
-    template['P_matrix'] = jnp.array(template['P_matrix'], dtype=jnp.float64)
+    template['alpha'] = jnp.array(template['alpha'])
+    template['A_matrix'] = jnp.array(template['A_matrix'])
+    template['P_matrix'] = jnp.array(template['P_matrix'])
 
     if template['fixed_max_y'] is not None:
-        template['fixed_max_y'] = jnp.array(template['fixed_max_y'], dtype=jnp.float64)
+        template['fixed_max_y'] = jnp.array(template['fixed_max_y'])
     if template['fixed_min_y'] is not None:
-        template['fixed_min_y'] = jnp.array(template['fixed_min_y'], dtype=jnp.float64)
+        template['fixed_min_y'] = jnp.array(template['fixed_min_y'])
 
     # Basic shape validation if not using defaults
     if not (jnp.array_equal(template['alpha'], _ALPHA_STD_H6) and \
@@ -121,7 +121,7 @@ def initialize_func(key: chex.PRNGKey,
         'max_y': jnp.array(max_y_val, dtype=jnp.float64),
         'min_y': jnp.array(min_y_val, dtype=jnp.float64),
         'action_dim': dim,
-        'bounds': tuple((float(lower), float(upper))),
+        'bounds': tuple((lower, upper)),
     }
     # Hartmann's alpha, A, P are fixed from config, no new sampled values for its specific section.
     output_specific_params = jax.tree_util.tree_map(lambda x: x, env_params_instance.sampler_configs['specific'])

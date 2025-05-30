@@ -19,14 +19,25 @@ SUPPORTED_GPJAX_KERNELS: Dict[str, Callable[..., gpx.kernels.AbstractKernel]] = 
     "matern32": gpx.kernels.Matern32,
     "RBF": gpx.kernels.RBF,
     "polynomial": gpx.kernels.Polynomial,
+    "linear": gpx.kernels.Linear,
+    "periodic": gpx.kernels.Periodic,
+    "white": gpx.kernels.White,
+    "arc_cosine": gpx.kernels.ArcCosine,
+    "matern12": gpx.kernels.Matern12,
+    "exponential": gpx.kernels.PoweredExponential,
+    "eigen_comp": gpx.kernels.EigenKernelComputation,
+    "rational_quadratic": gpx.kernels.RationalQuadratic,
+    "RFF": gpx.kernels.RFF,
+    
 }
 
 def get_specific_config_template(action_dim: int, run_config: Dict, func_name: str) -> Dict[str, Any]:
     kernel_type_str_for_determining_params = func_name.split('_kernel')[0]
-    f_env_config_key = f"{func_name}_env"
+    f_env_config_key = f"{kernel_type_str_for_determining_params}_env"
     func_specific_run_config = run_config.get(f_env_config_key, {})
     grid_size = int(func_specific_run_config.get("grid_size", GPJAX_GRID_SIZE_DEFAULT))
     
+    # print("name", f_env_config_key,"split", kernel_type_str_for_determining_params, func_name, "\nfrom", run_config.keys(), "\n")
 
     template_dict = {
         "grid_size": grid_size,  # Python int, will be made static for JIT
@@ -34,8 +45,11 @@ def get_specific_config_template(action_dim: int, run_config: Dict, func_name: s
         "y_grids": jnp.full((action_dim, grid_size), jnp.nan, dtype=jnp.float64),
         "bounds": tuple(func_specific_run_config.get("bounds", run_config.get("bounds", (-5.0, 5.0)))),
     }
-    if kernel_type_str_for_determining_params == "Polynomial":
-        template_dict["degree"] = int(func_specific_run_config.get("degree", 1))
+    # print(f"get_specific_config_template: {template_dict}")
+  
+    
+    # if kernel_type_str_for_determining_params == "Polynomial":
+    #     template_dict["degree"] = int(func_specific_run_config.get("degree", 1))
     return template_dict
 
 def _create_kernel_instance(kernel_type_str: str, kernel_params: Dict) -> gpx.kernels.AbstractKernel:
@@ -60,7 +74,11 @@ def _initialize_inner_gpjax_core(key: chex.PRNGKey,
     grid_size_static is now passed as a static argument.
     """
     kernel_specific_config_from_template = env_params_instance.sampler_configs['specific'][func_name_static]
+    
+
+    
     lower, upper = kernel_specific_config_from_template['bounds']
+    
     # degree_val = kernel_specific_config_from_template.get('degree') # If needed for polynomial
 
     derived_kernel_type_str = func_name_static.split('_kernel')[0]
@@ -76,7 +94,6 @@ def _initialize_inner_gpjax_core(key: chex.PRNGKey,
         # 'degree' should be an int in the template, or handled if missing.
         degree = kernel_specific_config_from_template.get('degree')
         if degree is None: # Should be set by get_specific_config_template
-            print(f"Warning: degree not found for Polynomial kernel {func_name_static}, defaulting to 1.")
             degree = 1
         derived_kernel_constructor_params["degree"] = degree # degree is an int, fine for kernel constructor
 
@@ -85,9 +102,7 @@ def _initialize_inner_gpjax_core(key: chex.PRNGKey,
     prior = gpx.gps.Prior(mean_function=meanf, kernel=kernel)
 
     # USE THE STATIC grid_size_static ARGUMENT HERE
-    jax.debug.print("kenr {} l {} u{}", grid_size_static, lower, upper)
-    print(f"Using grid_size_static: {grid_size_static} for {lower}, {upper}")
-    
+   
     x_grid_1d = jnp.linspace(lower, upper, num=grid_size_static, dtype=jnp.float64)
     x_grid_gp = x_grid_1d.reshape(-1, 1)
     
@@ -116,6 +131,7 @@ def _initialize_inner_gpjax_core(key: chex.PRNGKey,
         'action_dim': action_dim,
         'bounds': tuple((lower,upper)),
     }
+    
 
     output_specific_params_all_funcs = jax.tree_util.tree_map(lambda x_leaf: x_leaf, env_params_instance.sampler_configs['specific'])
     
@@ -164,7 +180,7 @@ def initialize_func_template(key: chex.PRNGKey,
 
     # Extract grid_size from env_params_instance BEFORE calling the JITted function.
     # This value must be a Python int.
-    grid_size_for_static_pass = env_params_instance.sampler_configs['specific'][func_name_static]['grid_size']
+    grid_size_for_static_pass = GPJAX_GRID_SIZE_DEFAULT#env_params_instance.sampler_configs['specific'][func_name_static]['grid_size']
     
     # Ensure it's a Python int if it's somehow a JAX array (e.g. 0-dim) at this point.
     # However, get_specific_config_template should ensure it's an int.

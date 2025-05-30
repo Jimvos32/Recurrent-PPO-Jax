@@ -43,15 +43,15 @@ def initialize_func(key: chex.PRNGKey,
     # Theoretical optimum for flipped Rosenbrock is (1,1,...,1) with value 0.
     optimum_point_val = jnp.ones(dim, dtype=jnp.float64)
     
-    # Check if theoretical optimum is within current bounds
-    if not (jnp.all(optimum_point_val >= lower) and jnp.all(optimum_point_val <= upper)):
-        # If (1,...,1) is out of bounds, the max within bounds is likely at a corner/boundary
-        # closest to (1,...,1). For simplicity, we can estimate or use a fallback.
-        # Fallback: use center of the domain if true optimum is out of specified bounds.
-        # A more robust approach would be to evaluate at corners.
-        print(f"Warning: {FUNCTION_NAME} theoretical optimum (1,...,1) is outside specified bounds. Estimating optimum within bounds.")
-        # We'll refine optimum_point_val based on sampled points later.
-        optimum_point_val = jnp.array([(lower + upper) / 2.0] * dim, dtype=jnp.float64) # Initial guess
+    # # Check if theoretical optimum is within current bounds
+    # if not (jnp.all(optimum_point_val >= lower) and jnp.all(optimum_point_val <= upper)):
+    #     # If (1,...,1) is out of bounds, the max within bounds is likely at a corner/boundary
+    #     # closest to (1,...,1). For simplicity, we can estimate or use a fallback.
+    #     # Fallback: use center of the domain if true optimum is out of specified bounds.
+    #     # A more robust approach would be to evaluate at corners.
+    #     print(f"Warning: {FUNCTION_NAME} theoretical optimum (1,...,1) is outside specified bounds. Estimating optimum within bounds.")
+    #     # We'll refine optimum_point_val based on sampled points later.
+    #     optimum_point_val = jnp.array([(lower + upper) / 2.0] * dim, dtype=jnp.float64) # Initial guess
 
     max_y_val = rosenbrock_base_config.get('fixed_max_y', _MAX_Y_FLIPPED_THEORETICAL)
     min_y_val = rosenbrock_base_config.get('fixed_min_y')
@@ -70,11 +70,11 @@ def initialize_func(key: chex.PRNGKey,
                 corners.append(corner)
             if corners: all_test_points_list.append(jnp.stack(corners))
         
-        # Add theoretical optimum if it was within original bounds, or current best guess
-        if jnp.all(jnp.ones(dim) >= lower) and jnp.all(jnp.ones(dim) <= upper):
-             all_test_points_list.append(jnp.ones((1,dim), dtype=jnp.float64))
-        else:
-             all_test_points_list.append(optimum_point_val.reshape(1,-1))
+        # # Add theoretical optimum if it was within original bounds, or current best guess
+        # if jnp.all(jnp.ones(dim) >= lower) and jnp.all(jnp.ones(dim) <= upper):
+        #      all_test_points_list.append(jnp.ones((1,dim), dtype=jnp.float64))
+        # else:
+        #      all_test_points_list.append(optimum_point_val.reshape(1,-1))
 
 
         test_points = jnp.concatenate(all_test_points_list, axis=0)
@@ -101,7 +101,7 @@ def initialize_func(key: chex.PRNGKey,
         'max_y': jnp.array(max_y_val, dtype=jnp.float64),
         'min_y': jnp.array(min_y_val, dtype=jnp.float64),
         'action_dim': dim,
-        'bounds': tuple((float(lower), float(upper))),
+        'bounds': tuple((lower, upper)),
     }
     output_specific_params = jax.tree_util.tree_map(lambda x: x, env_params_instance.sampler_configs['specific'])
     # Rosenbrock has no specific *sampled* parameters.
@@ -118,21 +118,20 @@ def compute_y_func(x: chex.Array, sampler_params: Dict, env_params_instance: 'En
     dim = sampler_params['common']['action_dim']
 
     x_eval = x[jnp.newaxis, :] if x.ndim == 1 else x
-    chex.assert_shape(x_eval, (None, dim))
+    
+    print(f"compute_y_func x_eval shape: {x_eval.shape}")
+    # chex.assert_shape(x_eval, (None, dim))
 
-    if dim == 1:
-        # Original: (x_0 - 1)^2. Flipped for maximization: -(x_0 - 1)^2
-        # Note: your old code had (1 - x0)^2 which is the same.
-        f_val = (x_eval[:, 0] - 1.0)**2
-    else:
-        # x_i terms (from x_0 to x_{N-2})
-        xi = x_eval[:, :-1]       # Shape (batch, dim-1)
-        # x_{i+1} terms (from x_1 to x_{N-1})
-        xi_plus_1 = x_eval[:, 1:] # Shape (batch, dim-1)
-        
-        term1 = 100.0 * (xi_plus_1 - xi**2)**2
-        term2 = (xi - 1.0)**2 # Note: (x_i - 1)^2 is standard, not (1 - x_i)^2, though square is same.
-        f_val = jnp.sum(term1 + term2, axis=1) # Sum over (dim-1) terms -> (batch,)
+   
+    # x_i terms (from x_0 to x_{N-2})
+    xi = x_eval[:, :-1]       # Shape (batch, dim-1)
+    # x_{i+1} terms (from x_1 to x_{N-1})
+    xi_plus_1 = x_eval[:, 1:] # Shape (batch, dim-1)
+    
+    term1 = 100.0 * (xi_plus_1 - xi**2)**2
+    term2 = (xi - 1.0)**2 # Note: (x_i - 1)^2 is standard, not (1 - x_i)^2, though square is same.
+    f_val = jnp.sum(term1 + term2, axis=1) # Sum over (dim-1) terms -> (batch,)
         
     y = -f_val # Flipping for maximization
+    print(f"compute_y_func y shape: {y.shape}")
     return y.squeeze()

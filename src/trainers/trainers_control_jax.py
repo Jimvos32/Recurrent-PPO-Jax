@@ -29,8 +29,13 @@ from src.agents.ppo_dic_inherits.inh_agents.cor_gmm_agent import CorrelatedGauss
 from src.agents.ppo_dic_inherits.inh_agents.low_mvn_agent import LowRankMVN 
 from src.model_fns.repr_fns import dict_unpack_model, dict_unpack_mask
 from src.agents.ppo_dic_inherits.inh_agents.flow_jax_agent import FlowMVN
+from src.agents.ppo_dic_inherits.inh_agents.flow_full import FlowGaussian
 from src.gp.gp_eval import run_bo_evaluation
 from flowjax.bijections import Planar
+import os
+from src.agents.ppo_dic_inherits.inh_agents.flow_jax_agent import FlowMVN
+from src.agents.normalising_flow.flow_construction import parse_hydra_flow_config
+from src.model_fns.pred_fns import PredictorModel, PredictorModelProb
 
 
 from flowjax.flows import block_neural_autoregressive_flow
@@ -55,8 +60,10 @@ from src.tasks.envs.jax_env_f.jax_env import MultiFunctionGymnax, EnvState
 from src.agents.ppo_dic_inherits.inh_agents.jax_full_params import FullParamsSamplingJax
 from src.agents.ppo_dic_inherits.inh_agents.flow_jax import FlowMVNJax
 from src.agents.ppo_dic_inherits.inh_agents.norm_flow_agent import NormFlowAgent
+# from src.agents.ppo_dic_inherits.inh_agents.norm import NorLowRankMVNJax
 from src.agents.jax_agent import PPOAgentJax
 from src.agents.norm_jax_agent import NormPPOAgentJax
+from src.agents.norm_jax_agent_pred import NormPPOAgentJaxPred
 # from src.tasks.envs.jax_env_f.jax_function_samplers import create_env_params, EnvParams, initialize_sampler
 from src.tasks.envs.jax_env_f.jax_disp_samplers import create_env_params
 # from .jax_env import EnvParams # Example
@@ -102,6 +109,7 @@ class ControlTrainerJaxRefactored: # Renamed class
         self.env_params_train = create_env_params(conf)
         
         
+        
         conf["batches"] = b_test
         self.test_environments = {}
         test_functions = conf.get("env_test", ["pol"])
@@ -136,10 +144,18 @@ class ControlTrainerJaxRefactored: # Renamed class
         optimizer_config = dict(self.trainer_config.optimizer)
         lr_config = optimizer_config.pop("learning_rate")
         ent_config = self.trainer_config['ent_coef']
+        value_config = self.trainer_config['value_coef']
+        pred_config = self.trainer_config['pred_coef'] # If used
+        pol_coef = self.trainer_config['pol_coef'] # If used
         # stability_config = self.trainer_config['stability_coef'] # If used
 
         lr_schedule = optax.polynomial_schedule(**lr_config)
         ent_schedule = optax.polynomial_schedule(**ent_config)
+        value_schedule = optax.polynomial_schedule(**value_config) 
+        pred_schedule = optax.polynomial_schedule(**pred_config) 
+        pol_schedule = optax.polynomial_schedule(**pol_coef)
+        
+        
         # stability_schedule = optax.polynomial_schedule(**stability_config)
 
         optimizer = optax.chain(
@@ -150,18 +166,29 @@ class ControlTrainerJaxRefactored: # Renamed class
             ),
         )
         
+        
+        
         extension = self.trainer_config["dist_model"]
-        if extension == "normal":
-            samp_class = NormFlowAgent
+      
+        if extension == "normal" and not self.trainer_config['f_prediction']:
+           
+            # print("Normal Flow Agent", self.trainer_config.keys())
+            flow_config = parse_hydra_flow_config(self.trainer_config['flow']['layers'])
+            
+            flow_config_pred = parse_hydra_flow_config(self.trainer_config['pred_flow']['layers'])
             
             
-            planar_tanh_kwargs = {'negative_slope': 0.01} 
+            
+            # planar_tanh_kwargs = {'negative_slope': 0.01} 
 
-            num_layers = 2
-            test_flow_config = []
-            for _ in range(num_layers):
-                test_flow_config.append( (Planar, planar_tanh_kwargs.copy()) ) 
+            # num_layers = 3
             # test_flow_config = []
+            # for _ in range(num_layers):
+            #     test_flow_config.append( (Planar, planar_tanh_kwargs.copy()) ) 
+                
+            # print("comparing flow config", test_flow_config, flow_config)
+            
+            # print("flow config we are better be using this")
             
             self.agent = NormPPOAgentJax(
                 env_params=self.env_params_train,
@@ -171,7 +198,7 @@ class ControlTrainerJaxRefactored: # Renamed class
                 actor_fn=actor_fn,
                 critic_fn=critic_fn,
                 optimizer=optimizer,
-                sampling_impl_class=samp_class,
+                sampling_impl_class=sampling_impl_class,
                 rollout_len=self.rollout_len,
                 gamma=self.trainer_config.get('gamma', 0.99),
                 gae_lambda=self.trainer_config.get('gae_lambda', 0.95),
@@ -180,12 +207,73 @@ class ControlTrainerJaxRefactored: # Renamed class
                 norm_adv=self.trainer_config.get('norm_adv', True),
                 clip_coef=self.trainer_config.get('clip_coef', 0.1),
                 ent_coef_schedule=ent_schedule, # Pass the schedule object
+                value_coef_schedule=value_schedule, # Pass the schedule object
+                pred_coef_schedule=pred_schedule, # Pass the schedule object
+                pol_coef_schedule=pol_schedule, # Pass the schedule object
                 vf_coef=self.trainer_config.get('vf_coef', 0.5),
                 max_grad_norm=self.trainer_config.get('max_grad_norm', 0.5),
                 target_kl=self.trainer_config.get('target_kl', None),
-                flow_layer_configs=test_flow_config
+                flow_layer_configs=flow_config,
+                reset_frequency=trainer_config.get('reset_frequency', 4),
                 
             )
+        elif extension == "normal" and self.trainer_config['f_prediction']: 
+            flow_config = parse_hydra_flow_config(self.trainer_config['flow']['layers'])
+            
+            flow_config_pred = parse_hydra_flow_config(self.trainer_config['pred_flow']['layers'])
+            m_batches = conf["max_batches"]
+            # pred_fn = recon_head(recon_hidden_layer=self.trainer_config["recon_hidden"], out_size=m_batches)#observation reconstruction
+            
+            
+            lstm_hidden_size = self.trainer_config["seq_model"].get('d_model', 256) # Default hidden size for LSTM
+            pred_in_dim = lstm_hidden_size + self.env_params_train.action_dim # Input dimension for prediction model
+            print("pred_in_dim", pred_in_dim, "lstm_hidden_size", lstm_hidden_size, "action_dim", self.env_params_train.action_dim) # Debugging line
+            hidden_ints = [int(s) for s in self.trainer_config["recon_hidden"] ]
+            predict_layers = [pred_in_dim] + hidden_ints
+            
+            
+            # pred_fn = PredictorModel(
+            #     recon_hidden_layer=predict_layers,
+            #     out=2)
+            
+            pred_fn = PredictorModelProb(
+                recon_hidden_layer=predict_layers,
+                out=1)
+            
+            # print("initailizing ipnut", predict_layers, "out ", m_batches)
+            
+            self.agent = NormPPOAgentJaxPred(
+                env_params=self.env_params_train,
+                env_params_test=self.test_environments,
+                repr_model_fn=repr_fn,
+                seq_model_fn=seq_model_fn,
+                actor_fn=actor_fn,
+                critic_fn=critic_fn,
+                predictor_fn=pred_fn, # Use the same critic for prediction
+                optimizer=optimizer,
+                sampling_impl_class=sampling_impl_class,
+                rollout_len=self.rollout_len,
+                gamma=self.trainer_config.get('gamma', 0.99),
+                gae_lambda=self.trainer_config.get('gae_lambda', 0.95),
+                num_minibatches=self.trainer_config.get('num_minibatches', 4),
+                update_epochs=self.trainer_config.get('update_epochs', 4),
+                norm_adv=self.trainer_config.get('norm_adv', True),
+                clip_coef=self.trainer_config.get('clip_coef', 0.1),
+                ent_coef_schedule=ent_schedule, # Pass the schedule object
+                value_coef_schedule=value_schedule, # Pass the schedule object
+                pred_coef_schedule=pred_schedule, # Pass the schedule object
+                pol_coef_schedule=pol_schedule, # Pass the schedule object
+                vf_coef=self.trainer_config.get('vf_coef', 0.5),
+                max_grad_norm=self.trainer_config.get('max_grad_norm', 0.5),
+                target_kl=self.trainer_config.get('target_kl', None),
+                flow_layer_configs=flow_config,
+                pred_flow_layer_configs=flow_config_pred, # Use the prediction flow config
+                reset_frequency=trainer_config.get('reset_frequency', 4),
+                lstm_hidden_size=lstm_hidden_size, # Default hidden size for LSTM
+                
+                
+            )
+        
             
         else:
             # Instantiate the JAX Agent
@@ -206,9 +294,13 @@ class ControlTrainerJaxRefactored: # Renamed class
                 norm_adv=self.trainer_config.get('norm_adv', True),
                 clip_coef=self.trainer_config.get('clip_coef', 0.1),
                 ent_coef_schedule=ent_schedule, # Pass the schedule object
+                value_coef_schedule=value_schedule,
+                pred_coef_schedule=pred_schedule, # Pass the schedule object
+                pol_coef_schedule=pol_schedule, # Pass the schedule object
                 vf_coef=self.trainer_config.get('vf_coef', 0.5),
                 max_grad_norm=self.trainer_config.get('max_grad_norm', 0.5),
                 target_kl=self.trainer_config.get('target_kl', None),
+                reset_frequency=trainer_config.get('reset_frequency', 4),
             )
             
         self.action_dim = self.env_params_train.action_dim
@@ -293,7 +385,7 @@ class ControlTrainerJaxRefactored: # Renamed class
                 
                 histo_dic = {}
                 for k in range(actions.shape[-1]):
-                    print(actions[:,k].shape)
+                    # print(actions[:,k].shape)
                     histo_dic['env/action dimension ' + str(k)] = wandb.Histogram(actions[:, k]) # Log each action dimension separately
                     
                 step_metrics.pop('actions') # Remove actions from metrics to avoid confusion
@@ -316,13 +408,13 @@ class ControlTrainerJaxRefactored: # Renamed class
                 
                 if self.wandb_run:
                     self.wandb_run.log(log_metrics_np)
-                logger.info(f"Update: {update_idx}, Step: {self.step_count}, SPS: {sps:.2f}, Loss: {log_metrics_np['loss/loss']:.4f}")
+                # logger.info(f"Update: {update_idx}, Step: {self.step_count}, SPS: {sps:.2f}, Loss: {log_metrics_np['loss/loss']:.4f}")
                 self.results_data.append(log_metrics_np) # Store for final summary
 
             # --- Evaluation ---
             if self.step_count >= self.next_eval_step:
                 self.next_eval_step += self.eval_interval
-                logger.info(f"Evaluating at step {self.step_count}...")
+                # logger.info(f"Evaluating at step {self.step_count}...")
                 self.key, eval_key = jax.random.split(self.key)
                 
                 # current_eval_mode = "ppo" # Default if training
@@ -343,13 +435,13 @@ class ControlTrainerJaxRefactored: # Renamed class
                         bo_eval_metrics_log = {k: (v.item() if hasattr(v, 'item') else v) for k, v in bo_eval_metrics.items()}
                         first_interaction = False # Set to False after first BO eval
                     bo_eval_metrics_log['step'] = self.step_count
-                    logger.info(f"BO Agent Eval Results: {bo_eval_metrics_log}")
+                    # logger.info(f"BO Agent Eval Results: {bo_eval_metrics_log}")
                     
-                    print("BO eval metrics log:", "okay", bo_eval_metrics_log.keys()) # Debugging line
+                    # print("BO eval metrics log:", "okay", bo_eval_metrics_log.keys()) # Debugging line
                     if self.wandb_run:
                         self.wandb_run.log(bo_eval_metrics_log)
                     self.results_data.append({"run_mode": run_mode, "step": self.step_count, **bo_eval_metrics_log})
-                    logger.info("BO evaluation run finished.")
+                    # logger.info("BO evaluation run finished.")
                     
                     
                     
@@ -389,33 +481,98 @@ class ControlTrainerJaxRefactored: # Renamed class
             # if self.checkpoint_dir and update_idx % self.checkpoint_interval == 0:
             #     save_checkpoint(self.agent_state, self.checkpoint_dir, update_idx)
             
-        if update_idx == self.num_updates - 1 and self.plot_func:
-            
-            vis_data = self.agent.run_episode_for_visualization(
-                        self.eval_key,
-                        self.agent_state.params,
-                        self.test_environments['poly'],
+            # print("update_idx", update_idx, self.num_updates - 1, self.plot_func, self.env_config['action_dim'], run_mode)
+            if update_idx == self.num_updates - 1 and self.plot_func and self.env_config['action_dim'] == 1 and run_mode == "train":
+                for env_p in self.test_environments.keys():
+                    k = jax.random.key(66)
+                    
+                    # print("env_p", env_p, "self.test_environments[env_p]", self.test_environments[env_p]) # Debugging line
+                    
+                    print("Running visualization for environment:", self.test_environments[env_p].function_type_indices) # Debugging line
+                    print("Running visualization for environment:", self.test_environments[env_p].sampler_configs['common']['type_index']) # Debugging line
+                    
+                    vis_data = self.agent.run_episode_for_visualization(
+                                k,
+                                env_p,
+                                self.agent_state.params,
+                                self.test_environments[env_p],
+                                
+                                
+                            )
+                    
+                    
+                    # print("vis_data", vis_data) # Debugging line
+                    # for i in range(len(vis_data)):
+                    #     for k in vis_data[i].keys():
+                    #         if not isinstance(vis_data[i][k], int):
+                    #             print(f"vis_data[{i}][{k}]: {vis_data[i][k].shape}")
+                            
+                            
+                    for i, step_plot_data in enumerate(vis_data):
+                        # print(f"Plotting visualization for {step_plot_data['sampler_info']} at step {step_plot_data['step']}")
                         
-                    )
-                    
-                    
-            for i, step_plot_data in enumerate(vis_data):
-                print(f"Plotting visualization for {step_plot_data['sampler_info']} at step {step_plot_data['step']}")
-                plot_policy_diagnostics(
-                    step_plot_data["x_true"],
-                    step_plot_data["y_true"],
-                    step_plot_data["samples_x_numpy"],
-                    step_plot_data["samples_y_numpy"],
-                    step_plot_data["x_policy_mapped_numpy"],
-                    step_plot_data["policy_pdf_numpy"],
-                    sampler_info=step_plot_data["sampler_info"],
-                    title_suffix=f" - Step {step_plot_data['step']}"
-                )
-                # If you want to save figs instead of plt.show() in plot_policy_diagnostics:
-                plt.savefig(f"visualization_{step_plot_data['sampler_info']}_step_{step_plot_data['step']}.png")
-                print(f"Saved visualization for {step_plot_data['sampler_info']} at step {step_plot_data['step']}")
-                # plt.close() # Close the figure to free memory if generating many
+                        # print("i", i, "step_plot_data", step_plot_data["x_true"].shape, ) # Debugging line
+                        
+                        # print("step_plot_data keys:", step_plot_data["policy_pdf_numpy"].shape) # Debugging line
+                        fig = plot_policy_diagnostics(
+                            step_plot_data["x_true"],
+                            step_plot_data["y_true"],
+                            step_plot_data["all_previous_samples_x_numpy"], # New historical data
+                            step_plot_data["all_previous_samples_y_numpy"], # New historical data
+                            step_plot_data["current_samples_x_numpy"],    # Current step's samples
+                            step_plot_data["current_samples_y_numpy"],    # Current step's samples
+                            step_plot_data["x_policy_mapped_numpy"],
+                            step_plot_data["policy_pdf_numpy"],
+                            step_plot_data["function_estimate_numpy"],
+                            sampler_info=step_plot_data["sampler_info"],
+                            title_suffix=f" - {env_p} - Step {step_plot_data['step']}"
+                            
+                        )
+                        
+                        # --- Construct filename and save ---
+                        # Ensure sane_env_name_key and sane_sampler_info are "clean" filenames
+                        sane_env_name_key = "".join(c if c.isalnum() else "_" for c in str(env_p)).strip('_') # env_name_key from outer loop
+                        step_number = step_plot_data['step']
+
+                        if not sane_env_name_key: sane_env_name_key = "unknown_env" # Avoid empty string if key was all non-alnum
+
+                        filename = f"{sane_env_name_key}_step_{step_number}.png"
+
+                        # --- Crucial Debugging and Path Construction ---
+                        # These paths are defined *outside* this inner loop for step_plot_data
+                        # plots_base_dir = "visualizations_output"
+                        # run_id_folder = "final_model_vis"
+                        # run_specific_dir_defined_outside = os.path.join(plots_base_dir, run_id_folder)
+
+                      
+
+                
+                     
+                        proj_name = self.trainer_config["dist_model"] + "_" + self.global_config.get('project_name', 'default_project')
+                        
+                        
+                        # test_path = r"C:\Users\jimvo\Documents\Policy_Distribution_Plots" + "\\" + proj_name
+                        
+                        plot_path = self.global_config.get('root_dir', 'default_plot_path')
+                        p_path = plot_path  + proj_name
+                       
+                        
+                        os.makedirs(p_path, exist_ok=True)
+                        
         
+                        
+                        
+                        
+                        try:
+                            full_p_path = os.path.join(p_path, filename)
+                            fig.savefig(full_p_path)
+            
+                            print(f"    Successfully Saved: {full_p_path}")
+                        except Exception as e:
+                            print(f"    Error saving figure {full_p_path}: {e}") # Indent error print
+
+                        plt.close(fig) # Close the figure to free memory`
+            
 
         logger.info("Training finished.")
 
@@ -428,7 +585,7 @@ class ControlTrainerJaxRefactored: # Renamed class
         rollout_keys = jax.random.split(key_rollout, self.num_envs)
         
         # print("Rollout keys shape:", obs["actions"].shape) # Debugging line
-
+        # print("Rollout keys shape:", self.env_params_train) # Debugging line
         # Rollout
         (final_h, final_obs, final_env_states), trajectory_data = self.agent.rollout(
             rollout_keys, agent_state.params, h_states, obs, env_states, self.env_params_train, 
@@ -483,6 +640,11 @@ class ControlTrainerJaxRefactored: # Renamed class
         # Calculate mean for 'best_actions'
         mean_valid_best_action = jnp.mean(trajectory_data.best_actions, where=valid_mask)
         
+        mean_episode_length = jnp.mean(trajectory_data.episode_length, where=valid_mask) # Mean episode length
+        
+        # print("Mean valid success:", trajectory_data.keys()) # Debugging line
+        # Calculate mean for 'actions' (if needed, but usually not averaged)
+        
         
 
 
@@ -504,6 +666,7 @@ class ControlTrainerJaxRefactored: # Renamed class
         update_metrics['env/mean_reward'] = mean_valid_reward
         update_metrics['env/best_action_mean'] = mean_valid_best_action # Renamed slightly for clarity
         update_metrics['env/mean_valid_success'] = mean_valid_success # Optional: Store mean valid success separately
+        update_metrics['env/epsisode_length'] = mean_episode_length # Optional: Store mean valid regret separately
         
         update_metrics['actions'] = trajectory_data.actions[0] # Optional: Store mean valid regret separately
         
@@ -537,7 +700,9 @@ class ControlTrainerJaxRefactored: # Renamed class
     def select_policy_distribution(self, policy, env_params):
         if policy == 'flow_jax_mvn':
             
-            sampling_imp = FlowMVNJax
+            # sampling_imp = FlowMVNJax
+            
+            sampling_impl_class = NormFlowAgent
             
             policy_out = env_params.action_dim
             # policy_out = eval_env.unwrapped.action_dim * eval_env.unwrapped.max_batches
@@ -546,10 +711,12 @@ class ControlTrainerJaxRefactored: # Renamed class
 
             actor_fn = mvn_flow_head(policy_out, shared_seq_sizes=self.trainer_config['d_actor'], 
                                         policy_hidden_sizes=self.trainer_config['actor_params_hidden'])
-            return sampling_imp, actor_fn
+            return sampling_impl_class, actor_fn
             
         elif policy == 'full_params':
-            sampling_impl_class = FullParamsSamplingJax # Choose based on config
+            # sampling_impl_class = FullParamsSamplingJax # Choose based on config
+            sampling_impl_class = FlowGaussian
+
             
             output_size = env_params.max_batches * env_params.action_dim
             actor_fn = standard_action_head(output_size, seq_hidden_sizes=self.trainer_config['d_actor'], 

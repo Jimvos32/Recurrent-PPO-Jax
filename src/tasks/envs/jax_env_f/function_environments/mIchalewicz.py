@@ -124,7 +124,7 @@ def initialize_func(key: chex.PRNGKey,
         'max_y': jnp.array(max_y_val, dtype=jnp.float64),
         'min_y': jnp.array(min_y_val, dtype=jnp.float64),
         'action_dim': dim,
-        'bounds': tuple((float(lower), float(upper))), # Store as Python floats for consistency
+        'bounds': tuple((lower, upper)), # Store as Python floats for consistency
     }
     # The 'specific' part of the output for Michalewicz only contains 'm_param' from the template.
     output_specific_params = jax.tree_util.tree_map(lambda x: x, env_params_instance.sampler_configs['specific'])
